@@ -3,12 +3,12 @@
 Every change has exactly one home. Find your change in this table, touch
 only the listed files, and add both kinds of test.
 
-| you want to… | recipe |
-|---|---|
+| you want to…                                              | recipe                             |
+| --------------------------------------------------------- | ---------------------------------- |
 | support a new wire field/construct in an existing dialect | [1](#1-extend-an-existing-dialect) |
-| support a new provider or endpoint | [2](#2-add-a-new-dialect) |
-| conform requests for a specific endpoint/model | [3](#3-add-a-legalization-or-lint) |
-| represent a concept shared by 2+ providers | [4](#4-add-a-core-op) |
+| support a new provider or endpoint                        | [2](#2-add-a-new-dialect)          |
+| conform requests for a specific endpoint/model            | [3](#3-add-a-legalization-or-lint) |
+| represent a concept shared by 2+ providers                | [4](#4-add-a-core-op)              |
 
 ## Repo map
 
@@ -16,20 +16,23 @@ only the listed files, and add both kinds of test.
 src/core/
   ops.ts        core op types + OpOf/opData narrowing helpers
   program.ts    firstOp / opsOf / append
+  rewrite.ts    Stage type + stagePipeline (raise/lower are stage pipelines)
   pass.ts       Pass, Target, LintError, runPasses
-  registry.ts   Dialect contract, registerDialect/getDialect
-  pipeline.ts   raiseFromWire, lowerToWire, translateRequest/Response, residual lint
-  translator.ts makeTranslator (fromBody/toBody/fromResponse/toResponse)
+  registry.ts   Dialect contract
+  pipeline.ts   translateRequest/Response/StreamResponse, residual lint
+  translator.ts Translator + makeTranslator (fromBody/toBody/fromResponse/toResponse/fromStreamResponse/toStreamResponse)
   wire.ts       asRecord/asString/... wire parsing assertions
 src/dialects/<name>/
   ops.ts        dialect op types + DIALECT constant
-  wire.ts       requestFromWire/requestToWire/responseFromWire/responseToWire
-  raise.ts      dialect ops -> core ops (+ enum maps)
-  lower.ts      core ops -> dialect ops (lowerRequest / lowerResponse)
-  legalize.ts   Pass[] (optional)
-  index.ts      registerDialect(...) + exported translator
+  wire.ts       requestFromWire/requestToWire/responseFromWire/responseToWire/streamResponseFromWire/streamResponseToWire
+  raise.ts      raiseStages: Stage[] — dialect ops -> core ops (+ enum maps)
+  lower.ts      lowerRequestStages / lowerResponseStages / lowerStreamResponseStages: Stage[] — core ops -> dialect ops
+  legalize.ts   request Pass[] (optional)
+  index.ts      exported Dialect object + exported translator
 test/
-  <name>.test.ts    per-dialect executable documentation (no network)
+  dialects/<name>/
+    <name>.test.ts  per-dialect executable documentation (no network)
+    stages.test.ts  per-stage executable documentation (no network)
   translate.test.ts cross-dialect pipeline behavior
   live.test.ts      real API round-trips (skip without keys in .env)
 docs/
@@ -45,16 +48,24 @@ direct core mapping, dialect op, or residual.
 Example shape: "add image content to openai_chat".
 
 1. If the concept is cross-provider, first do recipe 4 (e.g. `llm.image`).
-2. `src/dialects/<name>/raise.ts` — map the wire shape to the core op(s). If
-   the construct lives inside a message/block, extend the existing
-   `raiseMessage`/`raiseBlock`; today's code throws `LintError` on unknown
-   parts, so you are replacing a loud failure, never changing silent
-   behavior.
-3. `src/dialects/<name>/lower.ts` — the inverse mapping.
+2. `src/dialects/<name>/raise.ts` — write a new `Stage` function that maps
+   the wire shape to the core op(s) and append it to `raiseStages`. If the
+   construct lives _inside_ a message/block, extend the existing
+   `raiseMessage`/`raiseBlock` helper instead; today's code throws
+   `LintError` on unknown parts, so you are replacing a loud failure, never
+   changing silent behavior. Do not grow an existing stage to handle a new
+   op kind.
+3. `src/dialects/<name>/lower.ts` — the inverse: a new per-op stage appended
+   to `lowerRequestStages`/`lowerResponseStages`. Only write a cross-op
+   stage (one that inspects neighbors) if the rewrite is inherently about op
+   sequences — see `mergeAdjacentSameRole` / `collectAssistantMessage` for
+   the two established shapes.
 4. `wire.ts` only changes if a new top-level body key is involved.
-5. Tests: extend `test/<name>.test.ts` with the wire fixture ⇄ program
-   fixture (exact `toEqual`, both directions), and `test/live.test.ts` with
-   one real call if the construct affects what the provider returns.
+5. Tests: extend `test/dialects/<name>/<name>.test.ts` with the wire fixture ⇄
+   program fixture (exact `toEqual`, both directions), add or update
+   `test/dialects/<name>/stages.test.ts` for new stage behavior, and update
+   `test/live.test.ts` with one real call if the construct affects what the
+   provider returns.
 6. Update the dialect doc's tables.
 
 ## 2. Add a new dialect
@@ -65,18 +76,22 @@ wire shape differs more from the core IR.
 
 1. `src/dialects/gemini/ops.ts` — `DIALECT = "gemini"`, wire types, dialect
    op types. Expect roughly: a `gemini.content` op (grouping), a finish/stop
-   enum op, a usage op, and `gemini.param`.
+   enum op, a usage op, named ops for known provider-only payloads, and
+   `gemini.body_field` for unknown top-level fields.
 2. `wire.ts` — four functions. Every unknown body key becomes
-   `gemini.param`; require the fields the API requires; throw on everything
+   `gemini.body_field`; require the fields the API requires; throw on everything
    malformed.
 3. `raise.ts` / `lower.ts` — semantic mapping. Enum maps are two explicit
    `Record`s; unmapped values throw.
-4. `index.ts` — `registerDialect({...})`, export `makeTranslator(DIALECT)`.
+4. `index.ts` — export `GeminiDialect = {...} satisfies Dialect`, then
+   export `GeminiTranslator = makeTranslator(GeminiDialect)`.
    Add the import + re-export to `src/index.ts`.
-5. Tests: new `test/gemini.test.ts` mirroring the structure of
-   `test/anthropic_messages.test.ts` (request roundtrip, tool roundtrip,
-   grouping behavior, response raise, response roundtrip); a cross-provider
-   case in `test/translate.test.ts`; live tests keyed on `GEMINI_API_KEY`.
+5. Tests: new `test/dialects/gemini/gemini.test.ts` mirroring the structure of
+   `test/dialects/anthropic_messages/anthropic_messages.test.ts` (request
+   roundtrip, tool roundtrip, grouping behavior, response raise, response
+   roundtrip); `test/dialects/gemini/stages.test.ts` for individual stage
+   behavior; a cross-provider case in `test/translate.test.ts`; live tests keyed
+   on `GEMINI_API_KEY`.
 6. New `docs/dialects/gemini.md` with the two mapping tables; link it from
    `docs/dialects.md`.
 
@@ -85,16 +100,17 @@ dialect-agnostic.
 
 ## 3. Add a legalization or lint
 
-1. `src/dialects/<name>/legalize.ts` — add a `Pass` and append it to the
-   exported `legalizations` array. Scope with `appliesTo(target)` on
-   `target.kind` and/or `target.model` (e.g. only models matching
-   `/^claude-3/`).
+1. `src/dialects/<name>/legalize.ts` — add a request `Pass` and append it to
+   the exported `legalizations` array, then attach that array to the dialect's
+   `request` codec in `index.ts`. Model scoping belongs inside `run`: read
+   `target.model`, return the input program unchanged when it does not apply.
 2. Decide the type honestly: if the rewrite preserves meaning (defaults,
-   caps, renames) it's a legalization; if it can't (dropping a semantic
-   param, degrading `llm.output`), **throw `LintError`** instead of
-   rewriting. Never both.
-3. Test in `test/<name>.test.ts`: one case where the pass fires, one where
-   `appliesTo` keeps it out.
+   caps, renames, clamping an unsupported effort to the nearest supported
+   effort) it's a legalization. If the caller set `{ strict: true }`, throw
+   `LintError` for the same unsupported data instead of cleaning it up.
+3. Test in `test/dialects/<name>/<name>.test.ts`: one case where the pass
+   changes the payload, one strict-mode case where it throws, and one model
+   where the pass is a no-op.
 
 Caller-supplied passes (routing, prompt rewrites) are not registered
 anywhere — they're passed to `translateRequest(..., { passes })` and belong

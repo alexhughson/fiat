@@ -1,21 +1,51 @@
 import type { Program } from "./ops";
-import { lowerToWire, raiseFromWire } from "./pipeline";
+import {
+    type LowerOptions,
+    lowerStreamResponseToWire,
+    lowerStreamResponsesToWire,
+    lowerToWire,
+    type RaiseOptions,
+    raiseFromWire,
+    raiseStreamResponseFromWire,
+} from "./pipeline";
+import type { Dialect } from "./registry";
 
-// README-facing convenience surface: one object per dialect with
-// fromBody/toBody/fromResponse/toResponse operating between wire payloads
-// and core-IR programs. Thin wrapper over the pipeline halves.
-export interface Translator {
-  fromBody(body: unknown): Program;
-  toBody(program: Program): unknown;
-  fromResponse(response: unknown): Program;
-  toResponse(program: Program): unknown;
+export class Translator {
+    readonly name: string;
+
+    constructor(readonly dialect: Dialect) {
+        this.name = dialect.name;
+    }
+
+    fromBody(body: unknown, opts?: RaiseOptions): Program {
+        return raiseFromWire("request", this.dialect, body, opts);
+    }
+
+    toBody(program: Program, opts?: LowerOptions): unknown {
+        return lowerToWire("request", this.dialect, program, opts);
+    }
+
+    fromResponse(response: unknown, opts?: RaiseOptions): Program {
+        return raiseFromWire("response", this.dialect, response, opts);
+    }
+
+    toResponse(program: Program, opts?: LowerOptions): unknown {
+        return lowerToWire("response", this.dialect, program, opts);
+    }
+
+    fromStreamResponse(response: unknown, opts?: RaiseOptions): Program {
+        return raiseStreamResponseFromWire(this.dialect, response, opts);
+    }
+
+    toStreamResponse(program: Program, opts?: LowerOptions): unknown {
+        return lowerStreamResponseToWire(this.dialect, program, opts);
+    }
+
+    toStreamResponses(program: Program, opts?: LowerOptions): unknown[] {
+        return lowerStreamResponsesToWire(this.dialect, program, opts);
+    }
 }
 
-export function makeTranslator(dialectName: string): Translator {
-  return {
-    fromBody: (body) => raiseFromWire("request", dialectName, body),
-    toBody: (program) => lowerToWire("request", dialectName, program),
-    fromResponse: (response) => raiseFromWire("response", dialectName, response),
-    toResponse: (program) => lowerToWire("response", dialectName, program),
-  };
+export function makeTranslator(dialect: Dialect): Translator {
+    return new Translator(dialect);
 }

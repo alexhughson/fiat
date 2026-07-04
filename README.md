@@ -2,26 +2,34 @@
 
 Metamodel is:
 
-1) An alternative schema for LLM requests
-2) Functions to convert to AND from major LLM APIs and this alternative schema
+1. An alternative schema for LLM requests
+2. Functions to convert to AND from major LLM APIs and this alternative schema
 
 It looks like this:
 
 ```javascript
 [
-  { "op": "llm.model", "model": "gpt-5.5" },
-  { "op": "llm.text", "role": "user", "content": "My last invoice looks wrong. Was I double charged?" }
-]
+    { op: "llm.model", model: "gpt-5.5" },
+    {
+        op: "llm.text",
+        role: "user",
+        content: "My last invoice looks wrong. Was I double charged?",
+    },
+];
 ```
 
-It also covers responses from LLMs, which have an aligned schema:
+It also covers responses from LLMs, which have an aligq`ned schema:
 
 ```javascript
 [
-  { "op": "llm.text", "role": "assistant", "content": "No, it is correct, things are more expensive these days" },
-  { "op": "response.stop", "reason": "end_turn" },
-  { "op": "response.usage", "inputTokens": 20, "outputTokens": 9 }
-]
+    {
+        op: "llm.text",
+        role: "assistant",
+        content: "No, it is correct, things are more expensive these days",
+    },
+    { op: "response.stop", reason: "end_turn" },
+    { op: "response.usage", inputTokens: 20, outputTokens: 9 },
+];
 ```
 
 You can convert payloads for LLM providers into this format:
@@ -67,10 +75,21 @@ AnthropicTranslator.toBody(program)
 Or do the whole wire-to-wire hop in one call:
 
 ```javascript
-import { translateRequest, translateResponse } from "metamodel"
+import {
+    AnthropicTranslator,
+    OpenAIChatTranslator,
+    translateRequest,
+    translateResponse,
+} from "metamodel";
 
-const anthropicBody = translateRequest(openaiBody, { from: "openai_chat", to: "anthropic_messages" })
-const openaiResponse = translateResponse(anthropicResponse, { from: "anthropic_messages", to: "openai_chat" })
+const anthropicBody = translateRequest(openaiBody, {
+    from: OpenAIChatTranslator,
+    to: AnthropicTranslator,
+});
+const openaiResponse = translateResponse(anthropicResponse, {
+    from: AnthropicTranslator,
+    to: OpenAIChatTranslator,
+});
 ```
 
 This gives us some nice benefits:
@@ -121,18 +140,26 @@ Docs:
 bun install
 bun test            # unit suites + live API suites (live ones skip without keys)
 bunx tsc --noEmit   # typecheck
+bun run e2e:gemini # on-demand Gemini validation; writes e2e/gemini/output/latest
+bun run e2e:openai-realtime:validate # offline Realtime artifact validation
 ```
 
 `bun test` reads provider keys from `.env` (`OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`); with keys present it proves the translators against
-the real APIs, including an openai-in/anthropic-backend proxy flow. The unit
-tests in `test/` are written as executable documentation — read them as
-examples.
+`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`); with keys present it proves the
+translators against the real APIs, including an openai-in/anthropic-backend
+proxy flow. The unit tests in `test/` are written as executable
+documentation — read them as examples.
+
+Gemini and OpenAI Realtime have separate e2e harnesses in [e2e/gemini](e2e/gemini)
+and [e2e/openai_realtime](e2e/openai_realtime). They save readable
+request/response/core artifacts and validate them later with
+`bun run e2e:gemini:validate` or `bun run e2e:openai-realtime:validate`.
 
 ## Status
 
-Dialects: `openai_chat`, `anthropic_messages` — text, tools, tool choice,
-structured output (openai), usage/stop mapping, request and response
-directions. Not yet modeled: streaming, images, thinking, and further
-dialects (`gemini`, `openai_responses`) — see the cookbook for exactly how
-they slot in.
+Dialects: `openai_chat`, `openai_responses`, `openai_realtime`,
+`anthropic_messages`, `gemini` — text, tools, tool choice, usage/stop
+mapping, request, response, response-stream conversion where the provider
+supports them, structured output, and portable thinking effort where an
+endpoint has a documented control. Not yet modeled: streaming transport,
+images, and returned thinking content.

@@ -12,34 +12,45 @@ order. Config ops (`llm.model`, `llm.temperature`, ...) may appear anywhere.
 
 ## `llm.*` — request semantics
 
-| op | fields | notes |
-|---|---|---|
-| `llm.model` | `model: string` | passed through verbatim; rerouting is a pass |
-| `llm.temperature` | `value: number` | no range rescaling — a legalization's job if a target needs it |
-| `llm.max_output_tokens` | `value: number` | openai `max_tokens`/`max_completion_tokens`, anthropic `max_tokens` |
-| `llm.text` | `role: "system"\|"user"\|"assistant"`, `content: string` | one op per text unit; grouping into wire messages is the dialect's job |
-| `llm.tool` | `name`, `description?`, `inputSchema: JsonSchema` | a tool the model may call |
-| `llm.tool_choice` | `value: "auto"\|"none"\|"required"\|{ name }` | anthropic `any` ⇄ `required` |
-| `llm.tool_call` | `id`, `name`, `arguments: object` | **always a parsed object.** openai's JSON-string arguments are parsed at raise (throwing on garbage) and re-stringified at lower |
-| `llm.tool_result` | `id`, `content: string`, `isError?` | `id` matches the `llm.tool_call.id` |
-| `llm.output` | `format: "json_schema"`, `name`, `schema` | structured output. Dialects without an equivalent lint rather than drop |
+| op                      | fields                                                   | notes                                                                                                                            |
+| ----------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `llm.model`             | `model: string`                                          | passed through verbatim; rerouting is a pass                                                                                     |
+| `llm.temperature`       | `value: number`                                          | no range rescaling — a legalization's job if a target needs it                                                                   |
+| `llm.max_output_tokens` | `value: number`                                          | openai `max_tokens`/`max_completion_tokens`, anthropic `max_tokens`                                                              |
+| `llm.text`              | `role: "system"\|"user"\|"assistant"`, `content: string` | one op per text unit; grouping into wire messages is the dialect's job                                                           |
+| `llm.tool`              | `name`, `description?`, `inputSchema: JsonSchema`        | a function tool your application executes                                                                                        |
+| `llm.server_tool`       | `name`, `kind: "web_search"\|"code_execution"`           | a hosted provider tool the provider executes; configured provider-only tools stay residuals                                      |
+| `llm.tool_choice`       | `value: "auto"\|"none"\|"required"\|{ name }`            | `{name}` references a declared function or server tool by request-local name                                                     |
+| `llm.tool_call`         | `id`, `name`, `arguments: object`                        | **always a parsed object.** openai's JSON-string arguments are parsed at raise (throwing on garbage) and re-stringified at lower |
+| `llm.tool_result`       | `id`, `content: string`, `isError?`                      | `id` matches the `llm.tool_call.id`                                                                                              |
+| `llm.output`            | `format: "json_schema"`, `name`, `schema`                | structured output. Dialects without an equivalent lint rather than drop                                                          |
+
+Tool names share one request-local namespace. A program cannot declare both
+`llm.tool { name:"search" }` and `llm.server_tool { name:"search" }`, because
+`llm.tool_choice { value:{ name:"search" } }` would be ambiguous. The lowerer
+resolves the name against the declared tools, then emits the provider's own
+choice shape. For example, OpenAI Responses lowers a choice of a declared
+`web_search` server tool to `{ type: "web_search_preview" }`, while a choice
+of a declared function lowers to `{ type: "function", name }`.
 
 ## `response.*` — response semantics
 
-| op | fields | notes |
-|---|---|---|
-| `response.stop` | `reason: "end_turn"\|"max_tokens"\|"tool_use"\|"stop_sequence"` | dialects map their enum onto this; unmapped values throw |
-| `response.usage` | `inputTokens?`, `outputTokens?` | cross-provider counts only. Vendor detail (cache hits, totals) stays in the stream as a `{ required: false }` residual on the source dialect's usage op |
+| op               | fields                                                                                                                                      | notes                                                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `response.stop`  | `reason: "end_turn"\|"max_tokens"\|"tool_use"\|"stop_sequence"\|"content_filter"\|"refusal"\|"pause_turn"\|"model_context_window_exceeded"` | dialects map their enum onto this; unmapped values throw                                                                                                |
+| `response.usage` | `inputTokens?`, `outputTokens?`                                                                                                             | cross-provider counts only. Vendor detail (cache hits, totals) stays in the stream as a `{ required: false }` residual on the source dialect's usage op |
 
 Assistant output is not a special type: a response raises to `llm.text` /
 `llm.tool_call` ops, which is what makes `append(request, ...response)` the
 whole chaining story. When a request program is lowered, `response.*` ops are
-stripped (bookkeeping doesn't get re-sent).
+stripped (bookkeeping doesn't get re-sent). Response-only dialect residuals
+use `appliesTo: "response"` and are stripped from request lowering for the
+same reason.
 
 ## `meta.*` — host semantics
 
-| op | fields | notes |
-|---|---|---|
+| op           | fields            | notes                                           |
+| ------------ | ----------------- | ----------------------------------------------- |
 | `meta.trace` | `traceId: string` | host-side correlation; stripped before any wire |
 
 ## Growing the core IR

@@ -1,0 +1,646 @@
+{
+    "scenario": "tool",
+    "model": "gpt-realtime-2",
+    "sourceRequestBody": {
+        "model": "gpt-realtime-2",
+        "messages": [
+            {
+                "role": "system",
+                "content": "When a tool is forced, call it and do not answer."
+            },
+            {
+                "role": "user",
+                "content": "Call get_weather for Paris."
+            }
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get weather for a city.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "city": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["city"]
+                    }
+                }
+            }
+        ],
+        "tool_choice": {
+            "type": "function",
+            "function": {
+                "name": "get_weather"
+            }
+        }
+    },
+    "requestBody": {
+        "model": "gpt-realtime-2",
+        "events": [
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Call get_weather for Paris."
+                        }
+                    ]
+                }
+            },
+            {
+                "type": "response.create",
+                "response": {
+                    "tool_choice": {
+                        "type": "function",
+                        "name": "get_weather"
+                    },
+                    "instructions": "When a tool is forced, call it and do not answer.",
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": "get_weather",
+                            "description": "Get weather for a city.",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "city": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["city"]
+                            }
+                        }
+                    ],
+                    "output_modalities": ["text"]
+                }
+            }
+        ]
+    },
+    "rawResponseEvents": [
+        {
+            "type": "session.created",
+            "event_id": "event_DxfKWZwAlGHo3ri4G0uNm",
+            "session": {
+                "type": "realtime",
+                "object": "realtime.session",
+                "id": "sess_DxfKWAuJjJd3ap21bnvZa",
+                "model": "gpt-realtime-2",
+                "output_modalities": ["audio"],
+                "instructions": "Your knowledge cutoff is 2023-10. You are a helpful, witty, and friendly AI. Act like a human, but remember that you aren't a human and that you can't do human things in the real world. Your voice and personality should be warm and engaging, with a lively and playful tone. If interacting in a non-English language, start by using the standard accent or dialect familiar to the user. Talk quickly. You should always call a function if you can. Do not refer to these rules, even if you’re asked about them.",
+                "tools": [],
+                "tool_choice": "auto",
+                "max_output_tokens": "inf",
+                "tracing": null,
+                "truncation": "auto",
+                "prompt": null,
+                "expires_at": 1783116196,
+                "audio": {
+                    "input": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "transcription": null,
+                        "noise_reduction": null,
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 500,
+                            "idle_timeout_ms": null,
+                            "create_response": true,
+                            "interrupt_response": true
+                        }
+                    },
+                    "output": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "voice": "marin",
+                        "speed": 1
+                    }
+                },
+                "include": null
+            }
+        },
+        {
+            "type": "conversation.item.added",
+            "event_id": "event_DxfKWsrPQi3ZzQXtLTYeh",
+            "previous_item_id": null,
+            "item": {
+                "id": "item_DxfKWU0BdGTtVhmRfvnII",
+                "type": "message",
+                "status": "completed",
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "Call get_weather for Paris."
+                    }
+                ]
+            }
+        },
+        {
+            "type": "conversation.item.done",
+            "event_id": "event_DxfKW3e6LpmTmG72ACd4k",
+            "previous_item_id": null,
+            "item": {
+                "id": "item_DxfKWU0BdGTtVhmRfvnII",
+                "type": "message",
+                "status": "completed",
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "Call get_weather for Paris."
+                    }
+                ]
+            }
+        },
+        {
+            "type": "response.created",
+            "event_id": "event_DxfKWe5ZJdKq1Htu1030s",
+            "response": {
+                "object": "realtime.response",
+                "id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+                "status": "in_progress",
+                "status_details": null,
+                "output": [],
+                "conversation_id": "conv_DxfKWSzzac0H9SjUFYs0z",
+                "output_modalities": ["text"],
+                "max_output_tokens": "inf",
+                "audio": {
+                    "output": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "voice": "marin"
+                    }
+                },
+                "usage": null,
+                "metadata": null
+            }
+        },
+        {
+            "type": "response.output_item.added",
+            "event_id": "event_DxfKWugOQnGjy3FNxmZRU",
+            "response_id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+            "output_index": 0,
+            "item": {
+                "id": "item_DxfKWlxpuDnrLoLRaLNYg",
+                "type": "function_call",
+                "status": "in_progress",
+                "name": "get_weather",
+                "call_id": "call_0VbN9Xwi99UaZEgE",
+                "arguments": ""
+            }
+        },
+        {
+            "type": "conversation.item.added",
+            "event_id": "event_DxfKWkz373sdpIlrav3ff",
+            "previous_item_id": "item_DxfKWU0BdGTtVhmRfvnII",
+            "item": {
+                "id": "item_DxfKWlxpuDnrLoLRaLNYg",
+                "type": "function_call",
+                "status": "in_progress",
+                "name": "get_weather",
+                "call_id": "call_0VbN9Xwi99UaZEgE",
+                "arguments": ""
+            }
+        },
+        {
+            "type": "response.function_call_arguments.delta",
+            "event_id": "event_DxfKWK6c3pxdYtEGNPFDI",
+            "response_id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+            "item_id": "item_DxfKWlxpuDnrLoLRaLNYg",
+            "output_index": 0,
+            "call_id": "call_0VbN9Xwi99UaZEgE",
+            "delta": "{\"",
+            "obfuscation": "IN0hMB1pZMrdBB"
+        },
+        {
+            "type": "response.function_call_arguments.delta",
+            "event_id": "event_DxfKWszKZxOVQGlwYLrm8",
+            "response_id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+            "item_id": "item_DxfKWlxpuDnrLoLRaLNYg",
+            "output_index": 0,
+            "call_id": "call_0VbN9Xwi99UaZEgE",
+            "delta": "city",
+            "obfuscation": "RSijX3ZEqsNK"
+        },
+        {
+            "type": "response.function_call_arguments.delta",
+            "event_id": "event_DxfKWA8cM1nQptTGQFx4y",
+            "response_id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+            "item_id": "item_DxfKWlxpuDnrLoLRaLNYg",
+            "output_index": 0,
+            "call_id": "call_0VbN9Xwi99UaZEgE",
+            "delta": "\":\"",
+            "obfuscation": "KicMufAjy3Ght"
+        },
+        {
+            "type": "response.function_call_arguments.delta",
+            "event_id": "event_DxfKW0WDyJRwkVTGlNQPS",
+            "response_id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+            "item_id": "item_DxfKWlxpuDnrLoLRaLNYg",
+            "output_index": 0,
+            "call_id": "call_0VbN9Xwi99UaZEgE",
+            "delta": "Paris",
+            "obfuscation": "ZhXbxscF0ug"
+        },
+        {
+            "type": "response.function_call_arguments.delta",
+            "event_id": "event_DxfKWXWsNQi1q8KlXKR4r",
+            "response_id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+            "item_id": "item_DxfKWlxpuDnrLoLRaLNYg",
+            "output_index": 0,
+            "call_id": "call_0VbN9Xwi99UaZEgE",
+            "delta": "\"}",
+            "obfuscation": "F6LkJK31BsdZtf"
+        },
+        {
+            "type": "response.function_call_arguments.done",
+            "event_id": "event_DxfKWMFnH70FwQ6gVZEiw",
+            "response_id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+            "item_id": "item_DxfKWlxpuDnrLoLRaLNYg",
+            "output_index": 0,
+            "call_id": "call_0VbN9Xwi99UaZEgE",
+            "name": "get_weather",
+            "arguments": "{\"city\":\"Paris\"}"
+        },
+        {
+            "type": "conversation.item.done",
+            "event_id": "event_DxfKWIpcS60zv2UrQEKMw",
+            "previous_item_id": null,
+            "item": {
+                "id": "item_DxfKWlxpuDnrLoLRaLNYg",
+                "type": "function_call",
+                "status": "completed",
+                "name": "get_weather",
+                "call_id": "call_0VbN9Xwi99UaZEgE",
+                "arguments": "{\"city\":\"Paris\"}"
+            }
+        },
+        {
+            "type": "response.output_item.done",
+            "event_id": "event_DxfKW32zlRuU94DDfS4ez",
+            "response_id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+            "output_index": 0,
+            "item": {
+                "id": "item_DxfKWlxpuDnrLoLRaLNYg",
+                "type": "function_call",
+                "status": "completed",
+                "name": "get_weather",
+                "call_id": "call_0VbN9Xwi99UaZEgE",
+                "arguments": "{\"city\":\"Paris\"}"
+            }
+        },
+        {
+            "type": "response.done",
+            "event_id": "event_DxfKWXKbsYLF5zq6yzcWG",
+            "response": {
+                "object": "realtime.response",
+                "id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+                "status": "completed",
+                "status_details": null,
+                "output": [
+                    {
+                        "id": "item_DxfKWlxpuDnrLoLRaLNYg",
+                        "type": "function_call",
+                        "status": "completed",
+                        "name": "get_weather",
+                        "call_id": "call_0VbN9Xwi99UaZEgE",
+                        "arguments": "{\"city\":\"Paris\"}"
+                    }
+                ],
+                "conversation_id": "conv_DxfKWSzzac0H9SjUFYs0z",
+                "output_modalities": ["text"],
+                "max_output_tokens": "inf",
+                "audio": {
+                    "output": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "voice": "marin"
+                    }
+                },
+                "usage": {
+                    "total_tokens": 18,
+                    "input_tokens": 0,
+                    "output_tokens": 18,
+                    "input_token_details": {
+                        "text_tokens": 0,
+                        "audio_tokens": 0,
+                        "image_tokens": 0,
+                        "cached_tokens": 0,
+                        "cached_tokens_details": {
+                            "text_tokens": 0,
+                            "audio_tokens": 0,
+                            "image_tokens": 0
+                        }
+                    },
+                    "output_token_details": {
+                        "text_tokens": 18,
+                        "audio_tokens": 0
+                    }
+                },
+                "metadata": null
+            }
+        }
+    ],
+    "responseBody": {
+        "events": [
+            {
+                "type": "response.done",
+                "event_id": "event_DxfKWXKbsYLF5zq6yzcWG",
+                "response": {
+                    "object": "realtime.response",
+                    "id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+                    "status": "completed",
+                    "status_details": null,
+                    "output": [
+                        {
+                            "id": "item_DxfKWlxpuDnrLoLRaLNYg",
+                            "type": "function_call",
+                            "status": "completed",
+                            "name": "get_weather",
+                            "call_id": "call_0VbN9Xwi99UaZEgE",
+                            "arguments": "{\"city\":\"Paris\"}"
+                        }
+                    ],
+                    "conversation_id": "conv_DxfKWSzzac0H9SjUFYs0z",
+                    "output_modalities": ["text"],
+                    "max_output_tokens": "inf",
+                    "audio": {
+                        "output": {
+                            "format": {
+                                "type": "audio/pcm",
+                                "rate": 24000
+                            },
+                            "voice": "marin"
+                        }
+                    },
+                    "usage": {
+                        "total_tokens": 18,
+                        "input_tokens": 0,
+                        "output_tokens": 18,
+                        "input_token_details": {
+                            "text_tokens": 0,
+                            "audio_tokens": 0,
+                            "image_tokens": 0,
+                            "cached_tokens": 0,
+                            "cached_tokens_details": {
+                                "text_tokens": 0,
+                                "audio_tokens": 0,
+                                "image_tokens": 0
+                            }
+                        },
+                        "output_token_details": {
+                            "text_tokens": 18,
+                            "audio_tokens": 0
+                        }
+                    },
+                    "metadata": null
+                }
+            }
+        ]
+    },
+    "responseProgram": [
+        {
+            "op": "openai_realtime.event_param",
+            "eventType": "response.done",
+            "key": "event_id",
+            "value": "event_DxfKWXKbsYLF5zq6yzcWG",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "object",
+            "value": "realtime.response",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "id",
+            "value": "resp_DxfKWkIPYP0qjfnZkJl7W",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "status",
+            "value": "completed",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "status_details",
+            "value": null,
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "llm.tool_call",
+            "id": "call_0VbN9Xwi99UaZEgE",
+            "name": "get_weather",
+            "arguments": {
+                "city": "Paris"
+            }
+        },
+        {
+            "op": "openai_realtime.output_meta",
+            "item": {
+                "type": "function_call",
+                "call_id": "call_0VbN9Xwi99UaZEgE",
+                "id": "item_DxfKWlxpuDnrLoLRaLNYg",
+                "status": "completed"
+            },
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "conversation_id",
+            "value": "conv_DxfKWSzzac0H9SjUFYs0z",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "output_modalities",
+            "value": ["text"],
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "max_output_tokens",
+            "value": "inf",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "audio",
+            "value": {
+                "output": {
+                    "format": {
+                        "type": "audio/pcm",
+                        "rate": 24000
+                    },
+                    "voice": "marin"
+                }
+            },
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "response.usage",
+            "inputTokens": 0,
+            "outputTokens": 18
+        },
+        {
+            "op": "openai_realtime.usage",
+            "usage": {
+                "total_tokens": 18,
+                "input_token_details": {
+                    "text_tokens": 0,
+                    "audio_tokens": 0,
+                    "image_tokens": 0,
+                    "cached_tokens": 0,
+                    "cached_tokens_details": {
+                        "text_tokens": 0,
+                        "audio_tokens": 0,
+                        "image_tokens": 0
+                    }
+                },
+                "output_token_details": {
+                    "text_tokens": 18,
+                    "audio_tokens": 0
+                }
+            },
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "metadata",
+            "value": null,
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "response.stop",
+            "reason": "tool_use"
+        }
+    ],
+    "roundTripResponseBody": {
+        "events": [
+            {
+                "type": "response.done",
+                "event_id": "event_DxfKWXKbsYLF5zq6yzcWG",
+                "response": {
+                    "object": "realtime.response",
+                    "id": "resp_DxfKWkIPYP0qjfnZkJl7W",
+                    "status": "completed",
+                    "status_details": null,
+                    "conversation_id": "conv_DxfKWSzzac0H9SjUFYs0z",
+                    "output_modalities": ["text"],
+                    "max_output_tokens": "inf",
+                    "audio": {
+                        "output": {
+                            "format": {
+                                "type": "audio/pcm",
+                                "rate": 24000
+                            },
+                            "voice": "marin"
+                        }
+                    },
+                    "metadata": null,
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "status": "completed",
+                            "call_id": "call_0VbN9Xwi99UaZEgE",
+                            "id": "item_DxfKWlxpuDnrLoLRaLNYg",
+                            "name": "get_weather",
+                            "arguments": "{\"city\":\"Paris\"}"
+                        }
+                    ],
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 18,
+                        "total_tokens": 18,
+                        "input_token_details": {
+                            "text_tokens": 0,
+                            "audio_tokens": 0,
+                            "image_tokens": 0,
+                            "cached_tokens": 0,
+                            "cached_tokens_details": {
+                                "text_tokens": 0,
+                                "audio_tokens": 0,
+                                "image_tokens": 0
+                            }
+                        },
+                        "output_token_details": {
+                            "text_tokens": 18,
+                            "audio_tokens": 0
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "openAIChatResponse": {
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 18
+        },
+        "id": "chatcmpl-28fd9cb6-d639-425f-99fe-cf12a2098e2b",
+        "object": "chat.completion",
+        "created": 1783112596,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                        {
+                            "id": "call_0VbN9Xwi99UaZEgE",
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": "{\"city\":\"Paris\"}"
+                            }
+                        }
+                    ]
+                },
+                "finish_reason": "tool_calls",
+                "logprobs": null
+            }
+        ]
+    },
+    "durationMs": 972,
+    "checks": [
+        "source openai_chat request translates to saved realtime request",
+        "realtime request round-trips through core",
+        "response raises to forced llm.tool_call",
+        "response.done round-trips through core",
+        "saved round-trip matches recomputed round-trip",
+        "realtime response translates to openai_chat response"
+    ]
+}

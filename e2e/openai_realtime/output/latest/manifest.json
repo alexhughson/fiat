@@ -1,0 +1,5 @@
+{
+    "generatedAt": "2026-07-03T21:03:16.774Z",
+    "models": ["gpt-realtime-2"],
+    "artifacts": ["text.gpt-realtime-2.json", "tool.gpt-realtime-2.json"]
+}

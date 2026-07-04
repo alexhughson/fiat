@@ -1,8 +1,8 @@
 # Architecture
 
 Metamodel is built MLIR-style: one shared **core IR**, plus one **dialect**
-(lower IR) per provider endpoint. Every request and response is a *program* —
-a flat JSON array of *ops* — at every stage. A proxy that accepts openai_chat
+(lower IR) per provider endpoint. Every request and response is a _program_ —
+a flat JSON array of _ops_ — at every stage. A proxy that accepts openai_chat
 and runs on anthropic_messages is this pipeline:
 
 ```
@@ -16,7 +16,7 @@ program: core ops + residuals            ◄── your transforms/lints run her
   │ lower           (anthropic_messages) regroup core ops into wire structure
   ▼
 program: core ops + anthropic_messages.* ops
-  │ legalizations   (anthropic_messages) endpoint/model conformance passes
+  │ legalizations   (anthropic request codec) endpoint/model conformance passes
   │ residual lint   (pipeline)           foreign ops: drop if { required: false }, else halt
   │ toWire          (anthropic_messages) strict serialization
   ▼
@@ -44,6 +44,13 @@ Each converter rewrites only the ops it owns and passes everything else
 through. This kills four redundant copy steps per trivial field and keeps
 `raise`/`lower` small.
 
+Because passthrough is universal, a _partially_ raised or lowered program is
+still a valid program — which is why `raise` and `lower` are pipelines of
+small `Stage` functions (`src/core/rewrite.ts`), each rewriting one op kind,
+rather than monolithic switches. Extending a dialect means appending a stage
+to its exported `raiseStages`/`lowerRequestStages`/`lowerResponseStages`
+array; see [dialects.md](dialects.md#raise-and-lower-are-stage-pipelines).
+
 ## Residuals: lossless by default, loud when lost
 
 When `raise` meets an endpoint-only construct (`logit_bias`, a vendor usage
@@ -58,29 +65,48 @@ Rules, enforced by `lintForeignResiduals` in `src/core/pipeline.ts`:
   droppable: response envelope bookkeeping (`id`, `created`, `type`) and
   vendor usage detail (cross-provider counts already live in
   `response.usage`).
+- **Wrong direction, `appliesTo` set**: stripped before lowering. A response
+  residual such as `openai_chat.usage { appliesTo: "response" }` round-trips
+  through `toResponse`, but does not get sent when the same response program
+  is appended to a request for the next turn.
 - Any dialect can register a pass that consumes another dialect's residual
   and maps it onto its own ops — that is the interop escape hatch.
 
 ## Passes
 
-A pass is a named pure function `Program -> Program` (`src/core/pass.ts`),
-scoped by a `Target { dialect, kind, model }`. Two conventions:
+A pass is a named pure function `Program -> Program` (`src/core/pass.ts`).
+Registered legalizations live on the request/response codec they apply to, and
+receive `Target { dialect, kind, model, strict }`. Two conventions:
 
 - **transform / legalize**: rewrite toward what the target accepts. Example:
   `anthropic_messages.default-max-tokens` inserts the required `max_tokens`
   cap on requests (`src/dialects/anthropic_messages/legalize.ts`).
-- **lint**: rewrite nothing; throw `LintError` when conforming would change
-  the request's meaning. Example: `llm.output` reaching anthropic lowering.
+- **strict lint**: when callers pass `{ strict: true }`, throw `LintError`
+  for unsupported request controls that default legalization would otherwise
+  clean up. Example: `top_p` on a Claude model that no longer accepts explicit
+  sampling params.
 
-Caller passes run on the core IR between raise and lower. A dialect's
-registered `legalizations` run after its `lower`, before `toWire`. `toWire`
-itself is the final gate: it throws on any op it can't serialize.
+Hard representational failures are still errors in every mode. Example:
+`llm.output` reaching a dialect with no output-schema wire home throws during
+lowering.
+
+Caller passes run on the core IR between raise and lower. For edge-local
+customization, the half-pipeline APIs also accept pure `Stage` hooks:
+`beforeRaise`/`afterRaise` around a dialect's raise edge, and
+`beforeLower`/`afterLower` around its lower edge. These hooks only see the op
+stream for that edge; for example, `anthropic_messages` raise does not know
+whether the program will later lower to OpenAI, Gemini, or Anthropic again.
+
+A dialect's registered `legalizations` run after `lower` and `afterLower`,
+before `toWire`. `toWire` itself is the final gate: it throws on any op it
+can't serialize.
 
 ## Host ops
 
 `meta.*` ops address the host (trace ids, routing hints), never a provider.
 The pipeline strips them before lowering. In request programs it also strips
-`response.*` ops — the artifact of appending a response for chaining.
+`response.*` ops and response-only dialect residuals — the artifact of
+appending a response for chaining.
 
 ## Failure posture
 

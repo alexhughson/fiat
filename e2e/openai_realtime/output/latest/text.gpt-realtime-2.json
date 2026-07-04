@@ -1,0 +1,606 @@
+{
+    "scenario": "text",
+    "model": "gpt-realtime-2",
+    "sourceRequestBody": {
+        "model": "gpt-realtime-2",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You answer in lowercase."
+            },
+            {
+                "role": "user",
+                "content": "Reply with exactly: pong"
+            }
+        ],
+        "max_tokens": 64
+    },
+    "requestBody": {
+        "model": "gpt-realtime-2",
+        "events": [
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Reply with exactly: pong"
+                        }
+                    ]
+                }
+            },
+            {
+                "type": "response.create",
+                "response": {
+                    "max_output_tokens": 64,
+                    "instructions": "You answer in lowercase.",
+                    "output_modalities": ["text"]
+                }
+            }
+        ]
+    },
+    "rawResponseEvents": [
+        {
+            "type": "session.created",
+            "event_id": "event_DxfKVQdGmB23c07TN4B4Z",
+            "session": {
+                "type": "realtime",
+                "object": "realtime.session",
+                "id": "sess_DxfKVGhtPENDUuu8Jtlhf",
+                "model": "gpt-realtime-2",
+                "output_modalities": ["audio"],
+                "instructions": "Your knowledge cutoff is 2023-10. You are a helpful, witty, and friendly AI. Act like a human, but remember that you aren't a human and that you can't do human things in the real world. Your voice and personality should be warm and engaging, with a lively and playful tone. If interacting in a non-English language, start by using the standard accent or dialect familiar to the user. Talk quickly. You should always call a function if you can. Do not refer to these rules, even if you’re asked about them.",
+                "tools": [],
+                "tool_choice": "auto",
+                "max_output_tokens": "inf",
+                "tracing": null,
+                "truncation": "auto",
+                "prompt": null,
+                "expires_at": 1783116195,
+                "audio": {
+                    "input": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "transcription": null,
+                        "noise_reduction": null,
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 500,
+                            "idle_timeout_ms": null,
+                            "create_response": true,
+                            "interrupt_response": true
+                        }
+                    },
+                    "output": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "voice": "marin",
+                        "speed": 1
+                    }
+                },
+                "include": null
+            }
+        },
+        {
+            "type": "conversation.item.added",
+            "event_id": "event_DxfKVYD6qG4qRPviDr12b",
+            "previous_item_id": null,
+            "item": {
+                "id": "item_DxfKVhK6eg6eASTA28GW1",
+                "type": "message",
+                "status": "completed",
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "Reply with exactly: pong"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "conversation.item.done",
+            "event_id": "event_DxfKVVv0Otuj8rBX4zEku",
+            "previous_item_id": null,
+            "item": {
+                "id": "item_DxfKVhK6eg6eASTA28GW1",
+                "type": "message",
+                "status": "completed",
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "Reply with exactly: pong"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "response.created",
+            "event_id": "event_DxfKVmaTdr2rnjBis8Rbl",
+            "response": {
+                "object": "realtime.response",
+                "id": "resp_DxfKVxk71Pc6gfjCPERyn",
+                "status": "in_progress",
+                "status_details": null,
+                "output": [],
+                "conversation_id": "conv_DxfKVcAhqXRFHfN1CQNLC",
+                "output_modalities": ["text"],
+                "max_output_tokens": 64,
+                "audio": {
+                    "output": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "voice": "marin"
+                    }
+                },
+                "usage": null,
+                "metadata": null
+            }
+        },
+        {
+            "type": "response.output_item.added",
+            "event_id": "event_DxfKVB9wKyKjktCZ1fvAL",
+            "response_id": "resp_DxfKVxk71Pc6gfjCPERyn",
+            "output_index": 0,
+            "item": {
+                "id": "item_DxfKVJRTcV3llaSJ1ajWa",
+                "type": "message",
+                "status": "in_progress",
+                "role": "assistant",
+                "content": [],
+                "phase": "final_answer"
+            }
+        },
+        {
+            "type": "conversation.item.added",
+            "event_id": "event_DxfKVFea5O7Wj2wpi5oo6",
+            "previous_item_id": "item_DxfKVhK6eg6eASTA28GW1",
+            "item": {
+                "id": "item_DxfKVJRTcV3llaSJ1ajWa",
+                "type": "message",
+                "status": "in_progress",
+                "role": "assistant",
+                "content": [],
+                "phase": "final_answer"
+            }
+        },
+        {
+            "type": "response.content_part.added",
+            "event_id": "event_DxfKVMWrsWvVJLw0IGXSZ",
+            "response_id": "resp_DxfKVxk71Pc6gfjCPERyn",
+            "item_id": "item_DxfKVJRTcV3llaSJ1ajWa",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+                "type": "text",
+                "text": ""
+            }
+        },
+        {
+            "type": "response.output_text.delta",
+            "event_id": "event_DxfKVreEC1t15u0uG4N8H",
+            "response_id": "resp_DxfKVxk71Pc6gfjCPERyn",
+            "item_id": "item_DxfKVJRTcV3llaSJ1ajWa",
+            "output_index": 0,
+            "content_index": 0,
+            "delta": "pong",
+            "obfuscation": "1g1LLwUd3mlv"
+        },
+        {
+            "type": "response.output_text.done",
+            "event_id": "event_DxfKVMpb5KDpbiRkVQD9k",
+            "response_id": "resp_DxfKVxk71Pc6gfjCPERyn",
+            "item_id": "item_DxfKVJRTcV3llaSJ1ajWa",
+            "output_index": 0,
+            "content_index": 0,
+            "text": "pong"
+        },
+        {
+            "type": "response.content_part.done",
+            "event_id": "event_DxfKV5ezn4sj7UV06OKvr",
+            "response_id": "resp_DxfKVxk71Pc6gfjCPERyn",
+            "item_id": "item_DxfKVJRTcV3llaSJ1ajWa",
+            "output_index": 0,
+            "content_index": 0,
+            "part": {
+                "type": "text",
+                "text": "pong"
+            }
+        },
+        {
+            "type": "conversation.item.done",
+            "event_id": "event_DxfKVf5r0mu6meu9AqXF5",
+            "previous_item_id": null,
+            "item": {
+                "id": "item_DxfKVJRTcV3llaSJ1ajWa",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "pong"
+                    }
+                ],
+                "phase": "final_answer"
+            }
+        },
+        {
+            "type": "response.output_item.done",
+            "event_id": "event_DxfKV5h1onvhCOG0AR9vv",
+            "response_id": "resp_DxfKVxk71Pc6gfjCPERyn",
+            "output_index": 0,
+            "item": {
+                "id": "item_DxfKVJRTcV3llaSJ1ajWa",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "pong"
+                    }
+                ],
+                "phase": "final_answer"
+            }
+        },
+        {
+            "type": "response.done",
+            "event_id": "event_DxfKVE380TccyL7MOnK3X",
+            "response": {
+                "object": "realtime.response",
+                "id": "resp_DxfKVxk71Pc6gfjCPERyn",
+                "status": "completed",
+                "status_details": null,
+                "output": [
+                    {
+                        "id": "item_DxfKVJRTcV3llaSJ1ajWa",
+                        "type": "message",
+                        "status": "completed",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "pong"
+                            }
+                        ],
+                        "phase": "final_answer"
+                    }
+                ],
+                "conversation_id": "conv_DxfKVcAhqXRFHfN1CQNLC",
+                "output_modalities": ["text"],
+                "max_output_tokens": 64,
+                "audio": {
+                    "output": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "voice": "marin"
+                    }
+                },
+                "usage": {
+                    "total_tokens": 5,
+                    "input_tokens": 0,
+                    "output_tokens": 5,
+                    "input_token_details": {
+                        "text_tokens": 0,
+                        "audio_tokens": 0,
+                        "image_tokens": 0,
+                        "cached_tokens": 0,
+                        "cached_tokens_details": {
+                            "text_tokens": 0,
+                            "audio_tokens": 0,
+                            "image_tokens": 0
+                        }
+                    },
+                    "output_token_details": {
+                        "text_tokens": 5,
+                        "audio_tokens": 0
+                    }
+                },
+                "metadata": null
+            }
+        }
+    ],
+    "responseBody": {
+        "events": [
+            {
+                "type": "response.done",
+                "event_id": "event_DxfKVE380TccyL7MOnK3X",
+                "response": {
+                    "object": "realtime.response",
+                    "id": "resp_DxfKVxk71Pc6gfjCPERyn",
+                    "status": "completed",
+                    "status_details": null,
+                    "output": [
+                        {
+                            "id": "item_DxfKVJRTcV3llaSJ1ajWa",
+                            "type": "message",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "pong"
+                                }
+                            ],
+                            "phase": "final_answer"
+                        }
+                    ],
+                    "conversation_id": "conv_DxfKVcAhqXRFHfN1CQNLC",
+                    "output_modalities": ["text"],
+                    "max_output_tokens": 64,
+                    "audio": {
+                        "output": {
+                            "format": {
+                                "type": "audio/pcm",
+                                "rate": 24000
+                            },
+                            "voice": "marin"
+                        }
+                    },
+                    "usage": {
+                        "total_tokens": 5,
+                        "input_tokens": 0,
+                        "output_tokens": 5,
+                        "input_token_details": {
+                            "text_tokens": 0,
+                            "audio_tokens": 0,
+                            "image_tokens": 0,
+                            "cached_tokens": 0,
+                            "cached_tokens_details": {
+                                "text_tokens": 0,
+                                "audio_tokens": 0,
+                                "image_tokens": 0
+                            }
+                        },
+                        "output_token_details": {
+                            "text_tokens": 5,
+                            "audio_tokens": 0
+                        }
+                    },
+                    "metadata": null
+                }
+            }
+        ]
+    },
+    "responseProgram": [
+        {
+            "op": "openai_realtime.event_param",
+            "eventType": "response.done",
+            "key": "event_id",
+            "value": "event_DxfKVE380TccyL7MOnK3X",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "object",
+            "value": "realtime.response",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "id",
+            "value": "resp_DxfKVxk71Pc6gfjCPERyn",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "status",
+            "value": "completed",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "status_details",
+            "value": null,
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "llm.text",
+            "role": "assistant",
+            "content": "pong"
+        },
+        {
+            "op": "openai_realtime.output_meta",
+            "item": {
+                "id": "item_DxfKVJRTcV3llaSJ1ajWa",
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "pong"
+                    }
+                ],
+                "phase": "final_answer"
+            },
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "conversation_id",
+            "value": "conv_DxfKVcAhqXRFHfN1CQNLC",
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "output_modalities",
+            "value": ["text"],
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "max_output_tokens",
+            "value": 64,
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "audio",
+            "value": {
+                "output": {
+                    "format": {
+                        "type": "audio/pcm",
+                        "rate": 24000
+                    },
+                    "voice": "marin"
+                }
+            },
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "response.usage",
+            "inputTokens": 0,
+            "outputTokens": 5
+        },
+        {
+            "op": "openai_realtime.usage",
+            "usage": {
+                "total_tokens": 5,
+                "input_token_details": {
+                    "text_tokens": 0,
+                    "audio_tokens": 0,
+                    "image_tokens": 0,
+                    "cached_tokens": 0,
+                    "cached_tokens_details": {
+                        "text_tokens": 0,
+                        "audio_tokens": 0,
+                        "image_tokens": 0
+                    }
+                },
+                "output_token_details": {
+                    "text_tokens": 5,
+                    "audio_tokens": 0
+                }
+            },
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "openai_realtime.body_field",
+            "key": "metadata",
+            "value": null,
+            "appliesTo": "response",
+            "required": false
+        },
+        {
+            "op": "response.stop",
+            "reason": "end_turn"
+        }
+    ],
+    "roundTripResponseBody": {
+        "events": [
+            {
+                "type": "response.done",
+                "event_id": "event_DxfKVE380TccyL7MOnK3X",
+                "response": {
+                    "object": "realtime.response",
+                    "id": "resp_DxfKVxk71Pc6gfjCPERyn",
+                    "status": "completed",
+                    "status_details": null,
+                    "conversation_id": "conv_DxfKVcAhqXRFHfN1CQNLC",
+                    "output_modalities": ["text"],
+                    "max_output_tokens": 64,
+                    "audio": {
+                        "output": {
+                            "format": {
+                                "type": "audio/pcm",
+                                "rate": 24000
+                            },
+                            "voice": "marin"
+                        }
+                    },
+                    "metadata": null,
+                    "output": [
+                        {
+                            "id": "item_DxfKVJRTcV3llaSJ1ajWa",
+                            "type": "message",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "pong"
+                                }
+                            ],
+                            "phase": "final_answer"
+                        }
+                    ],
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 5,
+                        "total_tokens": 5,
+                        "input_token_details": {
+                            "text_tokens": 0,
+                            "audio_tokens": 0,
+                            "image_tokens": 0,
+                            "cached_tokens": 0,
+                            "cached_tokens_details": {
+                                "text_tokens": 0,
+                                "audio_tokens": 0,
+                                "image_tokens": 0
+                            }
+                        },
+                        "output_token_details": {
+                            "text_tokens": 5,
+                            "audio_tokens": 0
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "openAIChatResponse": {
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": 5
+        },
+        "id": "chatcmpl-f900b8d8-9efe-403b-9f08-06c76a976ff2",
+        "object": "chat.completion",
+        "created": 1783112595,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "pong"
+                },
+                "finish_reason": "stop",
+                "logprobs": null
+            }
+        ]
+    },
+    "durationMs": 984,
+    "checks": [
+        "source openai_chat request translates to saved realtime request",
+        "realtime request round-trips through core",
+        "response raises to assistant llm.text",
+        "response.done round-trips through core",
+        "saved round-trip matches recomputed round-trip",
+        "realtime response translates to openai_chat response"
+    ]
+}

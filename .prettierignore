@@ -1,0 +1,12 @@
+.git
+node_modules
+
+.scratch
+.cache
+cache
+
+dist
+build
+coverage
+tmp
+temp

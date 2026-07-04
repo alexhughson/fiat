@@ -8,31 +8,137 @@
 export const DIALECT = "anthropic_messages";
 
 export interface WireBlock {
-  type: string;
-  text?: string;
-  id?: string;
-  name?: string;
-  input?: Record<string, unknown>;
-  tool_use_id?: string;
-  content?: string | WireBlock[];
-  is_error?: boolean;
-  [key: string]: unknown;
+    type: string;
+    text?: string;
+    id?: string;
+    name?: string;
+    input?: Record<string, unknown>;
+    tool_use_id?: string;
+    content?: string | WireBlock[];
+    is_error?: boolean;
+    [key: string]: unknown;
 }
 
+export interface WireAnthropicTool {
+    name?: string;
+    description?: string;
+    input_schema?: Record<string, unknown>;
+    type?: string;
+    [key: string]: unknown;
+}
+
+export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface WireAnthropicMessage {
-  role: "user" | "assistant";
-  content: string | WireBlock[];
+    role: "user" | "assistant";
+    content: string | WireBlock[];
+}
+
+export interface WireAnthropicStreamEvent {
+    type: string;
+    index?: number;
+    content_block?: WireBlock;
+    delta?: {
+        type?: string;
+        text?: string;
+        partial_json?: string;
+        stop_reason?: string | null;
+        [key: string]: unknown;
+    };
+    usage?: Record<string, unknown>;
+    [key: string]: unknown;
 }
 
 export type AnthropicMessagesOp =
-  // A wire message verbatim: the grouping of content blocks into turns is
-  // the structure the core IR flattens away.
-  | { op: "anthropic_messages.message"; message: WireAnthropicMessage }
-  // Response-only: provider enum, mapped in raise.
-  | { op: "anthropic_messages.stop_reason"; value: string }
-  // Wire usage verbatim (input_tokens/output_tokens plus cache fields the
-  // core op doesn't model — those survive raise as a { required: false }
-  // residual on this op).
-  | { op: "anthropic_messages.usage"; usage: Record<string, unknown> }
-  // Unmapped body keys; residual semantics identical to openai_chat.param.
-  | { op: "anthropic_messages.param"; key: string; value: unknown; required?: boolean };
+    // A wire message verbatim: the grouping of content blocks into turns is
+    // the structure the core IR flattens away.
+    | { op: "anthropic_messages.message"; message: WireAnthropicMessage }
+    // Response-only: provider enum, mapped in raise.
+    | { op: "anthropic_messages.stop_reason"; value: string }
+    | {
+          op: "anthropic_messages.content_block";
+          block: WireBlock;
+          role?: "user" | "assistant";
+          appliesTo?: "response";
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.system_block";
+          block: WireBlock;
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.text_meta";
+          fields: Record<string, unknown>;
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.tool";
+          tool: WireAnthropicTool;
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.tool_meta";
+          name: string;
+          fields: Record<string, unknown>;
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.tool_result_meta";
+          fields: Record<string, unknown>;
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.thinking";
+          adaptiveEffort?: AnthropicEffort;
+          manualBudgetTokens?: number;
+          display?: "summarized" | "omitted";
+      }
+    | {
+          op: "anthropic_messages.thinking_config";
+          value: Record<string, unknown>;
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.output_config";
+          value: Record<string, unknown>;
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.context_management";
+          value: Record<string, unknown>;
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.metadata";
+          value: Record<string, unknown>;
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.sampling";
+          key: "top_p" | "top_k";
+          value: number;
+          required?: boolean;
+      }
+    // Wire usage verbatim (input_tokens/output_tokens plus cache fields the
+    // core op doesn't model — those survive raise as a { required: false }
+    // residual on this op).
+    | {
+          op: "anthropic_messages.usage";
+          usage: Record<string, unknown>;
+          appliesTo?: "request" | "response";
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.stream_event";
+          event: WireAnthropicStreamEvent;
+          appliesTo?: "response";
+          required?: boolean;
+      }
+    | {
+          op: "anthropic_messages.body_field";
+          key: string;
+          value: unknown;
+          appliesTo?: "request" | "response";
+          required?: boolean;
+      };

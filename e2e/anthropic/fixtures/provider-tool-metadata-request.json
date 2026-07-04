@@ -1,0 +1,56 @@
+{
+    "scenario": "provider-tool-metadata-request",
+    "kind": "request",
+    "model": "claude-sonnet-4-6",
+    "requestBody": {
+        "model": "claude-sonnet-4-6",
+        "max_tokens": 512,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Search the docs, run the calculation, then call lookup_customer."
+                    }
+                ]
+            }
+        ],
+        "tools": [
+            {
+                "type": "web_search_20260318",
+                "name": "web_search",
+                "max_uses": 2,
+                "cache_control": {
+                    "type": "ephemeral"
+                }
+            },
+            {
+                "type": "code_execution_20260521",
+                "name": "code_execution",
+                "cache_control": {
+                    "type": "ephemeral"
+                }
+            },
+            {
+                "name": "lookup_customer",
+                "description": "Fetch one customer record by id.",
+                "strict": true,
+                "allowed_callers": ["direct"],
+                "eager_input_streaming": true,
+                "cache_control": {
+                    "type": "ephemeral"
+                },
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "customer_id": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["customer_id"]
+                }
+            }
+        ]
+    }
+}

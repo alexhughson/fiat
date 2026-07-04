@@ -1,0 +1,144 @@
+{
+    "scenario": "text",
+    "model": "gpt-realtime",
+    "sourceRequestBody": {
+        "model": "gpt-realtime",
+        "messages": [
+            {
+                "role": "system",
+                "content": "You answer in lowercase."
+            },
+            {
+                "role": "user",
+                "content": "Reply with exactly: pong"
+            }
+        ],
+        "max_tokens": 64
+    },
+    "requestBody": {
+        "model": "gpt-realtime",
+        "events": [
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Reply with exactly: pong"
+                        }
+                    ]
+                }
+            },
+            {
+                "type": "response.create",
+                "response": {
+                    "max_output_tokens": 64,
+                    "instructions": "You answer in lowercase.",
+                    "output_modalities": ["text"]
+                }
+            }
+        ]
+    },
+    "rawResponseEvents": [
+        {
+            "type": "response.done",
+            "response": {
+                "id": "resp_text_fixture",
+                "object": "realtime.response",
+                "status": "completed",
+                "status_details": null,
+                "model": "gpt-realtime",
+                "output": [
+                    {
+                        "id": "item_text_fixture",
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "pong"
+                            }
+                        ]
+                    }
+                ],
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 2
+                }
+            }
+        }
+    ],
+    "responseBody": {
+        "events": [
+            {
+                "type": "response.done",
+                "response": {
+                    "id": "resp_text_fixture",
+                    "object": "realtime.response",
+                    "status": "completed",
+                    "status_details": null,
+                    "model": "gpt-realtime",
+                    "output": [
+                        {
+                            "id": "item_text_fixture",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "pong"
+                                }
+                            ]
+                        }
+                    ],
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 2
+                    }
+                }
+            }
+        ]
+    },
+    "responseProgram": [],
+    "roundTripResponseBody": {
+        "events": [
+            {
+                "type": "response.done",
+                "response": {
+                    "id": "resp_text_fixture",
+                    "object": "realtime.response",
+                    "status": "completed",
+                    "status_details": null,
+                    "model": "gpt-realtime",
+                    "output": [
+                        {
+                            "type": "message",
+                            "id": "item_text_fixture",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "pong"
+                                }
+                            ]
+                        }
+                    ],
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 2
+                    }
+                }
+            }
+        ]
+    },
+    "openAIChatResponse": {
+        "object": "chat.completion"
+    },
+    "durationMs": 0,
+    "checks": []
+}
