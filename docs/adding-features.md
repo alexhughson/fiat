@@ -27,7 +27,7 @@ src/dialects/<name>/
   wire.ts       requestFromWire/requestToWire/responseFromWire/responseToWire/streamResponseFromWire/streamResponseToWire
   raise.ts      raiseStages: Stage[] — dialect ops -> core ops (+ enum maps)
   lower.ts      lowerRequestStages / lowerResponseStages / lowerStreamResponseStages: Stage[] — core ops -> dialect ops
-  legalize.ts   request Pass[] (optional)
+  legalize.ts   request legalizer functions (optional)
   index.ts      exported Dialect object + exported translator
 test/
   dialects/<name>/
@@ -100,9 +100,9 @@ dialect-agnostic.
 
 ## 3. Add a legalization or lint
 
-1. `src/dialects/<name>/legalize.ts` — add a request `Pass` and append it to
+1. `src/dialects/<name>/legalize.ts` — add a request `Pass` function and append it to
    the exported `legalizations` array, then attach that array to the dialect's
-   `request` codec in `index.ts`. Model scoping belongs inside `run`: read
+   `request` codec in `index.ts`. Model scoping belongs inside the function: read
    `target.model`, return the input program unchanged when it does not apply.
 2. Decide the type honestly: if the rewrite preserves meaning (defaults,
    caps, renames, clamping an unsupported effort to the nearest supported

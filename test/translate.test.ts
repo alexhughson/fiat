@@ -127,15 +127,12 @@ describe("request translation", () => {
     });
 
     test("core-IR passes run between raise and lower — e.g. rerouting the model", () => {
-        const rerouteToHaiku: Pass = {
-            name: "reroute-to-haiku",
-            run: (program) =>
-                program.map((op) =>
-                    op.op === "llm.model"
-                        ? { op: "llm.model", model: "claude-haiku-4-5" }
-                        : op,
-                ),
-        };
+        const rerouteToHaiku: Pass = (program) =>
+            program.map((op) =>
+                op.op === "llm.model"
+                    ? { op: "llm.model", model: "claude-haiku-4-5" }
+                    : op,
+            );
 
         const body = translateRequest(
             {
@@ -391,13 +388,10 @@ describe("request translation", () => {
     });
 
     test("a routed Claude Code request omits gpt-5.5 chat reasoning_effort when tools are present", () => {
-        const routeToGPT55: Pass = {
-            name: "route-to-gpt-5.5",
-            run: (program) =>
-                program.map((op) =>
-                    op.op === "llm.model" ? { ...op, model: "gpt-5.5" } : op,
-                ),
-        };
+        const routeToGPT55: Pass = (program) =>
+            program.map((op) =>
+                op.op === "llm.model" ? { ...op, model: "gpt-5.5" } : op,
+            );
 
         const body = translateRequest(claudeCodeAnthropicRequest, {
             from: AnthropicTranslator,
@@ -492,16 +486,13 @@ describe("residual semantics", () => {
     });
 
     test("a pass can mark a residual droppable, and then it is silently dropped by design", () => {
-        const allowDroppingLogitBias: Pass = {
-            name: "allow-dropping-logit-bias",
-            run: (program) =>
-                program.map((op) =>
-                    op.op === "openai_chat.body_field" &&
-                    (op as { key?: string }).key === "logit_bias"
-                        ? { ...op, required: false }
-                        : op,
-                ),
-        };
+        const allowDroppingLogitBias: Pass = (program) =>
+            program.map((op) =>
+                op.op === "openai_chat.body_field" &&
+                (op as { key?: string }).key === "logit_bias"
+                    ? { ...op, required: false }
+                    : op,
+            );
 
         const body = translateRequest(bodyWithResidual(undefined), {
             from: OpenAIChatTranslator,
@@ -940,12 +931,9 @@ describe("response stream translation", () => {
             from: AnthropicTranslator,
             to: AnthropicTranslator,
             passes: [
-                {
-                    name: "capture-stream-op",
-                    run: (program) => {
-                        seen.push(...program);
-                        return program;
-                    },
+                (program) => {
+                    seen.push(...program);
+                    return program;
                 },
             ],
         });

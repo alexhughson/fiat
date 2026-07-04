@@ -181,35 +181,25 @@ function openAIResponseToAnthropic(
 
 function requestPasses(): Pass[] {
     return [
-        {
-            name: "examples.anthropic-openai-proxy.route-openai-model",
-            run(program) {
-                return program.map((op) => {
-                    if (op.op === "llm.model") {
-                        return { ...op, model: backendModel };
-                    }
-                    if (op.op === "request.stream") {
-                        return { ...op, value: false };
-                    }
-                    return op;
-                });
-            },
-        },
+        (program) =>
+            program.map((op) => {
+                if (op.op === "llm.model") {
+                    return { ...op, model: backendModel };
+                }
+                if (op.op === "request.stream") {
+                    return { ...op, value: false };
+                }
+                return op;
+            }),
     ];
 }
 
 function responsePasses(requestedModel: string): Pass[] {
     return [
-        {
-            name: "examples.anthropic-openai-proxy.response-policy",
-            run(program) {
-                return program.map((op) =>
-                    op.op === "llm.model"
-                        ? { ...op, model: requestedModel }
-                        : op,
-                );
-            },
-        },
+        (program) =>
+            program.map((op) =>
+                op.op === "llm.model" ? { ...op, model: requestedModel } : op,
+            ),
     ];
 }
 

@@ -3,36 +3,34 @@
 import { opData, type Program } from "../../core/ops";
 import { LintError, type Pass } from "../../core/pass";
 
-export const legalizeThinkingLevel: Pass = {
-    name: "gemini.legalize-thinking-level",
-    run(program: Program, target): Program {
-        if (!programHasThinkingLevel(program)) return program;
-        if (!target.model) {
-            if (target.strict) {
-                throw new LintError(
-                    "gemini thinkingLevel legalization requires llm.model",
-                );
-            }
-            return program;
-        }
-        if (supportsThinkingLevel(target.model)) {
-            return program.map((op) =>
-                op.op === "gemini.generation_config"
-                    ? legalizeGemini3ThinkingLevel(op, target.strict === true)
-                    : op,
-            );
-        }
+export const legalizeThinkingLevel: Pass = (
+    program: Program,
+    target,
+): Program => {
+    if (!programHasThinkingLevel(program)) return program;
+    if (!target.model) {
         if (target.strict) {
             throw new LintError(
-                `${target.model}: generationConfig.thinkingConfig.thinkingLevel is only supported by Gemini 3 or later generateContent models`,
+                "gemini thinkingLevel legalization requires llm.model",
             );
         }
+        return program;
+    }
+    if (supportsThinkingLevel(target.model)) {
         return program.map((op) =>
             op.op === "gemini.generation_config"
-                ? thinkingLevelToBudget(op)
+                ? legalizeGemini3ThinkingLevel(op, target.strict === true)
                 : op,
         );
-    },
+    }
+    if (target.strict) {
+        throw new LintError(
+            `${target.model}: generationConfig.thinkingConfig.thinkingLevel is only supported by Gemini 3 or later generateContent models`,
+        );
+    }
+    return program.map((op) =>
+        op.op === "gemini.generation_config" ? thinkingLevelToBudget(op) : op,
+    );
 };
 
 function programHasThinkingLevel(program: Program): boolean {

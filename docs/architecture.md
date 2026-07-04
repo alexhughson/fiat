@@ -74,7 +74,7 @@ Rules, enforced by `lintForeignResiduals` in `src/core/pipeline.ts`:
 
 ## Passes
 
-A pass is a named pure function `Program -> Program` (`src/core/pass.ts`).
+A pass is a pure function `(program, target) -> program` (`src/core/pass.ts`).
 Registered legalizations live on the request/response codec they apply to, and
 receive `Target { dialect, kind, model, strict }`. Two conventions:
 

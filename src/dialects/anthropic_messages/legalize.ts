@@ -13,146 +13,139 @@ import type { AnthropicEffort } from "./ops";
 // without changing its meaning (it's a cap, not an instruction).
 export const DEFAULT_MAX_TOKENS = 4096;
 
-export const defaultMaxTokens: Pass = {
-    name: "anthropic_messages.default-max-tokens",
-    run(program: Program): Program {
-        if (firstOp(program, "llm.max_output_tokens")) return program;
-        return [
-            ...program,
-            { op: "llm.max_output_tokens", value: DEFAULT_MAX_TOKENS },
-        ];
-    },
+export const defaultMaxTokens: Pass = (program: Program): Program => {
+    if (firstOp(program, "llm.max_output_tokens")) return program;
+    return [
+        ...program,
+        { op: "llm.max_output_tokens", value: DEFAULT_MAX_TOKENS },
+    ];
 };
 
-export const legalizeUnsupportedSamplingParams: Pass = {
-    name: "anthropic_messages.legalize-unsupported-sampling-params",
-    run(program: Program, target): Program {
-        if (!rejectsExplicitSampling(target.model)) return program;
+export const legalizeUnsupportedSamplingParams: Pass = (
+    program: Program,
+    target,
+): Program => {
+    if (!rejectsExplicitSampling(target.model)) return program;
 
-        return program.flatMap((op) => {
-            if (op.op === "llm.temperature") {
-                if (target.strict) {
-                    throw new LintError(
-                        `${target.model}: explicit temperature is rejected by the Anthropic Messages API`,
-                    );
-                }
-                return [];
+    return program.flatMap((op) => {
+        if (op.op === "llm.temperature") {
+            if (target.strict) {
+                throw new LintError(
+                    `${target.model}: explicit temperature is rejected by the Anthropic Messages API`,
+                );
             }
-            if (op.op !== "anthropic_messages.sampling") return [op];
-            const { key } = opData<{ key: "top_p" | "top_k" }>(op);
-            if (key === "top_p" || key === "top_k") {
-                if (target.strict) {
-                    throw new LintError(
-                        `${target.model}: explicit ${key} is rejected by the Anthropic Messages API`,
-                    );
-                }
-                return [];
-            }
-            return [op];
-        });
-    },
-};
-
-export const validateOutputConfigEffort: Pass = {
-    name: "anthropic_messages.legalize-output-config-effort",
-    run(program: Program, target): Program {
-        return program.flatMap((op) => {
-            if (op.op !== "anthropic_messages.output_config") return [op];
-            const config = opData<{ value: unknown }>(op).value;
-            if (!isRecord(config)) {
-                if (target.strict) {
-                    throw new LintError(
-                        "anthropic_messages output_config legalization requires output_config to be an object",
-                    );
-                }
-                return [];
-            }
-            if (config.effort == null) return [op];
-            if (!target.model) {
-                if (target.strict) {
-                    throw new LintError(
-                        "anthropic_messages output_config.effort legalization requires llm.model",
-                    );
-                }
-                return [op];
-            }
-            const effort = legalizeEffortForModel(
-                target.model,
-                config.effort,
-                target.strict === true,
-            );
-            const { effort: _effort, ...rest } = config;
-            if (!effort) {
-                return Object.keys(rest).length === 0
-                    ? []
-                    : [{ ...op, value: rest }];
-            }
-            return [{ ...op, value: { ...rest, effort } }];
-        });
-    },
-};
-
-export const legalizeThinking: Pass = {
-    name: "anthropic_messages.legalize-thinking",
-    run(program: Program, target): Program {
-        const thinkingOps = program.filter(
-            (op) => op.op === "anthropic_messages.thinking",
-        );
-        if (thinkingOps.length === 0) return program;
-        if (thinkingOps.length > 1 && target.strict) {
-            throw new LintError(
-                "anthropic_messages request: expected at most one thinking op",
-            );
+            return [];
         }
+        if (op.op !== "anthropic_messages.sampling") return [op];
+        const { key } = opData<{ key: "top_p" | "top_k" }>(op);
+        if (key === "top_p" || key === "top_k") {
+            if (target.strict) {
+                throw new LintError(
+                    `${target.model}: explicit ${key} is rejected by the Anthropic Messages API`,
+                );
+            }
+            return [];
+        }
+        return [op];
+    });
+};
+
+export const validateOutputConfigEffort: Pass = (
+    program: Program,
+    target,
+): Program => {
+    return program.flatMap((op) => {
+        if (op.op !== "anthropic_messages.output_config") return [op];
+        const config = opData<{ value: unknown }>(op).value;
+        if (!isRecord(config)) {
+            if (target.strict) {
+                throw new LintError(
+                    "anthropic_messages output_config legalization requires output_config to be an object",
+                );
+            }
+            return [];
+        }
+        if (config.effort == null) return [op];
         if (!target.model) {
             if (target.strict) {
                 throw new LintError(
-                    "anthropic_messages thinking legalization requires llm.model",
+                    "anthropic_messages output_config.effort legalization requires llm.model",
                 );
-            }
-            return program.filter(
-                (op) => op.op !== "anthropic_messages.thinking",
-            );
-        }
-        if (hasRawThinkingParam(program)) {
-            if (target.strict) {
-                throw new LintError(
-                    "anthropic_messages thinking legalization conflicts with raw thinking_config",
-                );
-            }
-            return program.filter(
-                (op) => op.op !== "anthropic_messages.thinking",
-            );
-        }
-
-        const thinking = opData<{
-            adaptiveEffort?: AnthropicEffort;
-            manualBudgetTokens?: number;
-            display?: "summarized" | "omitted";
-        }>(thinkingOps[0]!);
-        const replacement = thinkingParamsForModel(
-            program,
-            target.model,
-            thinking,
-            target.strict === true,
-        );
-        const replacesOutputConfig = replacement.some(
-            (op) => op.op === "anthropic_messages.output_config",
-        );
-
-        return program.flatMap((op) => {
-            if (op.op === "anthropic_messages.thinking") {
-                return op === thinkingOps[0] ? replacement : [];
-            }
-            if (
-                replacesOutputConfig &&
-                op.op === "anthropic_messages.output_config"
-            ) {
-                return [];
             }
             return [op];
-        });
-    },
+        }
+        const effort = legalizeEffortForModel(
+            target.model,
+            config.effort,
+            target.strict === true,
+        );
+        const { effort: _effort, ...rest } = config;
+        if (!effort) {
+            return Object.keys(rest).length === 0
+                ? []
+                : [{ ...op, value: rest }];
+        }
+        return [{ ...op, value: { ...rest, effort } }];
+    });
+};
+
+export const legalizeThinking: Pass = (
+    program: Program,
+    target,
+): Program => {
+    const thinkingOps = program.filter(
+        (op) => op.op === "anthropic_messages.thinking",
+    );
+    if (thinkingOps.length === 0) return program;
+    if (thinkingOps.length > 1 && target.strict) {
+        throw new LintError(
+            "anthropic_messages request: expected at most one thinking op",
+        );
+    }
+    if (!target.model) {
+        if (target.strict) {
+            throw new LintError(
+                "anthropic_messages thinking legalization requires llm.model",
+            );
+        }
+        return program.filter((op) => op.op !== "anthropic_messages.thinking");
+    }
+    if (hasRawThinkingParam(program)) {
+        if (target.strict) {
+            throw new LintError(
+                "anthropic_messages thinking legalization conflicts with raw thinking_config",
+            );
+        }
+        return program.filter((op) => op.op !== "anthropic_messages.thinking");
+    }
+
+    const thinking = opData<{
+        adaptiveEffort?: AnthropicEffort;
+        manualBudgetTokens?: number;
+        display?: "summarized" | "omitted";
+    }>(thinkingOps[0]!);
+    const replacement = thinkingParamsForModel(
+        program,
+        target.model,
+        thinking,
+        target.strict === true,
+    );
+    const replacesOutputConfig = replacement.some(
+        (op) => op.op === "anthropic_messages.output_config",
+    );
+
+    return program.flatMap((op) => {
+        if (op.op === "anthropic_messages.thinking") {
+            return op === thinkingOps[0] ? replacement : [];
+        }
+        if (
+            replacesOutputConfig &&
+            op.op === "anthropic_messages.output_config"
+        ) {
+            return [];
+        }
+        return [op];
+    });
 };
 
 function rejectsExplicitSampling(model?: string): boolean {
