@@ -16,7 +16,7 @@ program: core ops + residuals            ◄── your transforms/lints run her
   │ lower           (anthropic_messages) regroup core ops into wire structure
   ▼
 program: core ops + anthropic_messages.* ops
-  │ legalizations   (anthropic request codec) endpoint/model conformance passes
+  │ legalizations   (anthropic request codec) endpoint/model conformance transforms
   │ residual lint   (pipeline)           foreign ops: drop if { required: false }, else halt
   │ toWire          (anthropic_messages) strict serialization
   ▼
@@ -47,9 +47,10 @@ through. This kills four redundant copy steps per trivial field and keeps
 Because passthrough is universal, a _partially_ raised or lowered program is
 still a valid program — which is why `raise` and `lower` are pipelines of
 small `Stage` functions (`src/core/rewrite.ts`), each rewriting one op kind,
-rather than monolithic switches. Extending a dialect means appending a stage
-to its exported `raiseStages`/`lowerRequestStages`/`lowerResponseStages`
-array; see [dialects.md](dialects.md#raise-and-lower-are-stage-pipelines).
+rather than monolithic switches. Extending a conversion means passing a
+custom stage via the `beforeRaise`/`afterRaise`/`beforeLower`/`afterLower`
+hooks (`src/core/pipeline.ts`); see
+[dialects.md](dialects.md#raise-and-lower-are-stage-pipelines).
 
 ## Residuals: lossless by default, loud when lost
 
@@ -69,14 +70,14 @@ Rules, enforced by `lintForeignResiduals` in `src/core/pipeline.ts`:
   residual such as `openai_chat.usage { appliesTo: "response" }` round-trips
   through `toResponse`, but does not get sent when the same response program
   is appended to a request for the next turn.
-- Any dialect can register a pass that consumes another dialect's residual
+- Any dialect can register a legalization that consumes another dialect's residual
   and maps it onto its own ops — that is the interop escape hatch.
 
-## Passes
+## Legalizations
 
-A pass is a pure function `(program, target) -> program` (`src/core/pass.ts`).
 Registered legalizations live on the request/response codec they apply to, and
-receive `Target { dialect, kind, model, strict }`. Two conventions:
+receive `Target { dialect, kind, model, strict }`. They are plain functions
+run left to right after lowering. Two conventions:
 
 - **transform / legalize**: rewrite toward what the target accepts. Example:
   `anthropic_messages.default-max-tokens` inserts the required `max_tokens`
@@ -90,7 +91,7 @@ Hard representational failures are still errors in every mode. Example:
 `llm.output` reaching a dialect with no output-schema wire home throws during
 lowering.
 
-Caller passes run on the core IR between raise and lower. For edge-local
+Caller transforms run on the core IR between raise and lower. For edge-local
 customization, the half-pipeline APIs also accept pure `Stage` hooks:
 `beforeRaise`/`afterRaise` around a dialect's raise edge, and
 `beforeLower`/`afterLower` around its lower edge. These hooks only see the op

@@ -60,7 +60,7 @@ request body may also carry top-level call/session fields such as `model`:
 - Text is the only cross-provider content represented as core `llm.text`.
   Realtime-only parts such as audio remain realtime residuals and round-trip
   when targeting `openai_realtime`; translating them to another provider halts
-  unless a pass explicitly marks the residual droppable.
+  unless a transform explicitly marks the residual droppable.
 - `toBody` emits `response.create.response.output_modalities: ["text"]` unless
   the caller supplied a realtime response param.
 - `llm.model` lowers to top-level `model`, so OpenAI Chat/Responses-shaped

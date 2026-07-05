@@ -11,7 +11,7 @@ import {
 } from "../../core/ops";
 import { firstOp } from "../../core/program";
 import { declaredToolsByName, type DeclaredTool } from "../../core/tools";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import {
     asArray,
     asBoolean,

@@ -81,6 +81,27 @@ describe("openai_responses requests", () => {
         ).toEqual(body);
     });
 
+    test("reasoning requests serialize effort and encrypted-content include", () => {
+        expect(
+            OpenAIResponsesTranslator.toBody([
+                { op: "llm.model", model: "gpt-5.4" },
+                { op: "llm.thinking", effort: "high" },
+                { op: "llm.text", role: "user", content: "hi" },
+            ]),
+        ).toEqual({
+            model: "gpt-5.4",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [{ type: "input_text", text: "hi" }],
+                },
+            ],
+            reasoning: { effort: "high", summary: "auto" },
+            include: ["reasoning.encrypted_content"],
+        });
+    });
+
     test("minimal hosted server tools raise to core and lower from name-only choice", () => {
         const program = OpenAIResponsesTranslator.fromBody({
             model: "gpt-4o-mini",
@@ -305,6 +326,41 @@ describe("openai_responses requests", () => {
                     call_id: "call_1",
                     name: "get_weather",
                     arguments: '{"city":"Paris"}',
+                },
+            ],
+        });
+    });
+
+    test("Responses item ids lower from composite tool call ids", () => {
+        expect(
+            OpenAIResponsesTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o-mini" },
+                {
+                    op: "llm.tool_call",
+                    id: "call_1|item_123",
+                    name: "get_weather",
+                    arguments: { city: "Paris" },
+                },
+                {
+                    op: "llm.tool_result",
+                    id: "call_1|item_123",
+                    content: "clear",
+                },
+            ]),
+        ).toEqual({
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "function_call",
+                    id: "fc_item_123",
+                    call_id: "call_1",
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                },
+                {
+                    type: "function_call_output",
+                    call_id: "call_1",
+                    output: "clear",
                 },
             ],
         });
@@ -630,7 +686,7 @@ describe("openai_responses responses", () => {
 
         expect(program).toContainEqual({
             op: "llm.tool_call",
-            id: "call_1",
+            id: "call_1|fc_123",
             name: "get_weather",
             arguments: { city: "Paris" },
         });

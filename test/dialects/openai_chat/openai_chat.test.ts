@@ -98,6 +98,22 @@ describe("openai_chat requests", () => {
         });
     });
 
+    test("reasoning chat models lower system text as developer messages", () => {
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-5.4" },
+                { op: "llm.text", role: "system", content: "Use policy." },
+                { op: "llm.text", role: "user", content: "hi" },
+            ]),
+        ).toEqual({
+            model: "gpt-5.4",
+            messages: [
+                { role: "developer", content: "Use policy." },
+                { role: "user", content: "hi" },
+            ],
+        });
+    });
+
     test("o-series chat serializes max output tokens as max_completion_tokens", () => {
         expect(
             OpenAIChatTranslator.toBody([
@@ -264,6 +280,7 @@ describe("openai_chat requests", () => {
                 },
                 { role: "tool", tool_call_id: "call_1", content: '["INV-7"]' },
             ],
+            tools: [],
         };
 
         const program = OpenAIChatTranslator.fromBody(body);
@@ -280,6 +297,109 @@ describe("openai_chat requests", () => {
         ]);
 
         expect(OpenAIChatTranslator.toBody(program)).toEqual(body);
+    });
+
+    test("tool history replay without current tools serializes an empty tools array", () => {
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                {
+                    op: "llm.tool_call",
+                    id: "call_1",
+                    name: "read_file",
+                    arguments: { path: "a.txt" },
+                },
+                {
+                    op: "llm.tool_result",
+                    id: "call_1",
+                    content: "contents",
+                },
+                { op: "llm.text", role: "user", content: "hi" },
+            ]),
+        ).toEqual({
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: "call_1",
+                            type: "function",
+                            function: {
+                                name: "read_file",
+                                arguments: '{"path":"a.txt"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    role: "tool",
+                    tool_call_id: "call_1",
+                    content: "contents",
+                },
+                { role: "user", content: "hi" },
+            ],
+            tools: [],
+        });
+    });
+
+    test("Responses-style item ids are stripped from Chat tool call ids", () => {
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                {
+                    op: "llm.tool_call",
+                    id: "call_1|fc_abcdefghijklmnopqrstuvwxyz",
+                    name: "read_file",
+                    arguments: { path: "a.txt" },
+                },
+                {
+                    op: "llm.tool_result",
+                    id: "call_1|fc_abcdefghijklmnopqrstuvwxyz",
+                    content: "contents",
+                },
+            ]),
+        ).toMatchObject({
+            messages: [
+                {
+                    tool_calls: [
+                        {
+                            id: "call_1",
+                        },
+                    ],
+                },
+                {
+                    tool_call_id: "call_1",
+                },
+            ],
+        });
+    });
+
+    test("overlong tool call ids are truncated to Chat's limit", () => {
+        const longId = `call_${"x".repeat(80)}`;
+
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                {
+                    op: "llm.tool_call",
+                    id: longId,
+                    name: "read_file",
+                    arguments: { path: "a.txt" },
+                },
+            ]),
+        ).toMatchObject({
+            messages: [
+                {
+                    tool_calls: [
+                        {
+                            id: longId.slice(0, 40),
+                        },
+                    ],
+                },
+            ],
+        });
     });
 
     test("parallel tool calls lower into one assistant message", () => {
@@ -317,6 +437,7 @@ describe("openai_chat requests", () => {
                     ],
                 },
             ],
+            tools: [],
         });
     });
 

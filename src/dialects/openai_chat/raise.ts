@@ -6,7 +6,7 @@
 // directions.
 
 import { opData, type Op, type Program, type StopReason } from "../../core/ops";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import { stagePipeline, type Stage } from "../../core/rewrite";
 import type {
     OpenAIChatMessageMeta,

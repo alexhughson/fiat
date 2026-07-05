@@ -1,7 +1,7 @@
-// Executable documentation for the extension mechanism: raise/lower are
-// pipelines over exported Stage arrays, and stagePipeline reads its array on
-// every call — so pushing (or unshifting) a stage after import extends a
-// dialect without touching its source.
+// Executable documentation for the extension mechanisms: raise/lower are
+// pipelines over exported Stage arrays composed with stagePipeline, and
+// callers extend a dialect per-call via the beforeRaise/afterRaise/
+// beforeLower/afterLower hooks rather than mutating those arrays.
 
 import { describe, expect, test } from "bun:test";
 import {
@@ -11,7 +11,6 @@ import {
     type Program,
     type Stage,
 } from "../src/index";
-import { lowerRequestStages } from "../src/dialects/anthropic_messages";
 
 describe("stagePipeline", () => {
     test("stages compose left to right and unmatched ops pass through", () => {
@@ -46,22 +45,22 @@ describe("stagePipeline", () => {
         ]);
     });
 
-    test("the stage array is read per call, so appending after construction takes effect", () => {
+    test("the stage array is snapshotted at construction, so mutating it afterward has no effect", () => {
         const stages: Stage[] = [];
         const pipeline = stagePipeline(stages);
         const program: Program = [{ op: "test.x" }];
 
         expect(pipeline(program)).toEqual([{ op: "test.x" }]);
         stages.push((p) => p.filter((op) => op.op !== "test.x"));
-        expect(pipeline(program)).toEqual([]);
+        expect(pipeline(program)).toEqual([{ op: "test.x" }]);
     });
 });
 
-describe("extending a dialect by adding a stage", () => {
+describe("extending a dialect via beforeLower", () => {
     // anthropic_messages has a native structured-output field. A proxy that
     // wants the classic workaround — rewrite llm.output into a forced tool —
-    // hooks in one stage. It must run before the native lowering stage, so it
-    // goes on the front of the array.
+    // hooks in via beforeLower. It must run before the codec's lower, so it
+    // sees llm.output before the native lowering rewrites it.
     const outputAsForcedTool: Stage = (program) =>
         program.flatMap((op) => {
             if (op.op !== "llm.output") return [op];
@@ -87,7 +86,7 @@ describe("extending a dialect by adding a stage", () => {
         { op: "llm.text", role: "user", content: "Is water wet?" },
     ];
 
-    test("without the stage, llm.output lowers to native output_config.format", () => {
+    test("without the hook, llm.output lowers to native output_config.format", () => {
         expect(AnthropicTranslator.toBody(request)).toMatchObject({
             output_config: {
                 format: {
@@ -98,19 +97,13 @@ describe("extending a dialect by adding a stage", () => {
         });
     });
 
-    test("with the stage installed, llm.output lowers as a forced tool", () => {
-        lowerRequestStages.unshift(outputAsForcedTool);
-        try {
-            const body = AnthropicTranslator.toBody(request) as Record<
-                string,
-                unknown
-            >;
-            expect(body.tools).toEqual([
-                { name: "verdict", input_schema: { type: "object" } },
-            ]);
-            expect(body.tool_choice).toEqual({ type: "tool", name: "verdict" });
-        } finally {
-            lowerRequestStages.shift();
-        }
+    test("with beforeLower installed, llm.output lowers as a forced tool", () => {
+        const body = AnthropicTranslator.toBody(request, {
+            beforeLower: outputAsForcedTool,
+        }) as Record<string, unknown>;
+        expect(body.tools).toEqual([
+            { name: "verdict", input_schema: { type: "object" } },
+        ]);
+        expect(body.tool_choice).toEqual({ type: "tool", name: "verdict" });
     });
 });

@@ -3,7 +3,6 @@ import {
     LintError,
     OpenAIChatTranslator,
     OpenAIRealtimeTranslator,
-    translateRequest,
 } from "../../../src/index";
 
 describe("openai_realtime requests", () => {
@@ -34,6 +33,86 @@ describe("openai_realtime requests", () => {
                 { op: "llm.text", role: "user", content: "hi" },
             ]),
         ).toEqual(textRequest);
+    });
+
+    test("response.create defaults output modalities to text", () => {
+        expect(
+            OpenAIRealtimeTranslator.toBody([
+                { op: "llm.text", role: "user", content: "hi" },
+            ]),
+        ).toEqual({
+            events: [
+                {
+                    type: "conversation.item.create",
+                    item: {
+                        type: "message",
+                        role: "user",
+                        content: [{ type: "input_text", text: "hi" }],
+                    },
+                },
+                {
+                    type: "response.create",
+                    response: { output_modalities: ["text"] },
+                },
+            ],
+        });
+    });
+
+    test("response.create rejects audio output modalities", () => {
+        expect(() =>
+            OpenAIRealtimeTranslator.toBody([
+                {
+                    op: "openai_realtime.response_param",
+                    key: "output_modalities",
+                    value: ["text", "audio"],
+                },
+                { op: "llm.text", role: "user", content: "hi" },
+            ]),
+        ).toThrow(LintError);
+    });
+
+    test("response input mode embeds conversation context inside response.create", () => {
+        expect(
+            OpenAIRealtimeTranslator.toBody([
+                { op: "openai_realtime.response_input_mode", required: false },
+                { op: "llm.text", role: "user", content: "hi" },
+                {
+                    op: "llm.tool_result",
+                    id: "call_1",
+                    content: "contents",
+                },
+            ]),
+        ).toEqual({
+            events: [
+                {
+                    type: "response.create",
+                    response: {
+                        input: [
+                            {
+                                type: "message",
+                                role: "user",
+                                content: [{ type: "input_text", text: "hi" }],
+                            },
+                            {
+                                type: "function_call_output",
+                                call_id: "call_1",
+                                output: "contents",
+                            },
+                        ],
+                        output_modalities: ["text"],
+                    },
+                },
+            ],
+        });
+    });
+
+    test("sampling remains session-scoped instead of request-event state", () => {
+        expect(() =>
+            OpenAIRealtimeTranslator.toBody([
+                { op: "llm.temperature", value: 0.2 },
+                { op: "llm.text", role: "user", content: "hi" },
+            ]),
+        ).toThrow("configure sampling on the session");
     });
 
     test("event request body raises back to core text", () => {
@@ -180,10 +259,9 @@ describe("openai_realtime requests", () => {
             ),
         ).toEqual(body);
         expect(() =>
-            translateRequest(body, {
-                from: OpenAIRealtimeTranslator,
-                to: OpenAIChatTranslator,
-            }),
+            OpenAIChatTranslator.toBody(
+                OpenAIRealtimeTranslator.fromBody(body),
+            ),
         ).toThrow(LintError);
     });
 

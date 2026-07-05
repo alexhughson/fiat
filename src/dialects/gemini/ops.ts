@@ -1,3 +1,5 @@
+import type { ThinkingEffort } from "../../core/ops";
+
 export const DIALECT = "gemini";
 
 export interface WireFunctionCall {
@@ -43,6 +45,14 @@ export interface GeminiPartMeta {
 }
 
 export type GeminiOp =
+    | {
+          // Model-free carrier for llm.thinking, produced by lowerThinking.
+          // legalize.ts's gemini.thinking legalization must consume this
+          // before toWire, which has no serialization for it.
+          op: "gemini.thinking";
+          effort: ThinkingEffort;
+          required?: boolean;
+      }
     | {
           op: "gemini.content";
           content: WireContent;

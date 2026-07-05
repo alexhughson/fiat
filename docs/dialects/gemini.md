@@ -52,7 +52,7 @@ round-trip; live callers strip it into the REST path. Code:
   `responseMimeType` or `responseSchema`; overwriting either would change the
   requested output contract.
 - A `gemini.part_meta` residual must still be adjacent to the lowered model
-  text/function-call part when request history is serialized. If a pass inserts
+  text/function-call part when request history is serialized. If a transform inserts
   another op between the core part and its metadata, lowering throws instead of
   dropping the metadata.
 - `generationConfig.thinkingConfig.thinkingLevel` on pre-Gemini-3 Generate
@@ -72,14 +72,18 @@ turn to be sent back in history; omitting it can produce HTTP 400.
 The dialect stores these fields in `gemini.part_meta` rather than adding a
 core thinking op. When a Gemini response program is appended to the next
 Gemini request with a tool result, request lowering reattaches the exact
-`thoughtSignature` to the historical `functionCall` part. Some Gemini models
-omit `functionCall.id`; raising synthesizes a core id like `gemini_call_0`,
-and part metadata makes response/request lowering omit that synthetic id from
-the Gemini `functionCall` again.
+`thoughtSignature` to the historical `functionCall` part. Core-originated or
+cross-provider history has no signature; `applyRequestPartMeta` injects
+Google's documented dummy `skip_thought_signature_validator` on the first
+`functionCall` in each step of the current turn (from the last user text
+message through the tool loop). Older turns are not validated by Gemini.
+Some Gemini models omit `functionCall.id`; raising synthesizes a core id like
+`gemini_call_0`, and part metadata makes response/request lowering omit that
+synthetic id from the Gemini `functionCall` again.
 
 `gemini.part_meta` is still index-based: the metadata says "part 0 had these
 extras." That is correct for immediate round-trip and response-chaining, but a
-core pass that inserts or drops assistant parts between raise and lower can
+core transform that inserts or drops assistant parts between raise and lower can
 misalign metadata. The current request lowering fails when metadata is no
 longer adjacent to the lowered part.
 
@@ -91,10 +95,12 @@ methods:
 - Thinking control lives under `generationConfig.thinkingConfig`. Native
   config is carried as `gemini.generation_config`; portable `llm.thinking`
   lowers to Gemini 3 `thinkingLevel` or Gemini 2.5 `thinkingBudget`.
-  Gemini 3 does not accept `xhigh`/`max` levels, so default lowering clamps
-  those efforts to `high`; `{ strict: true }` throws instead. Gemini 2.5 maps
-  efforts to budgets: `low=1024`, `medium=4096`, `high=8192`,
-  `xhigh=16384`, `max=24576`.
+  Gemini 3 serializes Google enum values: Pro uses `low=LOW`,
+  `medium=HIGH`, `high=HIGH`; Flash uses `low=LOW`, `medium=MEDIUM`,
+  `high=HIGH`. Gemini 3 does not accept `xhigh`/`max` levels, so default
+  lowering clamps those efforts to `HIGH`; `{ strict: true }` throws instead.
+  Gemini 2.5 maps efforts to budgets: `low=1024`, `medium=4096`,
+  `high=8192`, `xhigh=16384`, `max=24576`.
   Native `thinkingLevel` that reaches Gemini 2.5 through wire input or an
   `afterLower` hook is legalized to the same budgets by default.
 - Minimal built-in Google Search and code execution tools become

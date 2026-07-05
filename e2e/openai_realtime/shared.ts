@@ -4,8 +4,6 @@ import {
     firstOp,
     OpenAIChatTranslator,
     OpenAIRealtimeTranslator,
-    translateRequest,
-    translateResponse,
     type Program,
 } from "../../src/index";
 
@@ -102,10 +100,7 @@ export function requestBodyFromSource(
     source: Record<string, unknown>,
 ): Record<string, unknown> {
     return record(
-        translateRequest(source, {
-            from: OpenAIChatTranslator,
-            to: OpenAIRealtimeTranslator,
-        }),
+        OpenAIRealtimeTranslator.toBody(OpenAIChatTranslator.fromBody(source)),
         "realtime request body",
     );
 }
@@ -202,10 +197,9 @@ export function artifactFromResponse(
         responseProgram,
         roundTripResponseBody:
             OpenAIRealtimeTranslator.toResponse(responseProgram),
-        openAIChatResponse: translateResponse(responseBody, {
-            from: OpenAIRealtimeTranslator,
-            to: OpenAIChatTranslator,
-        }),
+        openAIChatResponse: OpenAIChatTranslator.toResponse(
+            OpenAIRealtimeTranslator.fromResponse(responseBody),
+        ),
         durationMs,
         checks: [],
     };

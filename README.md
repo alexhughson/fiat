@@ -1,11 +1,11 @@
-# metamodel
+# Fiat
 
-Metamodel is:
+Fiat is:
 
-1. An alternative schema for LLM requests
+1. An alternative schema for LLM prompts/requests
 2. Functions to convert to AND from major LLM APIs and this alternative schema
 
-It looks like this:
+The prompt schema looks like this:
 
 ```javascript
 [
@@ -18,7 +18,7 @@ It looks like this:
 ];
 ```
 
-It also covers responses from LLMs, which have an aligq`ned schema:
+It also covers responses from LLMs, which have an aligned schema:
 
 ```javascript
 [
@@ -32,7 +32,7 @@ It also covers responses from LLMs, which have an aligq`ned schema:
 ];
 ```
 
-You can convert payloads for LLM providers into this format:
+You can convert correct prompt payloads for LLM providers into this format:
 
 ```js
 import { OpenAIChatTranslator } from "metamodel"
@@ -54,7 +54,7 @@ const program = OpenAIChatTranslator.fromBody({
 ]
 ```
 
-And convert this representation into other LLM provider formats:
+And convert the fiat schema into any LLM provider formats:
 
 ```javascript
 import { AnthropicTranslator } from "metamodel"
@@ -62,7 +62,7 @@ import { AnthropicTranslator } from "metamodel"
 AnthropicTranslator.toBody(program)
 // =>
 {
-  model: "gpt-4o",          // rerouting the model is a one-line pass
+  model: "gpt-4o",          // rerouting the model is a one-line transform
   max_tokens: 4096,          // filled in by a legalization — anthropic requires it
   system: "You are an omniscient AI",
   messages: [
@@ -72,94 +72,64 @@ AnthropicTranslator.toBody(program)
 }
 ```
 
-Or do the whole wire-to-wire hop in one call:
+Or compose the two edges directly:
 
 ```javascript
-import {
-    AnthropicTranslator,
-    OpenAIChatTranslator,
-    translateRequest,
-    translateResponse,
-} from "metamodel";
+import { AnthropicTranslator, OpenAIChatTranslator } from "metamodel";
 
-const anthropicBody = translateRequest(openaiBody, {
-    from: OpenAIChatTranslator,
-    to: AnthropicTranslator,
-});
-const openaiResponse = translateResponse(anthropicResponse, {
-    from: AnthropicTranslator,
-    to: OpenAIChatTranslator,
-});
+const anthropicBody = AnthropicTranslator.toBody(
+    OpenAIChatTranslator.fromBody(openaiBody),
+);
+const openaiResponse = OpenAIChatTranslator.toResponse(
+    AnthropicTranslator.fromResponse(anthropicResponse),
+);
+```
+
+For streamed responses, compose `fromStreamResponse(...)` with
+`toStreamResponse(...)` one provider chunk/event at a time. The library
+handles the payload shape conversion, but it does not open SSE connections or
+websocket sessions for you.
+
+Available translator wrappers:
+
+| Export                      | Wire dialect             | 
+| --------------------------- | ------------------------ | 
+| `OpenAIChatTranslator`      | OpenAI Chat Completions  | 
+| `OpenAIResponsesTranslator` | OpenAI Responses         | 
+| `OpenAIRealtimeTranslator`  | OpenAI Realtime          | 
+| `AnthropicTranslator`       | Anthropic Messages       | 
+| `GeminiTranslator`          | Gemini `generateContent` | 
+
+Each wrapper exposes the same conversion methods:
+
+```js
+Translator.fromBody(body); // request wire payload -> core IR
+Translator.toBody(program); // core IR -> request wire payload
+Translator.fromResponse(response); // response wire payload -> core IR
+Translator.toResponse(program); // core IR -> response wire payload
+Translator.fromStreamResponse(event); // one stream event/chunk -> core IR
+Translator.toStreamResponse(program); // core IR -> one stream event/chunk
+Translator.toStreamResponses(program); // core IR -> stream event/chunk list
 ```
 
 This gives us some nice benefits:
 
-- You can write pure transforms against one format, and apply them to prompts against any LLM provider
-- You can build endpoints that accept and return OpenAI compatible payloads, backed by your own routing and transformation logic
-- Responses can be directly appended to requests, making it easy to append/log chat chains
+- You can write pure transforms against the fiat format, and apply them to prompts against any LLM provider
+- You can build endpoints that accept and return the signature of any llm provider, backed by your own routing and transformation logic.  Build your own LiteLLM 
+- Responses can be directly appended to existing requests, so mutations read a lot more simple
 
 ## Why?
 
-We have all built variants of this over and over again.
+If you've built an LLM backed app, I am sure that you have built some system to allow you to route the same LLM prompt to different providers.
 
-Just about every existing tool tries to abstract away too much, looping in
-the API connection, assuming that you want to call tools which are functions
-in a loop, locking you into their design decisions.
+There are a lot of libraries that abstract on top of all the LLM providers, but they take a lot out of your hands and you are dependent on the library for any feature you want.
 
-What we actually need is just a super flexible IR, working translators for
-major providers, and the ability to bend the tool to our needs when stuff
-gets weird.
+Fiat:
+
+- only covers structuring the data, so you can control how the calls actually get made.
+- Is a tool rather than an abstraction, so if there is something truly weird you want to do, you can still make those modifications.
+- Has an explicit way of adding provider specific data, so you can have full fidelity calls to particular providers, and best effort porting to another if you want.
+
 
 ## How it works
 
-MLIR-style, two levels. A shared **core IR** (`llm.*`, `response.*`,
-`meta.*` ops) carries everything providers have in common. Each endpoint has
-a **dialect** — a lower IR high-fidelity to that API — and four converters:
-
-```
-wire ⇄ (fromWire/toWire) ⇄ lower IR ⇄ (raise/lower) ⇄ core IR
-```
-
-Endpoint-only constructs survive raising as **residual ops** in the stream:
-going back to their home dialect they round-trip losslessly; going to a
-foreign dialect the pipeline halts unless they're marked droppable or a pass
-consumes them. Endpoint/model quirks live in **legalization passes**; when a
-rewrite would change the request's meaning, a **lint** raises instead.
-Nothing is ever dropped silently.
-
-Docs:
-
-- [docs/architecture.md](docs/architecture.md) — the pipeline, residuals, passes
-- [docs/core-ir.md](docs/core-ir.md) — the core op catalog
-- [docs/dialects.md](docs/dialects.md) — the dialect contract
-- [docs/adding-features.md](docs/adding-features.md) — **the cookbook: where every kind of change goes**
-
-## Development
-
-```bash
-bun install
-bun test            # unit suites + live API suites (live ones skip without keys)
-bunx tsc --noEmit   # typecheck
-bun run e2e:gemini # on-demand Gemini validation; writes e2e/gemini/output/latest
-bun run e2e:openai-realtime:validate # offline Realtime artifact validation
-```
-
-`bun test` reads provider keys from `.env` (`OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`); with keys present it proves the
-translators against the real APIs, including an openai-in/anthropic-backend
-proxy flow. The unit tests in `test/` are written as executable
-documentation — read them as examples.
-
-Gemini and OpenAI Realtime have separate e2e harnesses in [e2e/gemini](e2e/gemini)
-and [e2e/openai_realtime](e2e/openai_realtime). They save readable
-request/response/core artifacts and validate them later with
-`bun run e2e:gemini:validate` or `bun run e2e:openai-realtime:validate`.
-
-## Status
-
-Dialects: `openai_chat`, `openai_responses`, `openai_realtime`,
-`anthropic_messages`, `gemini` — text, tools, tool choice, usage/stop
-mapping, request, response, response-stream conversion where the provider
-supports them, structured output, and portable thinking effort where an
-endpoint has a documented control. Not yet modeled: streaming transport,
-images, and returned thinking content.

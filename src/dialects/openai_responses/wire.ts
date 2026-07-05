@@ -5,11 +5,12 @@ import {
     type OpOf,
     type Program,
     type ServerToolKind,
+    type ThinkingEffort,
     type ToolChoice,
 } from "../../core/ops";
 import { firstOp } from "../../core/program";
 import { declaredToolsByName, type DeclaredTool } from "../../core/tools";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import { asArray, asNumber, asRecord, asString } from "../../core/wire";
 import type { WireInputItem, WireOutputItem, WireTool } from "./ops";
 
@@ -23,6 +24,8 @@ const RESPONSE_ENVELOPE_PARAM_KEYS = new Set([
     "incomplete_details",
     "error",
 ]);
+
+const REASONING_ENCRYPTED_CONTENT = "reasoning.encrypted_content";
 
 export function requestFromWire(wire: unknown): Program {
     const body = asRecord(wire, "openai_responses request body");
@@ -55,6 +58,28 @@ export function requestFromWire(wire: unknown): Program {
                     op: "llm.max_output_tokens",
                     value: asNumber(value, "max_output_tokens"),
                 });
+                break;
+            case "reasoning": {
+                const reasoning = asRecord(value, "reasoning");
+                if (reasoning.effort != null) {
+                    program.push({
+                        op: "llm.thinking",
+                        effort: asString(
+                            reasoning.effort,
+                            "reasoning.effort",
+                        ) as ThinkingEffort,
+                    });
+                }
+                break;
+            }
+            case "include":
+                if (!isReasoningEncryptedContentInclude(value)) {
+                    program.push({
+                        op: "openai_responses.body_field",
+                        key,
+                        value,
+                    });
+                }
                 break;
             case "input":
                 program.push(...inputFromWire(value));
@@ -111,6 +136,13 @@ export function requestToWire(program: Program): unknown {
                 break;
             case "llm.max_output_tokens":
                 body.max_output_tokens = op.value;
+                break;
+            case "llm.thinking":
+                body.reasoning = {
+                    effort: (op as OpOf<"llm.thinking">).effort,
+                    summary: "auto",
+                };
+                body.include = [REASONING_ENCRYPTED_CONTENT];
                 break;
             case "llm.text": {
                 const text = op as OpOf<"llm.text">;
@@ -233,6 +265,14 @@ export function requestToWire(program: Program): unknown {
             "openai_responses request toWire: program has no llm.model op",
         );
     return body;
+}
+
+function isReasoningEncryptedContentInclude(value: unknown): boolean {
+    return (
+        Array.isArray(value) &&
+        value.length === 1 &&
+        value[0] === REASONING_ENCRYPTED_CONTENT
+    );
 }
 
 export function responseFromWire(wire: unknown): Program {

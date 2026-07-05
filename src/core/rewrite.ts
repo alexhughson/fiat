@@ -1,5 +1,13 @@
 import type { Program } from "./ops";
-import type { Target } from "./pass";
+
+// Where a program is headed. Target-scoped stages use this to pick model
+// behavior and whether to clean up or lint unsupported controls.
+export interface Target {
+    dialect: string;
+    kind: "request" | "response" | "response_stream";
+    model?: string;
+    strict?: boolean;
+}
 
 // raise and lower are pipelines of stages, not monolithic switches. A stage
 // is any Program -> Program function that rewrites the ops it cares about
@@ -10,9 +18,10 @@ import type { Target } from "./pass";
 // means appending a stage — existing stages never grow.
 export type Stage = (program: Program, target?: Target) => Program;
 
-// Composes left to right. Reads the array on every call, so a module may
-// push more stages after the pipeline was constructed.
+// Composes left to right. Snapshots the array at construction time, so
+// mutating the source array afterward has no effect on this pipeline.
 export function stagePipeline(stages: Stage[]): Stage {
+    const snapshot = [...stages];
     return (program, target) =>
-        stages.reduce((current, stage) => stage(current, target), program);
+        snapshot.reduce((current, stage) => stage(current, target), program);
 }

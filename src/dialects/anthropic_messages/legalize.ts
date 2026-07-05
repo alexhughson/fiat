@@ -1,9 +1,10 @@
-// Legalizations: target-scoped passes that run on the lower IR after
+// Legalizations: target-scoped transforms that run on the lower IR after
 // lowering, before toWire. This is where endpoint/model quirks live.
 
 import { opData, type Op, type OpOf, type Program } from "../../core/ops";
 import { firstOp } from "../../core/program";
-import { LintError, type Pass } from "../../core/pass";
+import { lintOrWarn } from "../../core/lint";
+import type { Target } from "../../core/rewrite";
 import { asThinkingEffort } from "../../core/wire";
 import type { AnthropicEffort } from "./ops";
 
@@ -13,7 +14,10 @@ import type { AnthropicEffort } from "./ops";
 // without changing its meaning (it's a cap, not an instruction).
 export const DEFAULT_MAX_TOKENS = 4096;
 
-export const defaultMaxTokens: Pass = (program: Program): Program => {
+export const defaultMaxTokens = (
+    program: Program,
+    _target: Target,
+): Program => {
     if (firstOp(program, "llm.max_output_tokens")) return program;
     return [
         ...program,
@@ -21,57 +25,54 @@ export const defaultMaxTokens: Pass = (program: Program): Program => {
     ];
 };
 
-export const legalizeUnsupportedSamplingParams: Pass = (
+export const legalizeUnsupportedSamplingParams = (
     program: Program,
-    target,
+    target: Target,
 ): Program => {
-    if (!rejectsExplicitSampling(target.model)) return program;
+    if (!rejectsExplicitSampling(target.model) && !hasThinking(program))
+        return program;
 
     return program.flatMap((op) => {
         if (op.op === "llm.temperature") {
-            if (target.strict) {
-                throw new LintError(
-                    `${target.model}: explicit temperature is rejected by the Anthropic Messages API`,
-                );
-            }
+            lintOrWarn(
+                target.strict,
+                `${target.model}: explicit temperature is rejected by the Anthropic Messages API`,
+            );
             return [];
         }
         if (op.op !== "anthropic_messages.sampling") return [op];
         const { key } = opData<{ key: "top_p" | "top_k" }>(op);
         if (key === "top_p" || key === "top_k") {
-            if (target.strict) {
-                throw new LintError(
-                    `${target.model}: explicit ${key} is rejected by the Anthropic Messages API`,
-                );
-            }
+            lintOrWarn(
+                target.strict,
+                `${target.model}: explicit ${key} is rejected by the Anthropic Messages API`,
+            );
             return [];
         }
         return [op];
     });
 };
 
-export const validateOutputConfigEffort: Pass = (
+export const validateOutputConfigEffort = (
     program: Program,
-    target,
+    target: Target,
 ): Program => {
     return program.flatMap((op) => {
         if (op.op !== "anthropic_messages.output_config") return [op];
         const config = opData<{ value: unknown }>(op).value;
         if (!isRecord(config)) {
-            if (target.strict) {
-                throw new LintError(
-                    "anthropic_messages output_config legalization requires output_config to be an object",
-                );
-            }
+            lintOrWarn(
+                target.strict,
+                "anthropic_messages output_config legalization requires output_config to be an object",
+            );
             return [];
         }
         if (config.effort == null) return [op];
         if (!target.model) {
-            if (target.strict) {
-                throw new LintError(
-                    "anthropic_messages output_config.effort legalization requires llm.model",
-                );
-            }
+            lintOrWarn(
+                target.strict,
+                "anthropic_messages output_config.effort legalization requires llm.model",
+            );
             return [op];
         }
         const effort = legalizeEffortForModel(
@@ -89,33 +90,29 @@ export const validateOutputConfigEffort: Pass = (
     });
 };
 
-export const legalizeThinking: Pass = (
-    program: Program,
-    target,
-): Program => {
+export const legalizeThinking = (program: Program, target: Target): Program => {
     const thinkingOps = program.filter(
         (op) => op.op === "anthropic_messages.thinking",
     );
     if (thinkingOps.length === 0) return program;
-    if (thinkingOps.length > 1 && target.strict) {
-        throw new LintError(
+    if (thinkingOps.length > 1) {
+        lintOrWarn(
+            target.strict,
             "anthropic_messages request: expected at most one thinking op",
         );
     }
     if (!target.model) {
-        if (target.strict) {
-            throw new LintError(
-                "anthropic_messages thinking legalization requires llm.model",
-            );
-        }
+        lintOrWarn(
+            target.strict,
+            "anthropic_messages thinking legalization requires llm.model",
+        );
         return program.filter((op) => op.op !== "anthropic_messages.thinking");
     }
     if (hasRawThinkingParam(program)) {
-        if (target.strict) {
-            throw new LintError(
-                "anthropic_messages thinking legalization conflicts with raw thinking_config",
-            );
-        }
+        lintOrWarn(
+            target.strict,
+            "anthropic_messages thinking legalization conflicts with raw thinking_config",
+        );
         return program.filter((op) => op.op !== "anthropic_messages.thinking");
     }
 
@@ -151,6 +148,14 @@ export const legalizeThinking: Pass = (
 function rejectsExplicitSampling(model?: string): boolean {
     return /^claude-(?:fable-5|mythos(?:-5|-preview)?|opus-4-[78]|sonnet-5)(?:-|$)/.test(
         model ?? "",
+    );
+}
+
+function hasThinking(program: Program): boolean {
+    return program.some(
+        (op) =>
+            op.op === "anthropic_messages.thinking" ||
+            op.op === "anthropic_messages.thinking_config",
     );
 }
 
@@ -190,23 +195,26 @@ function thinkingParamsForModel(
         thinking.manualBudgetTokens ??
         thinkingBudgetForEffort(thinking.adaptiveEffort ?? "medium");
     if (!isPositiveInteger(budget)) {
-        if (!strict) return [];
-        throw new LintError(
+        lintOrWarn(
+            strict,
             `${model}: manual thinking requires a positive manualBudgetTokens value`,
         );
+        return [];
     }
     const maxTokens = firstOp(program, "llm.max_output_tokens") as
         OpOf<"llm.max_output_tokens"> | undefined;
-    const legalBudget =
-        maxTokens && budget >= maxTokens.value ? maxTokens.value - 1 : budget;
+    const clamped = Boolean(maxTokens && budget >= maxTokens.value);
+    const legalBudget = clamped ? maxTokens!.value - 1 : budget;
     if (!isPositiveInteger(legalBudget)) {
-        if (!strict) return [];
-        throw new LintError(
+        lintOrWarn(
+            strict,
             `${model}: manual thinking budget_tokens must be less than max_tokens`,
         );
+        return [];
     }
-    if (strict && maxTokens && budget >= maxTokens.value) {
-        throw new LintError(
+    if (clamped) {
+        lintOrWarn(
+            strict,
             `${model}: manual thinking budget_tokens must be less than max_tokens`,
         );
     }
@@ -242,30 +250,29 @@ function legalizeEffortForModel(
         ) as AnthropicEffort;
     } catch (error) {
         if (strict) throw error;
+        console.warn(`metamodel: ${(error as Error).message}`);
         return undefined;
     }
     if (!supportsEffort(model)) {
-        if (strict) {
-            throw new LintError(
-                `${model}: output_config.effort is not supported by the Anthropic Messages API`,
-            );
-        }
+        lintOrWarn(
+            strict,
+            `${model}: output_config.effort is not supported by the Anthropic Messages API`,
+        );
         return undefined;
     }
     if (parsed === "max") {
-        if (strict) {
-            throw new LintError(
-                `${model}: output_config.effort "max" is not supported by the Anthropic Messages API`,
-            );
-        }
-        return supportsXHighEffort(model) ? "xhigh" : "high";
+        const clamped = supportsXHighEffort(model) ? "xhigh" : "high";
+        lintOrWarn(
+            strict,
+            `${model}: output_config.effort "max" is not supported by the Anthropic Messages API, clamped to "${clamped}"`,
+        );
+        return clamped;
     }
     if (parsed === "xhigh" && !supportsXHighEffort(model)) {
-        if (strict) {
-            throw new LintError(
-                `${model}: output_config.effort "xhigh" is not supported by the Anthropic Messages API`,
-            );
-        }
+        lintOrWarn(
+            strict,
+            `${model}: output_config.effort "xhigh" is not supported by the Anthropic Messages API, clamped to "high"`,
+        );
         return "high";
     }
     return parsed;
@@ -302,29 +309,21 @@ function outputConfigWithEffort(
 
     const value = opData<{ value: unknown }>(existing).value;
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-        if (!strict) {
-            return [
-                {
-                    op: "anthropic_messages.output_config",
-                    value: { effort },
-                },
-            ];
-        }
-        throw new LintError(
+        lintOrWarn(
+            strict,
             "anthropic_messages thinking legalization requires output_config to be an object",
         );
+        return [
+            {
+                op: "anthropic_messages.output_config",
+                value: { effort },
+            },
+        ];
     }
     const config = value as Record<string, unknown>;
     if ("effort" in config && config.effort !== effort) {
-        if (!strict) {
-            return [
-                {
-                    op: "anthropic_messages.output_config",
-                    value: { ...config, effort },
-                },
-            ];
-        }
-        throw new LintError(
+        lintOrWarn(
+            strict,
             "anthropic_messages thinking legalization conflicts with existing output_config.effort",
         );
     }
@@ -360,9 +359,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export const legalizations: Pass[] = [
-    defaultMaxTokens,
-    legalizeUnsupportedSamplingParams,
-    legalizeThinking,
-    validateOutputConfigEffort,
-];
+export const legalizations: ((program: Program, target: Target) => Program)[] =
+    [
+        defaultMaxTokens,
+        legalizeUnsupportedSamplingParams,
+        legalizeThinking,
+        validateOutputConfigEffort,
+    ];

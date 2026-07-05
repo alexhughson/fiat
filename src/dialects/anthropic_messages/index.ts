@@ -33,6 +33,7 @@ export const AnthropicMessagesDialect = {
         toWire: streamResponseToWire,
         raise: raiseStreamResponse,
         lower: lowerStreamResponse,
+        eventPerOp: true,
     },
 } satisfies Dialect;
 

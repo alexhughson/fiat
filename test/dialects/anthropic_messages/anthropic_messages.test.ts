@@ -663,6 +663,18 @@ describe("anthropic_messages requests", () => {
         ).toMatchObject({ temperature: 0.2 });
     });
 
+    test("thinking requests drop explicit sampling params even on models that otherwise accept them", () => {
+        expect(
+            AnthropicTranslator.toBody([
+                { op: "llm.model", model: "claude-sonnet-4-5-20250929" },
+                { op: "llm.temperature", value: 0.2 },
+                { op: "llm.max_output_tokens", value: 4096 },
+                { op: "llm.thinking", effort: "high" },
+                { op: "llm.text", role: "user", content: "hi" },
+            ]),
+        ).not.toHaveProperty("temperature");
+    });
+
     test("thinking legalization uses adaptive effort for newer Sonnet and manual budget tokens for Sonnet 4.5", () => {
         expect(
             AnthropicTranslator.toBody([
@@ -672,7 +684,7 @@ describe("anthropic_messages requests", () => {
                 { op: "llm.text", role: "user", content: "hi" },
             ]),
         ).toMatchObject({
-            thinking: { type: "adaptive", display: "omitted" },
+            thinking: { type: "adaptive", display: "summarized" },
             output_config: { effort: "high" },
         });
 
@@ -710,6 +722,37 @@ describe("anthropic_messages requests", () => {
                 budget_tokens: 1024,
                 display: "omitted",
             },
+        });
+    });
+
+    test("consecutive tool results lower into one user message", () => {
+        const body = AnthropicTranslator.toBody([
+            { op: "llm.model", model: "claude-haiku-4-5" },
+            { op: "llm.max_output_tokens", value: 1024 },
+            { op: "llm.tool_result", id: "call_a", content: "A" },
+            { op: "llm.tool_result", id: "call_b", content: "B" },
+        ]);
+
+        expect(body).toEqual({
+            model: "claude-haiku-4-5",
+            max_tokens: 1024,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "tool_result",
+                            tool_use_id: "call_a",
+                            content: "A",
+                        },
+                        {
+                            type: "tool_result",
+                            tool_use_id: "call_b",
+                            content: "B",
+                        },
+                    ],
+                },
+            ],
         });
     });
 

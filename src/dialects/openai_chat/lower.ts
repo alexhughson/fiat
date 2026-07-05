@@ -5,7 +5,7 @@
 // appended after them. Extend by appending to the stage arrays.
 
 import { opData, type Op, type OpOf, type Program } from "../../core/ops";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import { stagePipeline, type Stage } from "../../core/rewrite";
 import { lowerFinishReason } from "./raise";
 import type { OpenAIChatMessageMeta, WireMessage, WireToolCall } from "./ops";
@@ -81,7 +81,7 @@ export function lowerToolResults(program: Program): Program {
                 op: "openai_chat.message",
                 message: {
                     role: "tool",
-                    tool_call_id: result.id,
+                    tool_call_id: chatToolCallId(result.id),
                     content: result.content,
                 } satisfies WireMessage,
             },
@@ -308,8 +308,12 @@ function wireToolCall(op: {
     arguments: Record<string, unknown>;
 }): WireToolCall {
     return {
-        id: op.id,
+        id: chatToolCallId(op.id),
         type: "function",
         function: { name: op.name, arguments: JSON.stringify(op.arguments) },
     };
+}
+
+function chatToolCallId(id: string): string {
+    return id.split("|", 1)[0]!.slice(0, 40);
 }

@@ -26,7 +26,7 @@ export const OpenAIChatTranslator = makeTranslator(OpenAIChatDialect);
 
 Each dialect module exports one dialect object and one translator wrapper.
 Callers compose wrappers directly, for example
-`translateRequest(body, { from: OpenAIChatTranslator, to: AnthropicTranslator })`.
+`AnthropicTranslator.toBody(OpenAIChatTranslator.fromBody(body))`.
 There is no import-time registration or string-name lookup.
 
 `responseStream` is the same four-edge pipeline applied to one provider
@@ -42,9 +42,12 @@ the incomplete JSON.
 `raise` and `lower` are not switch statements — they are pipelines of
 `Stage` functions (`Stage = (program: Program, target?: Target) => Program`,
 composed with `stagePipeline` from `src/core/rewrite.ts`). Each dialect exports its stage
-arrays (`raiseStages`, `lowerRequestStages`, `lowerResponseStages`);
-`stagePipeline` reads the array on every call, so appending a stage after
-import extends the codec without touching existing code.
+arrays (`raiseStages`, `lowerRequestStages`, `lowerResponseStages`), but
+`stagePipeline` snapshots the array at construction time — mutating a
+dialect's exported array after import has no effect. To extend a dialect
+per-call (a proxy rewriting one op before it reaches the codec, say), use the
+`beforeRaise`/`afterRaise`/`beforeLower`/`afterLower` hooks on `RaiseOptions`/
+`LowerOptions` in `src/core/pipeline.ts` instead.
 
 Two kinds of stage, by convention:
 
@@ -84,7 +87,7 @@ Apply in order; first match wins:
 ## Residual conventions every dialect must follow
 
 - Request body fields default to **required** (translation to a foreign dialect
-  halts unless a pass consumes them or marks `required: false`).
+  halts unless a transform consumes them or marks `required: false`).
 - Response envelope bookkeeping (`id`, `created`, `type`, ...) is born
   `appliesTo: "response", required: false`.
 - Vendor usage detail beyond input/output counts goes back into the stream

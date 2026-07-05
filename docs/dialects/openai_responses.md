@@ -5,18 +5,19 @@ OpenAI Responses (`POST /v1/responses`). Code:
 
 ## Wire ↔ core direct mappings
 
-| wire                                  | core op                                                             |
-| ------------------------------------- | ------------------------------------------------------------------- |
-| `model`                               | `llm.model`                                                         |
-| `instructions`                        | `llm.text` with `role:"system"`                                     |
-| `temperature`                         | `llm.temperature`                                                   |
-| `max_output_tokens`                   | `llm.max_output_tokens`                                             |
-| text `input` / message input items    | `llm.text`                                                          |
-| `function_call` input/output items    | `llm.tool_call` / `llm.tool_result`                                 |
-| `tools[]` with `type:"function"`      | `llm.tool` (`parameters` ⇄ `inputSchema`)                           |
-| minimal `web_search_preview` tool     | `llm.server_tool { name:"web_search", kind:"web_search" }`          |
-| minimal `code_interpreter` tool       | `llm.server_tool { name:"code_execution", kind:"code_execution" }`  |
-| minimal function/server `tool_choice` | `llm.tool_choice`; `{name}` is resolved against declared tool names |
+| wire                                  | core op                                                                       |
+| ------------------------------------- | ----------------------------------------------------------------------------- |
+| `model`                               | `llm.model`                                                                   |
+| `instructions`                        | `llm.text` with `role:"system"`                                               |
+| `temperature`                         | `llm.temperature`                                                             |
+| `max_output_tokens`                   | `llm.max_output_tokens`                                                       |
+| `reasoning.effort`                    | `llm.thinking`; lowering also emits `include:["reasoning.encrypted_content"]` |
+| text `input` / message input items    | `llm.text`                                                                    |
+| `function_call` input/output items    | `llm.tool_call` / `llm.tool_result`                                           |
+| `tools[]` with `type:"function"`      | `llm.tool` (`parameters` ⇄ `inputSchema`)                                     |
+| minimal `web_search_preview` tool     | `llm.server_tool { name:"web_search", kind:"web_search" }`                    |
+| minimal `code_interpreter` tool       | `llm.server_tool { name:"code_execution", kind:"code_execution" }`            |
+| minimal function/server `tool_choice` | `llm.tool_choice`; `{name}` is resolved against declared tool names           |
 
 ## Dialect ops
 
@@ -33,6 +34,12 @@ OpenAI Responses (`POST /v1/responses`). Code:
 | `openai_responses.body_field`    | unknown request key or response envelope field                 | request fields are required; response envelope fields are `appliesTo:"response", required:false` | serialized back, except response-only envelope residuals are skipped for request bodies |
 
 ## Server Tool Rules
+
+Responses function-call items have both `call_id` and, sometimes, item `id`.
+When a response function call carries both, raise stores them as
+`call_id|item_id` in `llm.tool_call.id`; request lowering splits that back
+into `call_id` and `id`, adding an `fc_` prefix when the item id did not have
+one. Tool results still use only `call_id`, matching the Responses wire.
 
 `llm.tool_choice { value:{ name } }` stays name-only. During request lowering,
 the Responses dialect resolves the name against the declared tools:

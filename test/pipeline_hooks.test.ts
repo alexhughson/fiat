@@ -6,7 +6,6 @@ import {
     makeTranslator,
     type Program,
     type Stage,
-    translateRequest,
     type Dialect,
     AnthropicTranslator,
 } from "../src/index";
@@ -34,17 +33,13 @@ describe("raise/lower hooks", () => {
         ]);
     });
 
-    test("translate APIs accept translator wrappers", () => {
+    test("translator wrappers compose directly", () => {
         expect(
-            translateRequest(
-                {
+            AnthropicTranslator.toBody(
+                OpenAIChatTranslator.fromBody({
                     model: "gpt-4o",
                     messages: [{ role: "user", content: "hi" }],
-                },
-                {
-                    from: OpenAIChatTranslator,
-                    to: AnthropicTranslator,
-                },
+                }),
             ),
         ).toMatchObject({
             model: "gpt-4o",
@@ -121,26 +116,22 @@ describe("raise/lower hooks", () => {
             ),
         ).toMatchObject({
             generationConfig: {
-                thinkingConfig: { thinkingLevel: "low" },
+                thinkingConfig: { thinkingLevel: "LOW" },
             },
         });
     });
 
     test("afterLower edits target lower IR before built-in legalizations", () => {
+        // lower() only carries llm.thinking forward as the model-free
+        // gemini.thinking op — model conformance (thinkingLevel vs.
+        // thinkingBudget, the xhigh/max clamp) is a legalization that runs
+        // after afterLower. So overriding the effort here, before that
+        // legalization sees it, is how afterLower reaches the final
+        // thinkingConfig.
         const capGeminiThinkingLevel: Stage = (program) =>
-            program.map((op) => {
-                if (op.op !== "gemini.generation_config") return op;
-                const value = (
-                    op as unknown as { value: Record<string, unknown> }
-                ).value;
-                return {
-                    ...op,
-                    value: {
-                        ...value,
-                        thinkingConfig: { thinkingLevel: "low" },
-                    },
-                };
-            });
+            program.map((op) =>
+                op.op === "gemini.thinking" ? { ...op, effort: "low" } : op,
+            );
 
         expect(
             GeminiTranslator.toBody(
@@ -153,7 +144,7 @@ describe("raise/lower hooks", () => {
             ),
         ).toMatchObject({
             generationConfig: {
-                thinkingConfig: { thinkingLevel: "low" },
+                thinkingConfig: { thinkingLevel: "LOW" },
             },
         });
     });

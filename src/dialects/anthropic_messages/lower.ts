@@ -6,7 +6,7 @@
 // the top-level system string. Extend by appending to the stage arrays.
 
 import { opData, type Op, type OpOf, type Program } from "../../core/ops";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import { stagePipeline, type Stage } from "../../core/rewrite";
 import type {
     WireAnthropicMessage,
@@ -70,7 +70,7 @@ export function lowerThinking(program: Program): Program {
             {
                 op: "anthropic_messages.thinking",
                 adaptiveEffort: thinking.effort,
-                display: "omitted",
+                display: "summarized",
             },
         ];
     });
@@ -425,7 +425,11 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                     );
                 }
                 if (text.content === "") break;
-                pushStreamBlockEvents(events, { type: "text", text: text.content }, index++);
+                pushStreamBlockEvents(
+                    events,
+                    { type: "text", text: text.content },
+                    index++,
+                );
                 break;
             }
             case "llm.tool_call": {

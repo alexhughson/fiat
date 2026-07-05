@@ -17,9 +17,9 @@ src/core/
   ops.ts        core op types + OpOf/opData narrowing helpers
   program.ts    firstOp / opsOf / append
   rewrite.ts    Stage type + stagePipeline (raise/lower are stage pipelines)
-  pass.ts       Pass, Target, LintError, runPasses
+  lint.ts       LintError + lintOrWarn
   registry.ts   Dialect contract
-  pipeline.ts   translateRequest/Response/StreamResponse, residual lint
+  pipeline.ts   raise/lower entrypoints, residual lint
   translator.ts Translator + makeTranslator (fromBody/toBody/fromResponse/toResponse/fromStreamResponse/toStreamResponse)
   wire.ts       asRecord/asString/... wire parsing assertions
 src/dialects/<name>/
@@ -100,7 +100,7 @@ dialect-agnostic.
 
 ## 3. Add a legalization or lint
 
-1. `src/dialects/<name>/legalize.ts` — add a request `Pass` function and append it to
+1. `src/dialects/<name>/legalize.ts` — add a request legalization function and append it to
    the exported `legalizations` array, then attach that array to the dialect's
    `request` codec in `index.ts`. Model scoping belongs inside the function: read
    `target.model`, return the input program unchanged when it does not apply.
@@ -108,13 +108,13 @@ dialect-agnostic.
    caps, renames, clamping an unsupported effort to the nearest supported
    effort) it's a legalization. If the caller set `{ strict: true }`, throw
    `LintError` for the same unsupported data instead of cleaning it up.
-3. Test in `test/dialects/<name>/<name>.test.ts`: one case where the pass
+3. Test in `test/dialects/<name>/<name>.test.ts`: one case where the legalization
    changes the payload, one strict-mode case where it throws, and one model
-   where the pass is a no-op.
+   where the legalization is a no-op.
 
-Caller-supplied passes (routing, prompt rewrites) are not registered
-anywhere — they're passed to `translateRequest(..., { passes })` and belong
-to the application, not this library.
+Caller-supplied transforms (routing, prompt rewrites) are not registered
+anywhere. Call the function on the core program between `fromBody(...)` and
+`toBody(...)`; that policy belongs to the application, not this library.
 
 ## 4. Add a core op
 

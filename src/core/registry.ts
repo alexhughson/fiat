@@ -1,5 +1,5 @@
 import type { Program } from "./ops";
-import type { Pass, Target } from "./pass";
+import type { Target } from "./rewrite";
 
 // One direction of a dialect (requests or responses). The four functions are
 // the four edges of the MLIR-style pipeline:
@@ -20,7 +20,11 @@ export interface Codec {
     lower(program: Program, target?: Target): Program;
     // Run on this direction's lower IR after `lower`, before `toWire`. This is
     // where endpoint/model quirks live for that direction.
-    legalizations?: Pass[];
+    legalizations?: ((program: Program, target: Target) => Program)[];
+    // Set on a stream codec whose toWire serializes exactly one event op per
+    // wire event (it throws on a multi-op program). Callers emitting several
+    // ops per turn must call toWire once per op instead of once for the batch.
+    eventPerOp?: boolean;
 }
 
 export interface Dialect {

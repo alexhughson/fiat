@@ -15,13 +15,19 @@
         "e2e:gemini:validate": "bun e2e/gemini/validate.ts",
         "e2e:openai-realtime": "bun e2e/openai_realtime/run.ts",
         "e2e:openai-realtime:validate": "bun e2e/openai_realtime/validate.ts",
+        "example:anthropic-evil-router": "bun examples/anthropic-evil-router.ts",
         "example:anthropic-openai-proxy": "bun examples/anthropic-openai-proxy.ts",
         "example:anthropic-openai-proxy:smoke": "bun examples/anthropic-openai-proxy-smoke.ts",
+        "example:cli-chat": "bun examples/cli-chat.ts",
         "example:openai-realtime": "bun examples/openai-realtime-chat-server.ts",
         "format": "prettier . --write",
         "format:check": "prettier . --check",
-        "test": "bun test",
+        "test": "bun test ./test/*.test.ts ./test/**/*.test.ts",
+        "test:live": "bun test ./e2e/live/run.ts",
         "typecheck": "bunx tsc --noEmit"
+    },
+    "dependencies": {
+        "@opentui/core": "0.4.3"
     },
     "devDependencies": {
         "@types/bun": "^1.1.0",

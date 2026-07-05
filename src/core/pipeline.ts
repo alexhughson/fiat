@@ -6,12 +6,11 @@ import {
     type Program,
 } from "./ops";
 import { firstOp } from "./program";
-import { LintError, runPasses, type Pass, type Target } from "./pass";
+import { LintError } from "./lint";
 import type { Codec, Dialect } from "./registry";
-import type { Stage } from "./rewrite";
+import type { Stage, Target } from "./rewrite";
 
 export type Kind = "request" | "response";
-export type HookStages = Stage | Stage[];
 
 export interface DialectTranslatorRef {
     dialect: Dialect;
@@ -20,13 +19,13 @@ export interface DialectTranslatorRef {
 export type DialectRef = Dialect | DialectTranslatorRef;
 
 export interface RaiseOptions {
-    beforeRaise?: HookStages;
-    afterRaise?: HookStages;
+    beforeRaise?: Stage;
+    afterRaise?: Stage;
 }
 
 export interface LowerOptions {
-    beforeLower?: HookStages;
-    afterLower?: HookStages;
+    beforeLower?: Stage;
+    afterLower?: Stage;
     strict?: boolean;
 }
 
@@ -73,30 +72,11 @@ export function lowerToWire(
         model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     };
-    low = runPasses(low, codec.legalizations ?? [], target);
+    for (const legalize of codec.legalizations ?? []) {
+        low = legalize(low, target);
+    }
     low = lintForeignResiduals(low, dialect.name);
     return codec.toWire(low);
-}
-
-export interface TranslateOptions extends RaiseOptions, LowerOptions {
-    from: DialectRef;
-    to: DialectRef;
-    // Transforms/lints run on the core IR, between raise and lower.
-    passes?: Pass[];
-}
-
-export function translateRequest(
-    wire: unknown,
-    opts: TranslateOptions,
-): unknown {
-    return translate("request", wire, opts);
-}
-
-export function translateResponse(
-    wire: unknown,
-    opts: TranslateOptions,
-): unknown {
-    return translate("response", wire, opts);
 }
 
 export function raiseStreamResponseFromWire(
@@ -134,21 +114,11 @@ export function lowerStreamResponsesToWire(
         program,
         opts,
     );
-    if (low.length <= 1) return [codec.toWire(low)];
-
-    try {
-        return [codec.toWire(low)];
-    } catch (error) {
-        const events: unknown[] = [];
-        for (const op of low) {
-            try {
-                events.push(codec.toWire([op]));
-            } catch {
-                throw error;
-            }
-        }
-        return events;
-    }
+    // An empty program still goes through toWire so the codec's own
+    // strictness applies (anthropic throws) instead of yielding [] silently.
+    return codec.eventPerOp && low.length > 0
+        ? low.map((op) => codec.toWire([op]))
+        : [codec.toWire(low)];
 }
 
 function lowerStreamResponseProgram(
@@ -173,47 +143,15 @@ function lowerStreamResponseProgram(
         model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     };
-    low = runPasses(low, codec.legalizations ?? [], target);
+    for (const legalize of codec.legalizations ?? []) {
+        low = legalize(low, target);
+    }
     low = lintForeignResiduals(low, dialect.name);
     return { codec, low };
 }
 
-export function translateStreamResponse(
-    wire: unknown,
-    opts: TranslateOptions,
-): unknown {
-    const targetDialect = dialectFor(opts.to);
-    let core = raiseStreamResponseFromWire(opts.from, wire, opts);
-    const target: Target = {
-        dialect: targetDialect.name,
-        kind: "response_stream",
-        model: firstOp(core, "llm.model")?.model,
-        strict: opts.strict,
-    };
-    core = runPasses(core, opts.passes ?? [], target);
-    return lowerStreamResponseToWire(targetDialect, core, opts);
-}
-
-function translate(kind: Kind, wire: unknown, opts: TranslateOptions): unknown {
-    const targetDialect = dialectFor(opts.to);
-    let core = raiseFromWire(kind, opts.from, wire, opts);
-    const target: Target = {
-        dialect: targetDialect.name,
-        kind,
-        model: firstOp(core, "llm.model")?.model,
-        strict: opts.strict,
-    };
-    core = runPasses(core, opts.passes ?? [], target);
-    return lowerToWire(kind, targetDialect, core, opts);
-}
-
-function runHookStages(
-    program: Program,
-    stages: HookStages | undefined,
-): Program {
-    if (!stages) return program;
-    const list = Array.isArray(stages) ? stages : [stages];
-    return list.reduce((current, stage) => stage(current), program);
+function runHookStages(program: Program, stage: Stage | undefined): Program {
+    return stage ? stage(program) : program;
 }
 
 // meta.* ops address the host (tracing, routing), never the provider. In a
@@ -251,7 +189,7 @@ export function lintForeignResiduals(
         if (op.required === false) continue;
         throw new LintError(
             `op "${op.op}" survived lowering to "${dialectName}" — no transform consumed it. ` +
-                `Mark it { required: false } to allow dropping it, or register a pass that maps it.`,
+                `Mark it { required: false } to allow dropping it, or register a legalization that maps it.`,
         );
     }
     return kept;

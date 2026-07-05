@@ -1,5 +1,5 @@
 import type { OpOf, Program, ServerToolKind } from "./ops";
-import { LintError } from "./pass";
+import { LintError } from "./lint";
 
 export type DeclaredTool =
     | { type: "function"; name: string }

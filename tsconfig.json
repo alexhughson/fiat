@@ -9,5 +9,5 @@
         "types": ["bun"],
         "skipLibCheck": true
     },
-    "include": ["src", "test", "e2e"]
+    "include": ["src", "test", "e2e", "examples/cli-chat.ts"]
 }

@@ -25,7 +25,7 @@ describe("gemini lower request stages", () => {
         expect(lintMidConversationSystem(program)).toEqual(program);
     });
 
-    test("lowerThinking maps Gemini 3 thinking effort to thinkingLevel", () => {
+    test("lowerThinking is model-free: it carries llm.thinking as gemini.thinking, leaving model conformance to legalize", () => {
         expect(
             lowerThinking([
                 { op: "llm.model", model: "models/gemini-3.5-flash" },
@@ -33,10 +33,7 @@ describe("gemini lower request stages", () => {
             ]),
         ).toEqual([
             { op: "llm.model", model: "models/gemini-3.5-flash" },
-            {
-                op: "gemini.generation_config",
-                value: { thinkingConfig: { thinkingLevel: "low" } },
-            },
+            { op: "gemini.thinking", effort: "low" },
         ]);
     });
 
@@ -149,9 +146,13 @@ describe("gemini lower request stages", () => {
         ]);
     });
 
-    test("applyRequestPartMeta reattaches thoughtSignature to the adjacent lowered part", () => {
+    test("applyRequestPartMeta reattaches gemini.part_meta thoughtSignature", () => {
         expect(
             applyRequestPartMeta([
+                {
+                    op: "gemini.content",
+                    content: { role: "user", parts: [{ text: "weather?" }] },
+                },
                 {
                     op: "gemini.content",
                     content: {
@@ -173,12 +174,16 @@ describe("gemini lower request stages", () => {
                         kind: "functionCall",
                         index: 0,
                         id: "call_1",
-                        meta: { thoughtSignature: "sig" },
+                        meta: { thoughtSignature: "real_sig" },
                     },
                     required: false,
                 },
             ]),
         ).toEqual([
+            {
+                op: "gemini.content",
+                content: { role: "user", parts: [{ text: "weather?" }] },
+            },
             {
                 op: "gemini.content",
                 content: {
@@ -190,7 +195,92 @@ describe("gemini lower request stages", () => {
                                 args: { city: "Paris" },
                                 id: "call_1",
                             },
-                            thoughtSignature: "sig",
+                            thoughtSignature: "real_sig",
+                        },
+                    ],
+                },
+            },
+        ]);
+    });
+
+    test("applyRequestPartMeta injects fake thoughtSignature on current-turn functionCalls", () => {
+        expect(
+            applyRequestPartMeta([
+                {
+                    op: "gemini.content",
+                    content: { role: "user", parts: [{ text: "old question" }] },
+                },
+                {
+                    op: "gemini.content",
+                    content: {
+                        role: "model",
+                        parts: [
+                            {
+                                functionCall: {
+                                    name: "get_weather",
+                                    args: { city: "Paris" },
+                                    id: "call_1",
+                                },
+                            },
+                        ],
+                    },
+                },
+                {
+                    op: "gemini.content",
+                    content: { role: "user", parts: [{ text: "weather?" }] },
+                },
+                {
+                    op: "gemini.content",
+                    content: {
+                        role: "model",
+                        parts: [
+                            {
+                                functionCall: {
+                                    name: "get_weather",
+                                    args: { city: "London" },
+                                    id: "call_2",
+                                },
+                            },
+                        ],
+                    },
+                },
+            ]),
+        ).toEqual([
+            {
+                op: "gemini.content",
+                content: { role: "user", parts: [{ text: "old question" }] },
+            },
+            {
+                op: "gemini.content",
+                content: {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: "get_weather",
+                                args: { city: "Paris" },
+                                id: "call_1",
+                            },
+                        },
+                    ],
+                },
+            },
+            {
+                op: "gemini.content",
+                content: { role: "user", parts: [{ text: "weather?" }] },
+            },
+            {
+                op: "gemini.content",
+                content: {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: "get_weather",
+                                args: { city: "London" },
+                                id: "call_2",
+                            },
+                            thoughtSignature: "skip_thought_signature_validator",
                         },
                     ],
                 },

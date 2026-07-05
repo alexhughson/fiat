@@ -6,7 +6,7 @@ import {
     type Program,
     type ToolChoice,
 } from "../../core/ops";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import { asArray, asNumber, asRecord, asString } from "../../core/wire";
 import type {
     WireConversationItem,

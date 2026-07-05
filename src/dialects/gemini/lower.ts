@@ -4,14 +4,9 @@
 // user/model turns). System text stays a core op — requestToWire serializes
 // it into systemInstruction. Extend by appending to the stage arrays.
 
-import {
-    opData,
-    type Op,
-    type OpOf,
-    type Program,
-    type ThinkingEffort,
-} from "../../core/ops";
-import { LintError, type Target } from "../../core/pass";
+import { opData, type Op, type OpOf, type Program } from "../../core/ops";
+import { LintError, lintOrWarn } from "../../core/lint";
+import type { Target } from "../../core/rewrite";
 import { firstOp } from "../../core/program";
 import { stagePipeline, type Stage } from "../../core/rewrite";
 import { lowerFinishReason } from "./raise";
@@ -80,40 +75,38 @@ export function lintMidConversationSystem(program: Program): Program {
     return program;
 }
 
+// Model-free: this only recognizes that thinking was requested and carries
+// the effort forward as gemini.thinking. Everything about which models
+// support thinkingLevel vs. thinkingBudget, the budget table, and the
+// xhigh/max clamp lives in legalize.ts's gemini.thinking legalization, which
+// runs after this (and after any llm.model rewriting the caller does via the
+// afterLower hook).
 export function lowerThinking(program: Program, target?: Target): Program {
     const thinkingOps = program.filter((op) => op.op === "llm.thinking");
     if (thinkingOps.length === 0) return program;
-    if (thinkingOps.length > 1 && target?.strict) {
-        throw new LintError(
+    if (thinkingOps.length > 1) {
+        lintOrWarn(
+            target?.strict,
             "gemini request lower: expected at most one llm.thinking op",
         );
     }
 
     const model = firstOp(program, "llm.model")?.model;
     if (!model) {
-        if (!target?.strict) {
-            return program.filter((op) => op.op !== "llm.thinking");
-        }
-        throw new LintError(
+        lintOrWarn(
+            target?.strict,
             "gemini request lower: llm.thinking requires llm.model",
         );
+        return program.filter((op) => op.op !== "llm.thinking");
     }
     const thinking = thinkingOps[0] as OpOf<"llm.thinking">;
-    const thinkingConfig = thinkingConfigForModel(
-        model,
-        thinking.effort,
-        target?.strict === true,
-    );
-    if (!thinkingConfig)
-        return program.filter((op) => op.op !== "llm.thinking");
-    const generationConfig = { thinkingConfig };
-
-    const withoutThinking = program.filter((op) => op.op !== "llm.thinking");
-    return mergeGenerationConfig(
-        withoutThinking,
-        generationConfig,
-        "llm.thinking",
-    );
+    let replaced = false;
+    return program.flatMap((op) => {
+        if (op.op !== "llm.thinking") return [op];
+        if (replaced) return [];
+        replaced = true;
+        return [{ op: "gemini.thinking", effort: thinking.effort } as Op];
+    });
 }
 
 export function lowerStructuredOutput(program: Program): Program {
@@ -176,98 +169,6 @@ export function lowerStructuredOutput(program: Program): Program {
         },
     };
     return out;
-}
-
-function mergeGenerationConfig(
-    program: Program,
-    config: Record<string, unknown>,
-    source: string,
-): Program {
-    const generationConfigIndexes: number[] = [];
-    for (let index = 0; index < program.length; index++) {
-        if (program[index]!.op === "gemini.generation_config") {
-            generationConfigIndexes.push(index);
-        }
-    }
-    if (generationConfigIndexes.length === 0) {
-        return [...program, { op: "gemini.generation_config", value: config }];
-    }
-
-    for (const index of generationConfigIndexes) {
-        const existing = opData<{ value: unknown }>(program[index]!).value;
-        if (!isRecord(existing)) {
-            throw new LintError(
-                `gemini request lower: generationConfig must be an object to merge ${source}`,
-            );
-        }
-        for (const key of Object.keys(config)) {
-            if (key in existing) {
-                throw new LintError(
-                    `gemini request lower: ${source} conflicts with existing generationConfig.${key}`,
-                );
-            }
-        }
-    }
-
-    const lastIndex =
-        generationConfigIndexes[generationConfigIndexes.length - 1]!;
-    return program.map((op, index) =>
-        index === lastIndex
-            ? {
-                  ...op,
-                  value: {
-                      ...opData<{ value: Record<string, unknown> }>(op).value,
-                      ...config,
-                  },
-              }
-            : op,
-    );
-}
-
-function thinkingConfigForModel(
-    model: string,
-    effort: ThinkingEffort,
-    strict: boolean,
-): Record<string, unknown> | undefined {
-    if (supportsThinkingLevel(model)) {
-        if (effort === "xhigh" || effort === "max") {
-            if (!strict) return { thinkingLevel: "high" };
-            throw new LintError(
-                `${model}: generationConfig.thinkingConfig.thinkingLevel does not support llm.thinking effort "${effort}"`,
-            );
-        }
-        return { thinkingLevel: effort };
-    }
-    if (supportsThinkingBudget(model)) {
-        return { thinkingBudget: thinkingBudgetForEffort(effort) };
-    }
-    if (!strict) return undefined;
-    throw new LintError(
-        `${model}: llm.thinking is only supported by Gemini 3 thinkingLevel models or Gemini 2.5 thinkingBudget models`,
-    );
-}
-
-function supportsThinkingLevel(model: string): boolean {
-    return /^(?:models\/)?gemini-3(?:[.-]|$)/.test(model);
-}
-
-function supportsThinkingBudget(model: string): boolean {
-    return /^(?:models\/)?gemini-2\.5(?:[.-]|$)/.test(model);
-}
-
-function thinkingBudgetForEffort(effort: ThinkingEffort): number {
-    switch (effort) {
-        case "low":
-            return 1024;
-        case "medium":
-            return 4096;
-        case "high":
-            return 8192;
-        case "xhigh":
-            return 16384;
-        case "max":
-            return 24576;
-    }
 }
 
 // functionResponse needs the tool's name, which the core op doesn't carry —
@@ -349,7 +250,19 @@ export function lowerToolCalls(program: Program): Program {
     });
 }
 
+const INJECTED_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
+
+// Gemini 3 thinking models require thoughtSignature on the first functionCall in
+// each step of the current turn — from the last user text message through the
+// tool loop. Round-tripped Gemini responses carry the real signature in
+// gemini.part_meta; core-originated or cross-provider history does not, so we
+// inject Google's documented dummy bypass. Older turns are not validated. See:
+// https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures
 export function applyRequestPartMeta(program: Program): Program {
+    return injectCurrentTurnThoughtSignatures(reapplyAdjacentPartMeta(program));
+}
+
+function reapplyAdjacentPartMeta(program: Program): Program {
     const out: Program = [];
     let attachable: { outIndex: number; partIndex: number } | undefined;
 
@@ -411,6 +324,65 @@ export function applyRequestPartMeta(program: Program): Program {
     }
 
     return out;
+}
+
+function injectCurrentTurnThoughtSignatures(program: Program): Program {
+    const contents = program.flatMap((op, opIndex) =>
+        op.op === "gemini.content"
+            ? [
+                  {
+                      opIndex,
+                      content: opData<{ content: WireContent }>(op).content,
+                  },
+              ]
+            : [],
+    );
+    if (contents.length === 0) return program;
+
+    let turnFrom = 0;
+    for (let index = 0; index < contents.length; index++) {
+        const { content } = contents[index]!;
+        if (
+            content.role === "user" &&
+            content.parts.some((part) => part.text != null)
+        ) {
+            turnFrom = index;
+        }
+    }
+
+    const patches = new Map<number, number>();
+    for (let index = turnFrom; index < contents.length; index++) {
+        const { opIndex, content } = contents[index]!;
+        if (content.role !== "model") continue;
+        const partIndex = content.parts.findIndex(
+            (part) => part.functionCall != null,
+        );
+        if (partIndex < 0) continue;
+        if (typeof content.parts[partIndex]!.thoughtSignature === "string")
+            continue;
+        patches.set(opIndex, partIndex);
+    }
+    if (patches.size === 0) return program;
+
+    return program.map((op, opIndex) => {
+        const partIndex = patches.get(opIndex);
+        if (partIndex == null) return op;
+        const content = opData<{ content: WireContent }>(op).content;
+        return {
+            ...op,
+            content: {
+                ...content,
+                parts: content.parts.map((part, index) =>
+                    index === partIndex
+                        ? {
+                              ...part,
+                              thoughtSignature: INJECTED_THOUGHT_SIGNATURE,
+                          }
+                        : part,
+                ),
+            },
+        } as Op;
+    });
 }
 
 // Adjacent-only on purpose: an op between two same-role contents (a config
@@ -606,7 +578,7 @@ function contentOp(role: "user" | "model", part: WirePart): Op {
 }
 
 // Fragile by design: extras are keyed by the part's ORIGINAL wire index and
-// re-applied by REBUILT index, so a core-IR pass that inserts or drops an
+// re-applied by REBUILT index, so a core-IR transform that inserts or drops an
 // assistant text/tool-call op between raise and lower shifts every later
 // index and misattaches extras silently. Fine for pass-through proxying;
 // a durable fix would key extras to the op itself.

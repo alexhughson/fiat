@@ -6,7 +6,6 @@ import {
     OpenAIChatTranslator,
     OpenAIRealtimeTranslator,
     OpenAIResponsesTranslator,
-    translateStreamResponse,
 } from "../src/index";
 
 describe("stream response conversion", () => {
@@ -196,15 +195,14 @@ describe("stream response conversion", () => {
 
     test("openai responses failed terminal events halt cross-provider translation", () => {
         expect(() =>
-            translateStreamResponse(
-                {
+            OpenAIChatTranslator.toStreamResponse(
+                OpenAIResponsesTranslator.fromStreamResponse({
                     type: "response.failed",
                     response: {
                         status: "failed",
                         error: { code: "server_error", message: "nope" },
                     },
-                },
-                { from: OpenAIResponsesTranslator, to: OpenAIChatTranslator },
+                }),
             ),
         ).toThrow(LintError);
     });
@@ -318,21 +316,19 @@ describe("stream response conversion", () => {
         };
 
         expect(() =>
-            translateStreamResponse(partialOpenAIChunk, {
-                from: OpenAIChatTranslator,
-                to: GeminiTranslator,
-            }),
+            GeminiTranslator.toStreamResponse(
+                OpenAIChatTranslator.fromStreamResponse(partialOpenAIChunk),
+            ),
         ).toThrow(LintError);
     });
 
     test("anthropic text deltas translate to openai chat chunks", () => {
-        const openaiChunk = translateStreamResponse(
-            {
+        const openaiChunk = OpenAIChatTranslator.toStreamResponse(
+            AnthropicTranslator.fromStreamResponse({
                 type: "content_block_delta",
                 index: 0,
                 delta: { type: "text_delta", text: "hi" },
-            },
-            { from: AnthropicTranslator, to: OpenAIChatTranslator },
+            }),
         ) as { choices: { delta: { role: string; content: string } }[] };
 
         expect(openaiChunk.choices[0]!.delta).toEqual({

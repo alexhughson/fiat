@@ -1,33 +1,173 @@
 // Target-scoped Gemini Generate Content checks that depend on model family.
 
-import { opData, type Program } from "../../core/ops";
-import { LintError, type Pass } from "../../core/pass";
+import { LintError, lintOrWarn } from "../../core/lint";
+import {
+    opData,
+    type Op,
+    type Program,
+    type ThinkingEffort,
+} from "../../core/ops";
+import type { Target } from "../../core/rewrite";
 
-export const legalizeThinkingLevel: Pass = (
+// Consumes the model-free gemini.thinking carrier lowerThinking produces and
+// picks the wire shape for the target model: thinkingLevel for Gemini 3,
+// thinkingBudget for Gemini 2.5, dropped (with a warning/error) for anything
+// else. Runs after lower and after any afterLower hook, same as
+// legalizeThinkingLevel, but keeps its own messages distinguishable from that
+// legalization's — the two are pinned separately by tests because they react to
+// different inputs (an llm.thinking effort here vs. a wire-supplied
+// thinkingLevel there) and lenient mode should say which one fired.
+export const legalizeGeminiThinking = (
     program: Program,
-    target,
+    target: Target,
+): Program => {
+    // lowerThinking already dedupes llm.thinking to at most one gemini.thinking
+    // op; this just needs to find it.
+    const thinkingOp = program.find((op) => op.op === "gemini.thinking");
+    if (!thinkingOp) return program;
+    const thinking = opData<{ effort: ThinkingEffort }>(thinkingOp);
+
+    const withoutThinking = program.filter((op) => op.op !== "gemini.thinking");
+
+    if (!target.model) {
+        lintOrWarn(
+            target.strict,
+            "gemini thinking legalization: gemini.thinking requires llm.model",
+        );
+        return withoutThinking;
+    }
+
+    const thinkingConfig = thinkingConfigForModel(
+        target.model,
+        thinking.effort,
+        target.strict === true,
+    );
+    if (!thinkingConfig) return withoutThinking;
+
+    return mergeGenerationConfig(withoutThinking, {
+        thinkingConfig,
+    });
+};
+
+function thinkingConfigForModel(
+    model: string,
+    effort: string,
+    strict: boolean,
+): Record<string, unknown> | undefined {
+    if (supportsThinkingLevel(model)) {
+        const level = thinkingLevelForModel(model, effort);
+        if (level) return { thinkingLevel: level };
+        lintOrWarn(
+            strict,
+            `${model}: generationConfig.thinkingConfig.thinkingLevel does not support llm.thinking effort "${effort}", clamped to "HIGH"`,
+        );
+        return { thinkingLevel: "HIGH" };
+    }
+    if (supportsThinkingBudget(model)) {
+        return { thinkingBudget: thinkingBudgetForLevel(effort) };
+    }
+    lintOrWarn(
+        strict,
+        `${model}: llm.thinking is only supported by Gemini 3 thinkingLevel models or Gemini 2.5 thinkingBudget models`,
+    );
+    return undefined;
+}
+
+function thinkingLevelForModel(
+    model: string,
+    effort: string,
+): "LOW" | "MEDIUM" | "HIGH" | undefined {
+    switch (normalizedLevel(effort)) {
+        case "low":
+            return "LOW";
+        case "medium":
+            return supportsFlashThinkingLevel(model) ? "MEDIUM" : "HIGH";
+        case "high":
+            return "HIGH";
+        default:
+            return undefined;
+    }
+}
+
+function supportsThinkingBudget(model: string): boolean {
+    return /^(?:models\/)?gemini-2\.5(?:[.-]|$)/.test(model);
+}
+
+function mergeGenerationConfig(
+    program: Program,
+    config: Record<string, unknown>,
+): Program {
+    const generationConfigIndexes: number[] = [];
+    for (let index = 0; index < program.length; index++) {
+        if (program[index]!.op === "gemini.generation_config") {
+            generationConfigIndexes.push(index);
+        }
+    }
+    if (generationConfigIndexes.length === 0) {
+        return [
+            ...program,
+            { op: "gemini.generation_config", value: config } as Op,
+        ];
+    }
+
+    for (const index of generationConfigIndexes) {
+        const existing = opData<{ value: unknown }>(program[index]!).value;
+        if (!isRecord(existing)) {
+            throw new LintError(
+                "gemini thinking legalization: generationConfig must be an object to merge llm.thinking",
+            );
+        }
+        for (const key of Object.keys(config)) {
+            if (key in existing) {
+                throw new LintError(
+                    `gemini thinking legalization: llm.thinking conflicts with existing generationConfig.${key}`,
+                );
+            }
+        }
+    }
+
+    const lastIndex =
+        generationConfigIndexes[generationConfigIndexes.length - 1]!;
+    return program.map((op, index) =>
+        index === lastIndex
+            ? {
+                  ...op,
+                  value: {
+                      ...opData<{ value: Record<string, unknown> }>(op).value,
+                      ...config,
+                  },
+              }
+            : op,
+    );
+}
+
+export const legalizeThinkingLevel = (
+    program: Program,
+    target: Target,
 ): Program => {
     if (!programHasThinkingLevel(program)) return program;
     if (!target.model) {
-        if (target.strict) {
-            throw new LintError(
-                "gemini thinkingLevel legalization requires llm.model",
-            );
-        }
+        lintOrWarn(
+            target.strict,
+            "gemini thinkingLevel legalization requires llm.model",
+        );
         return program;
     }
     if (supportsThinkingLevel(target.model)) {
         return program.map((op) =>
             op.op === "gemini.generation_config"
-                ? legalizeGemini3ThinkingLevel(op, target.strict === true)
+                ? legalizeGemini3ThinkingLevel(
+                      op,
+                      target.model!,
+                      target.strict === true,
+                  )
                 : op,
         );
     }
-    if (target.strict) {
-        throw new LintError(
-            `${target.model}: generationConfig.thinkingConfig.thinkingLevel is only supported by Gemini 3 or later generateContent models`,
-        );
-    }
+    lintOrWarn(
+        target.strict,
+        `${target.model}: generationConfig.thinkingConfig.thinkingLevel is only supported by Gemini 3 or later generateContent models`,
+    );
     return program.map((op) =>
         op.op === "gemini.generation_config" ? thinkingLevelToBudget(op) : op,
     );
@@ -47,23 +187,43 @@ function supportsThinkingLevel(model: string): boolean {
     return /^(?:models\/)?gemini-3(?:[.-]|$)/.test(model);
 }
 
-function legalizeGemini3ThinkingLevel(op: Program[number], strict: boolean) {
+function supportsFlashThinkingLevel(model: string): boolean {
+    return /^(?:models\/)?gemini-3(?:\.\d+)?-flash(?:[.-]|$)/.test(model);
+}
+
+function legalizeGemini3ThinkingLevel(
+    op: Program[number],
+    model: string,
+    strict: boolean,
+) {
     const config = opData<{ value: Record<string, unknown> }>(op).value;
     if (!isRecord(config)) return op;
     const thinkingConfig = config.thinkingConfig;
     if (!isRecord(thinkingConfig)) return op;
     const level = normalizedLevel(thinkingConfig.thinkingLevel);
-    if (level !== "xhigh" && level !== "max") return op;
-    if (strict) {
-        throw new LintError(
-            `gemini: generationConfig.thinkingConfig.thinkingLevel does not support effort "${level}"`,
-        );
+    const supported = thinkingLevelForModel(model, level ?? "");
+    if (supported) {
+        return {
+            ...op,
+            value: {
+                ...config,
+                thinkingConfig: {
+                    ...thinkingConfig,
+                    thinkingLevel: supported,
+                },
+            },
+        };
     }
+    if (!needsHighClamp(level)) return op;
+    lintOrWarn(
+        strict,
+        `gemini: generationConfig.thinkingConfig.thinkingLevel does not support effort "${level}", clamped to "high"`,
+    );
     return {
         ...op,
         value: {
             ...config,
-            thinkingConfig: { ...thinkingConfig, thinkingLevel: "high" },
+            thinkingConfig: { ...thinkingConfig, thinkingLevel: "HIGH" },
         },
     };
 }
@@ -108,8 +268,16 @@ function normalizedLevel(level: unknown): string | undefined {
     return typeof level === "string" ? level.toLowerCase() : undefined;
 }
 
+// Shared by both thinkingLevel legalizations: thinkingLevel has no wire
+// representation above "high", so any effort/level past it clamps down
+// rather than being sent as-is.
+function needsHighClamp(level: string | undefined): boolean {
+    return level === "xhigh" || level === "max";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export const legalizations: Pass[] = [legalizeThinkingLevel];
+export const legalizations: ((program: Program, target: Target) => Program)[] =
+    [legalizeGeminiThinking, legalizeThinkingLevel];

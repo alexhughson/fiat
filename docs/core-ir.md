@@ -14,7 +14,7 @@ order. Config ops (`llm.model`, `llm.temperature`, ...) may appear anywhere.
 
 | op                      | fields                                                   | notes                                                                                                                            |
 | ----------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `llm.model`             | `model: string`                                          | passed through verbatim; rerouting is a pass                                                                                     |
+| `llm.model`             | `model: string`                                          | passed through verbatim; rerouting is a transform                                                                                |
 | `llm.temperature`       | `value: number`                                          | no range rescaling — a legalization's job if a target needs it                                                                   |
 | `llm.max_output_tokens` | `value: number`                                          | openai `max_tokens`/`max_completion_tokens`, anthropic `max_tokens`                                                              |
 | `llm.text`              | `role: "system"\|"user"\|"assistant"`, `content: string` | one op per text unit; grouping into wire messages is the dialect's job                                                           |

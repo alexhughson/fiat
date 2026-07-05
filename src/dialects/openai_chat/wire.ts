@@ -13,7 +13,7 @@ import {
     type ToolChoice,
 } from "../../core/ops";
 import { firstOp } from "../../core/program";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import {
     asArray,
     asBoolean,
@@ -133,6 +133,7 @@ export function requestToWire(program: Program): unknown {
     const body: Record<string, unknown> = {};
     const messages: unknown[] = [];
     const tools: unknown[] = [];
+    let hasToolHistory = false;
     for (const op of program) {
         switch (op.op) {
             case "llm.model":
@@ -145,8 +146,9 @@ export function requestToWire(program: Program): unknown {
                 body.max_tokens = op.value;
                 break;
             case "openai_chat.max_completion_tokens":
-                body.max_completion_tokens =
-                    opData<{ value: number }>(op).value;
+                body.max_completion_tokens = opData<{ value: number }>(
+                    op,
+                ).value;
                 break;
             case "request.user":
                 body.user = op.value;
@@ -164,6 +166,9 @@ export function requestToWire(program: Program): unknown {
                 break;
             case "openai_chat.message":
                 messages.push(op.message);
+                if (messageHasToolHistory(op.message as WireMessage)) {
+                    hasToolHistory = true;
+                }
                 break;
             case "llm.tool":
                 tools.push({
@@ -212,12 +217,16 @@ export function requestToWire(program: Program): unknown {
         }
     }
     if (messages.length > 0) body.messages = messages;
-    if (tools.length > 0) body.tools = tools;
+    if (tools.length > 0 || hasToolHistory) body.tools = tools;
     if (!body.model)
         throw new Error(
             "openai_chat request toWire: program has no llm.model op",
         );
     return body;
+}
+
+function messageHasToolHistory(message: WireMessage): boolean {
+    return message.role === "tool" || (message.tool_calls?.length ?? 0) > 0;
 }
 
 export function responseFromWire(wire: unknown): Program {

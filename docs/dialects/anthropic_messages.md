@@ -38,7 +38,8 @@ Anthropic Messages (`POST /v1/messages`). Code:
 - `anthropic_messages.legalize-unsupported-sampling-params`: for Claude
   models that reject explicit sampling controls, removes `llm.temperature`,
   `top_p`, and `top_k` by default. With `{ strict: true }`, the same request
-  throws before `toWire`.
+  throws before `toWire`. Thinking requests use the same rule, because the
+  Messages API rejects explicit sampling controls when thinking is enabled.
 - `anthropic_messages.legalize-thinking`: chooses the target model's thinking
   wire shape. Claude Sonnet 5-style adaptive models get
   `thinking:{type:"adaptive"}` plus `output_config.effort`; Sonnet 4.5-style
@@ -50,7 +51,7 @@ Anthropic Messages (`POST /v1/messages`). Code:
 
 - `llm.output` has no Messages-API equivalent: lowering throws a `LintError`
   instead of dropping it. If you want json-schema output on anthropic, write
-  a core-IR pass that rewrites `llm.output` into a forced tool.
+  a core-IR transform that rewrites `llm.output` into a forced tool.
 - `llm.text` with `role:"system"` after user/assistant content lints instead
   of being hoisted to the top-level `system` field, because hoisting would
   reorder the instruction.

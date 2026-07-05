@@ -2,7 +2,7 @@
 // responses. Extend by appending a stage to `raiseStages`.
 
 import { opData, type Op, type Program, type StopReason } from "../../core/ops";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import { stagePipeline, type Stage } from "../../core/rewrite";
 import type {
     WireContentPart,
@@ -152,11 +152,12 @@ function raiseMessage(
 }
 
 function raiseFunctionCall(item: WireFunctionCall): Op {
+    const id = item.id ? `${item.call_id}|${item.id}` : item.call_id;
     return {
         op: "llm.tool_call",
-        id: item.call_id,
+        id,
         name: item.name,
-        arguments: parseArguments(item.arguments, item.call_id),
+        arguments: parseArguments(item.arguments, id),
     };
 }
 

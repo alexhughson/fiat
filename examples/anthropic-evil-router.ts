@@ -1,8 +1,6 @@
 import {
     AnthropicTranslator,
     GeminiTranslator,
-    translateRequest,
-    translateResponse,
     type Program,
 } from "../src/index";
 
@@ -34,7 +32,10 @@ const server = Bun.serve({
         try {
             const body = record(await request.json(), "anthropic request");
             const core = AnthropicTranslator.fromBody(body);
-            const requestedModel = string(body.model, "anthropic request.model");
+            const requestedModel = string(
+                body.model,
+                "anthropic request.model",
+            );
             const route = hasEvilPromptText(core) ? "gemini" : "anthropic";
 
             console.log(
@@ -52,23 +53,23 @@ const server = Bun.serve({
 
             const geminiResponse = await callGemini(
                 record(
-                    translateRequest(body, {
-                        from: AnthropicTranslator,
-                        to: GeminiTranslator,
-                        passes: [setModel(geminiModel)],
-                    }),
+                    GeminiTranslator.toBody(
+                        setModel(geminiModel)(
+                            AnthropicTranslator.fromBody(body),
+                        ),
+                    ),
                     "gemini request",
                 ),
             );
 
             return json(
-                translateResponse(
-                    { model: geminiModel, ...geminiResponse },
-                    {
-                        from: GeminiTranslator,
-                        to: AnthropicTranslator,
-                        passes: [setModel(requestedModel)],
-                    },
+                AnthropicTranslator.toResponse(
+                    setModel(requestedModel)(
+                        GeminiTranslator.fromResponse({
+                            model: geminiModel,
+                            ...geminiResponse,
+                        }),
+                    ),
                 ),
             );
         } catch (error) {
@@ -80,7 +81,9 @@ const server = Bun.serve({
     },
 });
 
-console.log(`anthropic evil router: http://localhost:${server.port}/v1/messages`);
+console.log(
+    `anthropic evil router: http://localhost:${server.port}/v1/messages`,
+);
 
 function hasEvilPromptText(program: Program): boolean {
     return program.some(
@@ -93,9 +96,7 @@ function hasEvilPromptText(program: Program): boolean {
 
 function setModel(model: string) {
     return (program: Program): Program =>
-        program.map((op) =>
-            op.op === "llm.model" ? { ...op, model } : op,
-        );
+        program.map((op) => (op.op === "llm.model" ? { ...op, model } : op));
 }
 
 async function callAnthropic(body: Record<string, unknown>): Promise<Response> {

@@ -41,7 +41,7 @@ describe("anthropic_messages lower request stages", () => {
             {
                 op: "anthropic_messages.thinking",
                 adaptiveEffort: "medium",
-                display: "omitted",
+                display: "summarized",
             },
         ]);
     });
@@ -193,7 +193,12 @@ describe("anthropic_messages lower request stages", () => {
         expect(
             lowerToolResults([
                 { op: "llm.model", model: "m" },
-                { op: "llm.tool_result", id: "t1", content: "72F", isError: true },
+                {
+                    op: "llm.tool_result",
+                    id: "t1",
+                    content: "72F",
+                    isError: true,
+                },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
@@ -221,7 +226,10 @@ describe("anthropic_messages lower request stages", () => {
                 {
                     op: "anthropic_messages.content_block",
                     role: "user",
-                    block: { type: "image", source: { type: "base64", data: "abc" } },
+                    block: {
+                        type: "image",
+                        source: { type: "base64", data: "abc" },
+                    },
                     required: false,
                 },
             ]),
@@ -232,7 +240,10 @@ describe("anthropic_messages lower request stages", () => {
                 message: {
                     role: "user",
                     content: [
-                        { type: "image", source: { type: "base64", data: "abc" } },
+                        {
+                            type: "image",
+                            source: { type: "base64", data: "abc" },
+                        },
                     ],
                 },
             },

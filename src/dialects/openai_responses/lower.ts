@@ -6,7 +6,7 @@
 
 import type { Op, OpOf, Program } from "../../core/ops";
 import { opData } from "../../core/ops";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import { stagePipeline, type Stage } from "../../core/rewrite";
 import type {
     WireContentPart,
@@ -74,14 +74,16 @@ export function lowerToolCalls(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "llm.tool_call") return [op];
         const call = op as OpOf<"llm.tool_call">;
+        const id = splitResponsesToolCallId(call.id);
         return [
             {
                 op: "openai_responses.input",
                 item: {
                     type: "function_call" as const,
-                    call_id: call.id,
+                    call_id: id.callId,
                     name: call.name,
                     arguments: JSON.stringify(call.arguments),
+                    ...(id.itemId ? { id: id.itemId } : {}),
                 },
             },
         ];
@@ -92,17 +94,31 @@ export function lowerToolResults(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "llm.tool_result") return [op];
         const result = op as OpOf<"llm.tool_result">;
+        const id = splitResponsesToolCallId(result.id);
         return [
             {
                 op: "openai_responses.input",
                 item: {
                     type: "function_call_output" as const,
-                    call_id: result.id,
+                    call_id: id.callId,
                     output: result.content,
                 },
             },
         ];
     });
+}
+
+function splitResponsesToolCallId(id: string): {
+    callId: string;
+    itemId?: string;
+} {
+    const [callId, itemId] = id.split("|", 2);
+    return {
+        callId: callId ?? id,
+        ...(itemId
+            ? { itemId: itemId.startsWith("fc_") ? itemId : `fc_${itemId}` }
+            : {}),
+    };
 }
 
 export function lowerStopReasons(program: Program): Program {

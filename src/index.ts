@@ -12,25 +12,19 @@ export type {
 } from "./core/ops";
 export { isCoreOp, namespaceOf } from "./core/ops";
 export { append, firstOp, opsOf } from "./core/program";
-export { LintError, runPasses } from "./core/pass";
-export type { Pass, Target } from "./core/pass";
+export { LintError } from "./core/lint";
 export { stagePipeline } from "./core/rewrite";
-export type { Stage } from "./core/rewrite";
+export type { Stage, Target } from "./core/rewrite";
 export type { Codec, Dialect } from "./core/registry";
 export {
     lintForeignResiduals,
-    translateRequest,
-    translateResponse,
-    translateStreamResponse,
     lowerStreamResponsesToWire,
 } from "./core/pipeline";
 export type {
     DialectRef,
-    HookStages,
     Kind,
     LowerOptions,
     RaiseOptions,
-    TranslateOptions,
 } from "./core/pipeline";
 export { makeTranslator, Translator } from "./core/translator";
 

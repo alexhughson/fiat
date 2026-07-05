@@ -3,9 +3,8 @@ import { join, resolve } from "node:path";
 import {
     AnthropicTranslator,
     OpenAIChatTranslator,
-    runPasses,
-    type Pass,
     type Program,
+    type Stage,
 } from "../src/index";
 
 const port = Number(Bun.env.PORT ?? 3000);
@@ -133,11 +132,7 @@ function anthropicRequestToOpenAI(
             name: "anthropic.request.raise",
             program: core,
         });
-        core = runPasses(core, requestPasses(), {
-            dialect: "openai_chat",
-            kind: "request",
-            model: backendModel,
-        });
+        core = requestStages().reduce((current, stage) => stage(current), core);
         trace.steps.push({
             name: "proxy.request.policy",
             program: core,
@@ -163,11 +158,10 @@ function openAIResponseToAnthropic(
         name: "openai.response.raise",
         program: core,
     });
-    core = runPasses(core, responsePasses(requestedModel), {
-        dialect: "anthropic_messages",
-        kind: "response",
-        model: requestedModel,
-    });
+    core = responseStages(requestedModel).reduce(
+        (current, stage) => stage(current),
+        core,
+    );
     trace.steps.push({
         name: "proxy.response.policy",
         program: core,
@@ -179,7 +173,7 @@ function openAIResponseToAnthropic(
     return { body: anthropicBody, core };
 }
 
-function requestPasses(): Pass[] {
+function requestStages(): Stage[] {
     return [
         (program) =>
             program.map((op) => {
@@ -194,7 +188,7 @@ function requestPasses(): Pass[] {
     ];
 }
 
-function responsePasses(requestedModel: string): Pass[] {
+function responseStages(requestedModel: string): Stage[] {
     return [
         (program) =>
             program.map((op) =>

@@ -2,7 +2,7 @@
 // responses. Extend by appending a stage to `raiseStages`.
 
 import { opData, type Op, type Program, type StopReason } from "../../core/ops";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import { stagePipeline, type Stage } from "../../core/rewrite";
 import { asNumber, asRecord, asString } from "../../core/wire";
 import type { GeminiPartMeta, WireContent, WirePart } from "./ops";

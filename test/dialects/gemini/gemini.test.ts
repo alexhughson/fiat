@@ -3,7 +3,6 @@ import {
     GeminiTranslator,
     LintError,
     OpenAIChatTranslator,
-    translateStreamResponse,
 } from "../../../src/index";
 import {
     geminiFunctionCallResponseFixture,
@@ -65,7 +64,27 @@ describe("gemini requests", () => {
         ]);
         expect(
             GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
-        ).toEqual(body);
+        ).toEqual({
+            ...body,
+            contents: [
+                body.contents[0],
+                {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: geminiWeatherToolName,
+                                args: { city: "Paris" },
+                                id: "call_1",
+                            },
+                            thoughtSignature:
+                                "skip_thought_signature_validator",
+                        },
+                    ],
+                },
+                body.contents[2],
+            ],
+        });
     });
 
     test("a bare tool_result without a function name fails loudly", () => {
@@ -122,6 +141,59 @@ describe("gemini requests", () => {
                 ],
             }),
         ).toThrow("unsupported fields cacheControl");
+    });
+
+    test("core tool history without a Gemini response injects fake thoughtSignature", () => {
+        const body = GeminiTranslator.toBody([
+            { op: "llm.model", model },
+            { op: "llm.text", role: "user", content: "weather?" },
+            {
+                op: "llm.tool_call",
+                id: "call_1",
+                name: geminiWeatherToolName,
+                arguments: { city: "Paris" },
+            },
+            { op: "llm.tool_result", id: "call_1", content: '{"temp_c":21}' },
+            {
+                op: "llm.tool",
+                name: geminiWeatherToolName,
+                description: "Get the current weather for a city.",
+                inputSchema: {
+                    type: "object",
+                    properties: { city: { type: "string" } },
+                    required: ["city"],
+                },
+            },
+        ]) as Record<string, unknown>;
+
+        expect(body.contents).toEqual([
+            { role: "user", parts: [{ text: "weather?" }] },
+            {
+                role: "model",
+                parts: [
+                    {
+                        functionCall: {
+                            name: geminiWeatherToolName,
+                            args: { city: "Paris" },
+                            id: "call_1",
+                        },
+                        thoughtSignature: "skip_thought_signature_validator",
+                    },
+                ],
+            },
+            {
+                role: "user",
+                parts: [
+                    {
+                        functionResponse: {
+                            name: geminiWeatherToolName,
+                            response: { temp_c: 21 },
+                            id: "call_1",
+                        },
+                    },
+                ],
+            },
+        ]);
     });
 
     test("request history keeps a previous functionCall thoughtSignature", () => {
@@ -473,7 +545,7 @@ describe("gemini requests", () => {
         ).toEqual({
             model,
             generationConfig: {
-                thinkingConfig: { thinkingLevel: "high" },
+                thinkingConfig: { thinkingLevel: "HIGH" },
             },
             contents: [{ role: "user", parts: [{ text: "hi" }] }],
         });
@@ -493,20 +565,52 @@ describe("gemini requests", () => {
         ).toThrow('thinkingLevel does not support effort "max"');
     });
 
-    test("llm.thinking lowers to Gemini 3 thinkingLevel", () => {
-        expect(
-            GeminiTranslator.toBody([
-                { op: "llm.model", model },
-                { op: "llm.thinking", effort: "high" },
-                { op: "llm.text", role: "user", content: "hi" },
-            ]),
-        ).toEqual({
-            model,
-            generationConfig: {
-                thinkingConfig: { thinkingLevel: "high" },
-            },
-            contents: [{ role: "user", parts: [{ text: "hi" }] }],
-        });
+    test("llm.thinking lowers to Gemini 3 Pro thinkingLevel enum values", () => {
+        const cases = [
+            ["low", "LOW"],
+            ["medium", "HIGH"],
+            ["high", "HIGH"],
+        ] as const;
+
+        for (const [effort, thinkingLevel] of cases) {
+            expect(
+                GeminiTranslator.toBody([
+                    { op: "llm.model", model: "models/gemini-3-pro-preview" },
+                    { op: "llm.thinking", effort },
+                    { op: "llm.text", role: "user", content: "hi" },
+                ]),
+            ).toEqual({
+                model: "models/gemini-3-pro-preview",
+                generationConfig: {
+                    thinkingConfig: { thinkingLevel },
+                },
+                contents: [{ role: "user", parts: [{ text: "hi" }] }],
+            });
+        }
+    });
+
+    test("llm.thinking lowers to Gemini 3 Flash thinkingLevel enum values", () => {
+        const cases = [
+            ["low", "LOW"],
+            ["medium", "MEDIUM"],
+            ["high", "HIGH"],
+        ] as const;
+
+        for (const [effort, thinkingLevel] of cases) {
+            expect(
+                GeminiTranslator.toBody([
+                    { op: "llm.model", model: "models/gemini-3.5-flash" },
+                    { op: "llm.thinking", effort },
+                    { op: "llm.text", role: "user", content: "hi" },
+                ]),
+            ).toEqual({
+                model: "models/gemini-3.5-flash",
+                generationConfig: {
+                    thinkingConfig: { thinkingLevel },
+                },
+                contents: [{ role: "user", parts: [{ text: "hi" }] }],
+            });
+        }
     });
 
     test("llm.thinking lowers to Gemini 2.5 thinkingBudget token limits", () => {
@@ -558,7 +662,7 @@ describe("gemini requests", () => {
             ]),
         ).toMatchObject({
             generationConfig: {
-                thinkingConfig: { thinkingLevel: "high" },
+                thinkingConfig: { thinkingLevel: "HIGH" },
             },
         });
 
@@ -570,7 +674,7 @@ describe("gemini requests", () => {
             ]),
         ).toMatchObject({
             generationConfig: {
-                thinkingConfig: { thinkingLevel: "high" },
+                thinkingConfig: { thinkingLevel: "HIGH" },
             },
         });
 
@@ -845,8 +949,8 @@ describe("gemini stream responses", () => {
     });
 
     test("Gemini text chunks translate through the generic stream response ops", () => {
-        const openaiChunk = translateStreamResponse(
-            {
+        const openaiChunk = OpenAIChatTranslator.toStreamResponse(
+            GeminiTranslator.fromStreamResponse({
                 candidates: [
                     {
                         content: {
@@ -855,8 +959,7 @@ describe("gemini stream responses", () => {
                         },
                     },
                 ],
-            },
-            { from: GeminiTranslator, to: OpenAIChatTranslator },
+            }),
         ) as {
             object: string;
             choices: { delta: { role: string; content: string } }[];

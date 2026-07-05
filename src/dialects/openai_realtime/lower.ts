@@ -5,7 +5,7 @@
 // residuals raise left behind. Extend by appending to the stage arrays.
 
 import { opData, type Op, type OpOf, type Program } from "../../core/ops";
-import { LintError } from "../../core/pass";
+import { LintError } from "../../core/lint";
 import { stagePipeline, type Stage } from "../../core/rewrite";
 import { lowerStopReason } from "./raise";
 import type {
