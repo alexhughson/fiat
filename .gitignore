@@ -1,6 +1,9 @@
 node_modules
 dist
 .env
+scratch/
 e2e/gemini/output
 e2e/anthropic/output
 examples/output
+scratch
+.scratch
