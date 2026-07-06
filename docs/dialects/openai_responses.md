@@ -13,6 +13,8 @@ OpenAI Responses (`POST /v1/responses`). Code:
 | `max_output_tokens`                         | `llm.max_output_tokens`             |
 | `reasoning.effort`                          | `llm.thinking`                      |
 | text input/output items                     | `llm.text`                          |
+| `input_image.image_url`                     | `llm.image`                         |
+| `input_file.file_url` / `file_data`         | `llm.document` for PDFs             |
 | function-call items                         | `llm.tool_call` / `llm.tool_result` |
 | function tools                              | `llm.tool`                          |
 | minimal web search / code interpreter tools | `llm.server_tool`                   |
@@ -44,9 +46,24 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 - Canonical server-tool names are `web_search` and `code_execution`.
 - Configured hosted tools, MCP tools, file search, computer use, image
   generation, and provider-specific hosted choices stay residuals.
+- Custom grammar tools stay as `openai_responses.tool`; force them with
+  `openai_responses.tool_choice`, not portable `llm.tool_choice`:
+    ```ts
+    {
+        type: "custom",
+        name: "apply_patch",
+        format: { type: "grammar", syntax: "lark", definition },
+    }
+    ```
+- Request `input_image.image_url` and PDF `input_file.file_url`/`file_data`
+  parts lower as ordered message content parts.
+- File ids are provider-owned and stay as native content-bearing residuals.
+- Media model validation is hard failure even in lenient mode. It never drops
+  media.
 
 ## Out of scope
 
 Structured output lowering, streaming output item protocols beyond text/tool
-deltas, and provider-neutral representations for MCP, file search, computer
-use, or image generation.
+deltas, audio/video input, image `detail` metadata, and provider-neutral
+representations for MCP, file search, computer use, provider file ids, or image
+generation.

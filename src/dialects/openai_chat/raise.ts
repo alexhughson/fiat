@@ -5,8 +5,18 @@
 // between requests and responses — the ops are the same shapes in both
 // directions.
 
-import { opData, type Op, type Program, type StopReason } from "../../core/ops.js";
+import {
+    opData,
+    type Op,
+    type Program,
+    type StopReason,
+} from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import {
+    base64Source,
+    documentSourceFromUrl,
+    imageSourceFromUrl,
+} from "../../core/media.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
     OpenAIChatMessageMeta,
@@ -78,6 +88,16 @@ export function raiseUsage(program: Program): Program {
 }
 
 function raiseMessage(message: WireMessage): Op[] {
+    if (hasUnportableContentPart(message.content)) {
+        return [
+            {
+                op: "openai_chat.message",
+                message,
+                preservesContent: true,
+                appliesTo: "request",
+            },
+        ];
+    }
     const ops: Op[] = [];
     switch (message.role) {
         case "system":
@@ -168,13 +188,126 @@ function textOps(
         return [{ op: "llm.text", role, content }];
     }
     return content.map((part) => {
-        if (part.type !== "text" || typeof part.text !== "string") {
-            throw new LintError(
-                `openai_chat message: unsupported content part type ${JSON.stringify(part.type)}`,
-            );
+        switch (part.type) {
+            case "text":
+                if (typeof part.text !== "string") {
+                    throw new LintError(
+                        "openai_chat message text part: missing text",
+                    );
+                }
+                return { op: "llm.text", role, content: part.text };
+            case "image_url":
+                return raiseImagePart(role, part);
+            case "input_audio":
+                return raiseAudioPart(role, part);
+            case "file":
+                return raiseFilePart(role, part);
+            default:
+                throw new LintError(
+                    `openai_chat message: unsupported content part type ${JSON.stringify(part.type)}`,
+                );
         }
-        return { op: "llm.text", role, content: part.text };
     });
+}
+
+function hasUnportableContentPart(content: WireMessage["content"]): boolean {
+    return (
+        Array.isArray(content) &&
+        content.some(
+            (part) =>
+                (part.type === "file" &&
+                    typeof part.file?.file_id === "string") ||
+                (part.type === "file" &&
+                    typeof part.file?.file_data !== "string") ||
+                (part.type === "input_audio" &&
+                    typeof part.input_audio?.data !== "string"),
+        )
+    );
+}
+
+function raiseImagePart(
+    role: "system" | "user" | "assistant",
+    part: WireContentPart,
+): Op {
+    if (role !== "user") {
+        throw new LintError(
+            `openai_chat image_url part: unsupported role ${JSON.stringify(role)}`,
+        );
+    }
+    assertOnlyKeys(part, ["type", "image_url"], "openai_chat image_url part");
+    const image = part.image_url;
+    if (!image || typeof image !== "object" || Array.isArray(image)) {
+        throw new LintError("openai_chat image_url part: missing image_url");
+    }
+    assertOnlyKeys(image, ["url"], "openai_chat image_url");
+    if (typeof image.url !== "string") {
+        throw new LintError("openai_chat image_url.url: expected a string");
+    }
+    return {
+        op: "llm.image",
+        role: "user",
+        source: imageSourceFromUrl(image.url, "openai_chat image_url.url"),
+    };
+}
+
+function raiseAudioPart(
+    role: "system" | "user" | "assistant",
+    part: WireContentPart,
+): Op {
+    if (role !== "user") {
+        throw new LintError(
+            `openai_chat input_audio part: unsupported role ${JSON.stringify(role)}`,
+        );
+    }
+    assertOnlyKeys(part, ["type", "input_audio"], "openai_chat input_audio part");
+    const audio = part.input_audio;
+    if (!audio || typeof audio !== "object" || Array.isArray(audio)) {
+        throw new LintError("openai_chat input_audio part: missing input_audio");
+    }
+    assertOnlyKeys(audio, ["data", "format"], "openai_chat input_audio");
+    if (typeof audio.data !== "string") {
+        throw new LintError("openai_chat input_audio.data: expected a string");
+    }
+    const mediaType = openAIChatAudioMediaType(audio.format);
+    return {
+        op: "llm.audio",
+        role: "user",
+        source: base64Source(
+            mediaType,
+            audio.data,
+            "audio",
+            "openai_chat input_audio",
+        ),
+    };
+}
+
+function raiseFilePart(
+    role: "system" | "user" | "assistant",
+    part: WireContentPart,
+): Op {
+    if (role !== "user") {
+        throw new LintError(
+            `openai_chat file part: unsupported role ${JSON.stringify(role)}`,
+        );
+    }
+    assertOnlyKeys(part, ["type", "file"], "openai_chat file part");
+    const file = part.file;
+    if (!file || typeof file !== "object" || Array.isArray(file)) {
+        throw new LintError("openai_chat file part: missing file");
+    }
+    assertOnlyKeys(file, ["filename", "file_data"], "openai_chat file");
+    if (typeof file.file_data !== "string") {
+        throw new LintError("openai_chat file.file_data: expected a string");
+    }
+    const source = documentSourceFromUrl(file.file_data, "openai_chat file.file_data");
+    return {
+        op: "llm.document",
+        role: "user",
+        source:
+            source.type === "base64"
+                ? { ...source, filename: stringOrUndefined(file.filename) }
+                : source,
+    };
 }
 
 function flattenText(content: string | WireContentPart[] | null): string {
@@ -190,6 +323,34 @@ function flattenText(content: string | WireContentPart[] | null): string {
             return part.text;
         })
         .join("\n");
+}
+
+function openAIChatAudioMediaType(format: unknown): string {
+    switch (format) {
+        case "wav":
+            return "audio/wav";
+        case "mp3":
+            return "audio/mp3";
+        default:
+            throw new LintError(
+                `openai_chat input_audio.format: unsupported format ${JSON.stringify(format)}`,
+            );
+    }
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+    return typeof value === "string" ? value : undefined;
+}
+
+function assertOnlyKeys(
+    value: Record<string, unknown>,
+    keys: string[],
+    what: string,
+): void {
+    const allowed = new Set(keys);
+    const extra = Object.keys(value).filter((key) => !allowed.has(key));
+    if (extra.length > 0)
+        throw new LintError(`${what}: unsupported fields ${extra.join(", ")}`);
 }
 
 function parseArguments(raw: string, callId: string): Record<string, unknown> {

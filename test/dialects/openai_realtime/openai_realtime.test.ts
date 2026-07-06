@@ -243,7 +243,7 @@ describe("openai_realtime requests", () => {
         ).toThrow(LintError);
     });
 
-    test("audio input stays as a realtime residual and drops cross-provider with a warning", () => {
+    test("audio input stays as a realtime residual and cannot be dropped cross-provider", () => {
         const body = {
             model: "gpt-4o-mini",
             events: [
@@ -264,25 +264,69 @@ describe("openai_realtime requests", () => {
 
         expect(OpenAIRealtimeTranslator.fromBody(body)).toEqual([
             { op: "llm.model", model: "gpt-4o-mini" },
-            { op: "openai_realtime.item", event: body.events[0] },
+            {
+                op: "openai_realtime.item",
+                event: body.events[0],
+                preservesContent: true,
+            },
         ]);
         expect(
             OpenAIRealtimeTranslator.toBody(
                 OpenAIRealtimeTranslator.fromBody(body),
             ),
         ).toEqual(body);
-        withWarnSpy((warn) => {
-            const chatBody = OpenAIChatTranslator.toBody(
-                OpenAIRealtimeTranslator.fromBody(body),
-            ) as Record<string, unknown>;
+        expect(() =>
+            OpenAIChatTranslator.toBody(OpenAIRealtimeTranslator.fromBody(body)),
+        ).toThrow(
+            'cannot drop content-bearing foreign op "openai_realtime.item"',
+        );
+    });
 
-            expect(chatBody.messages).toBeUndefined();
-            expect(warn).toHaveBeenCalledWith(
-                expect.stringContaining(
-                    'ignored foreign op "openai_realtime.item"',
-                ),
-            );
+    test("audio response output cannot be dropped cross-provider", () => {
+        const body = {
+            events: [
+                {
+                    type: "response.done",
+                    response: {
+                        model: "gpt-4o-realtime-preview",
+                        output: [
+                            {
+                                type: "message",
+                                role: "assistant",
+                                content: [{ type: "audio", audio: "..." }],
+                            },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        const program = OpenAIRealtimeTranslator.fromResponse(body);
+        expect(program).toContainEqual({
+            op: "openai_realtime.output_meta",
+            item: body.events[0]!.response.output[0],
+            appliesTo: "response",
+            preservesContent: true,
         });
+        expect(() => OpenAIChatTranslator.toResponse(program)).toThrow(
+            'cannot drop content-bearing foreign op "openai_realtime.output_meta"',
+        );
+    });
+
+    test("portable image input fails loudly instead of becoming realtime event wire", () => {
+        expect(() =>
+            OpenAIRealtimeTranslator.toBody([
+                { op: "llm.model", model: "gpt-realtime" },
+                {
+                    op: "llm.image",
+                    role: "user",
+                    source: {
+                        type: "url",
+                        url: "https://example.com/invoice.png",
+                    },
+                },
+            ]),
+        ).toThrow('no serialization for op "llm.image"');
     });
 
     test("model, event metadata, item metadata, and content metadata round-trip", () => {

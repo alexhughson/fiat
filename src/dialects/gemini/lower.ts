@@ -6,6 +6,12 @@
 
 import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
 import { LintError, lintOrWarn } from "../../core/lint.js";
+import {
+    assertAudioSource,
+    assertDocumentSource,
+    assertImageMediaType,
+    assertVideoSource,
+} from "../../core/media.js";
 import type { Target } from "../../core/rewrite.js";
 import { firstOp } from "../../core/program.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
@@ -23,6 +29,10 @@ export const lowerRequestStages: Stage[] = [
     lowerStructuredOutput,
     lowerToolResults,
     lowerRequestTexts,
+    lowerRequestImages,
+    lowerRequestAudio,
+    lowerRequestDocuments,
+    lowerRequestVideos,
     lowerToolCalls,
     applyRequestPartMeta,
     mergeAdjacentContents,
@@ -67,6 +77,10 @@ export function lintMidConversationSystem(program: Program): Program {
                 break;
             case "llm.tool_call":
             case "llm.tool_result":
+            case "llm.image":
+            case "llm.audio":
+            case "llm.document":
+            case "llm.video":
             case "gemini.content":
                 sawConversation = true;
                 break;
@@ -225,6 +239,88 @@ export function lowerRequestTexts(program: Program): Program {
         return [
             contentOp(text.role === "assistant" ? "model" : "user", {
                 text: text.content,
+            }),
+        ];
+    });
+}
+
+export function lowerRequestImages(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.image") return [op];
+        const image = op as OpOf<"llm.image">;
+        if (image.role !== "user") {
+            throw new LintError(
+                `gemini request lower: unsupported image role ${JSON.stringify(image.role)}`,
+            );
+        }
+        if (image.source.type !== "base64") {
+            throw new LintError(
+                "gemini request lower: llm.image URL sources require provider file upload before generateContent",
+            );
+        }
+        assertImageMediaType(
+            image.source.mediaType,
+            "gemini request lower llm.image",
+        );
+        return [
+            contentOp("user", {
+                inline_data: {
+                    mime_type: image.source.mediaType,
+                    data: image.source.data,
+                },
+            }),
+        ];
+    });
+}
+
+export function lowerRequestAudio(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.audio") return [op];
+        const audio = op as OpOf<"llm.audio">;
+        assertAudioSource(audio.source, "gemini request lower llm.audio");
+        return [
+            contentOp("user", {
+                inline_data: {
+                    mime_type: audio.source.mediaType,
+                    data: audio.source.data,
+                },
+            }),
+        ];
+    });
+}
+
+export function lowerRequestDocuments(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.document") return [op];
+        const document = op as OpOf<"llm.document">;
+        assertDocumentSource(document.source, "gemini request lower llm.document");
+        if (document.source.type !== "base64") {
+            throw new LintError(
+                "gemini request lower: llm.document URL sources require provider file upload before generateContent",
+            );
+        }
+        return [
+            contentOp("user", {
+                inline_data: {
+                    mime_type: document.source.mediaType,
+                    data: document.source.data,
+                },
+            }),
+        ];
+    });
+}
+
+export function lowerRequestVideos(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.video") return [op];
+        const video = op as OpOf<"llm.video">;
+        assertVideoSource(video.source, "gemini request lower llm.video");
+        return [
+            contentOp("user", {
+                inline_data: {
+                    mime_type: video.source.mediaType,
+                    data: video.source.data,
+                },
             }),
         ];
     });
@@ -549,6 +645,22 @@ function collectModelContentForResponse(
                 );
                 break;
             }
+            case "llm.image":
+                throw new LintError(
+                    "gemini response lower: llm.image cannot be sent in a response program",
+                );
+            case "llm.audio":
+                throw new LintError(
+                    "gemini response lower: llm.audio cannot be sent in a response program",
+                );
+            case "llm.document":
+                throw new LintError(
+                    "gemini response lower: llm.document cannot be sent in a response program",
+                );
+            case "llm.video":
+                throw new LintError(
+                    "gemini response lower: llm.video cannot be sent in a response program",
+                );
             case "gemini.part_meta":
                 break;
             default:

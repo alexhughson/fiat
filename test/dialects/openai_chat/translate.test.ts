@@ -98,6 +98,44 @@ describe("openai_chat translation", () => {
         });
     });
 
+    test("openai responses custom grammar tools warn and drop when translated cross-provider", () => {
+        withWarnSpy((warn) => {
+            const body = OpenAIChatTranslator.toBody(
+                OpenAIResponsesTranslator.fromBody({
+                    model: "gpt-4o-mini",
+                    input: "patch the file",
+                    tools: [
+                        {
+                            type: "custom",
+                            name: "apply_patch",
+                            format: {
+                                type: "grammar",
+                                syntax: "lark",
+                                definition: "start: /.+/",
+                            },
+                        },
+                    ],
+                    tool_choice: { type: "custom", name: "apply_patch" },
+                }),
+            ) as Record<string, unknown>;
+
+            expect(body).toEqual({
+                model: "gpt-4o-mini",
+                messages: [{ role: "user", content: "patch the file" }],
+            });
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    'ignored foreign op "openai_responses.tool"',
+                ),
+            );
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    'ignored foreign op "openai_responses.tool_choice"',
+                ),
+            );
+        });
+    });
+
     test("a real-shaped Claude Code Anthropic request lowers to OpenAI Chat through the library", () => {
         const core = AnthropicTranslator.fromBody(claudeCodeAnthropicRequest);
         expect(core).toContainEqual({

@@ -1,12 +1,12 @@
 // Legalizations: target-scoped transforms that run on the lower IR after
 // lowering, before toWire. This is where endpoint/model quirks live.
 
+import { LintError, lintOrWarn } from "../../core/lint.js";
 import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
 import { firstOp } from "../../core/program.js";
-import { lintOrWarn } from "../../core/lint.js";
 import type { Target } from "../../core/rewrite.js";
 import { asThinkingEffort } from "../../core/wire.js";
-import type { AnthropicEffort } from "./ops.js";
+import type { AnthropicEffort, WireAnthropicMessage } from "./ops.js";
 
 // The Messages API rejects requests without max_tokens, but most other
 // providers treat it as optional — so a program translated from elsewhere
@@ -143,6 +143,27 @@ export const legalizeThinking = (program: Program, target: Target): Program => {
         }
         return [op];
     });
+};
+
+export const validateModalities = (
+    program: Program,
+    target: Target,
+): Program => {
+    const modalities = anthropicModalities(program);
+    if (modalities.size === 0) return program;
+    if (!target.model) {
+        throw new LintError(
+            "anthropic_messages modality validation requires llm.model",
+        );
+    }
+    for (const modality of modalities) {
+        if (!supportsAnthropicModality(target.model, modality)) {
+            throw new LintError(
+                `${target.model}: Anthropic Messages does not support ${modality} input`,
+            );
+        }
+    }
+    return program;
 };
 
 function rejectsExplicitSampling(model?: string): boolean {
@@ -359,10 +380,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function anthropicModalities(program: Program): Set<string> {
+    const modalities = new Set<string>();
+    for (const op of program) {
+        if (op.op === "llm.audio") modalities.add("audio");
+        if (op.op === "llm.video") modalities.add("video");
+        if (op.op !== "anthropic_messages.message") continue;
+        const message = opData<{ message: WireAnthropicMessage }>(op).message;
+        if (!Array.isArray(message.content)) continue;
+        for (const block of message.content) {
+            if (block.type === "image") modalities.add("image");
+            if (block.type === "document") modalities.add("document");
+        }
+    }
+    return modalities;
+}
+
+function supportsAnthropicModality(model: string, modality: string): boolean {
+    switch (modality) {
+        case "image":
+        case "document":
+            return /^claude-(?:haiku|sonnet|opus|fable|mythos|3)(?:-|$)/.test(
+                model,
+            );
+        default:
+            return false;
+    }
+}
+
 export const legalizations: ((program: Program, target: Target) => Program)[] =
     [
         defaultMaxTokens,
         legalizeUnsupportedSamplingParams,
         legalizeThinking,
         validateOutputConfigEffort,
+        validateModalities,
     ];

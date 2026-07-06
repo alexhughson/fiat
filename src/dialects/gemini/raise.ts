@@ -1,8 +1,14 @@
 // lower IR -> core IR, as a pipeline of stages. Shared between requests and
 // responses. Extend by appending a stage to `raiseStages`.
 
-import { opData, type Op, type Program, type StopReason } from "../../core/ops.js";
+import {
+    opData,
+    type Op,
+    type Program,
+    type StopReason,
+} from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import { base64Source, mediaKindForType } from "../../core/media.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import { asNumber, asRecord, asString } from "../../core/wire.js";
 import type { GeminiPartMeta, WireContent, WirePart } from "./ops.js";
@@ -122,12 +128,18 @@ function raiseContent(
     const coreRole = role === "model" ? "assistant" : "user";
     const out: Op[] = [];
     content.parts.forEach((part, index) => {
+        const media = mediaPart(part, coreRole, appliesTo);
+        if (media) {
+            out.push(media);
+            return;
+        }
         const kind = partKind(part, appliesTo);
         if (!kind) {
             out.push({
                 op: "gemini.content",
                 content: { role, parts: [part] },
                 ...(appliesTo ? { appliesTo } : {}),
+                ...(isMediaLikePart(part) ? { preservesContent: true } : {}),
             });
             return;
         }
@@ -231,6 +243,54 @@ function raiseContent(
         }
     });
     return out;
+}
+
+function mediaPart(
+    part: WirePart,
+    role: "user" | "assistant",
+    appliesTo?: "request" | "response",
+): Op | undefined {
+    if (appliesTo === "response") return undefined;
+    const inlineData = part.inline_data;
+    if (
+        typeof inlineData !== "object" ||
+        inlineData === null ||
+        Array.isArray(inlineData)
+    ) {
+        return undefined;
+    }
+    if (role !== "user") return undefined;
+    const data = inlineData as Record<string, unknown>;
+    const mediaType = asString(data.mime_type, "gemini inline_data.mime_type");
+    const kind = mediaKindForType(mediaType);
+    if (!kind) return undefined;
+    assertOnlyKeys(data, ["mime_type", "data"], "gemini inline_data");
+    assertOnlyKeys(part, ["inline_data"], "gemini inline media part");
+    const source = base64Source(
+        mediaType,
+        asString(data.data, "gemini inline_data.data"),
+        kind,
+        "gemini inline_data",
+    );
+    switch (kind) {
+        case "image":
+            return { op: "llm.image", role: "user", source };
+        case "audio":
+            return { op: "llm.audio", role: "user", source };
+        case "document":
+            return { op: "llm.document", role: "user", source };
+        case "video":
+            return { op: "llm.video", role: "user", source };
+    }
+}
+
+function isMediaLikePart(part: WirePart): boolean {
+    return (
+        part.inline_data != null ||
+        part.inlineData != null ||
+        part.file_data != null ||
+        part.fileData != null
+    );
 }
 
 function raiseStreamContent(

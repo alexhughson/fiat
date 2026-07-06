@@ -5,6 +5,7 @@ import {
     type DialectOp,
     type Program,
 } from "./ops.js";
+import { LintError } from "./lint.js";
 import { firstOp } from "./program.js";
 import type { Codec, Dialect } from "./registry.js";
 import type { Stage, Target } from "./rewrite.js";
@@ -184,6 +185,12 @@ export function dropForeignResiduals(
         if (isCoreOp(op) || namespaceOf(op) === dialectName) {
             kept.push(op);
             continue;
+        }
+        const dialectOp = opData<DialectOp>(op);
+        if (dialectOp.preservesContent === true) {
+            throw new LintError(
+                `cannot drop content-bearing foreign op "${op.op}" while lowering to "${dialectName}"`,
+            );
         }
         console.warn(
             `metamodel: ignored foreign op "${op.op}" while lowering to "${dialectName}"`,

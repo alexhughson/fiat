@@ -105,7 +105,17 @@ function raiseItem(item: WireConversationItem): Op[] {
 
 function raiseRequestEvent(event: WireConversationItemCreateEvent): Op[] {
     const raised = raiseRequestItem(event.item);
-    if (raised.length === 0) return [{ op: "openai_realtime.item", event }];
+    if (raised.length === 0) {
+        return [
+            {
+                op: "openai_realtime.item",
+                event,
+                ...(hasUnsupportedRequestContent(event.item)
+                    ? { preservesContent: true }
+                    : {}),
+            },
+        ];
+    }
     const required = hasRequiredRequestTemplate(event);
     return required
         ? [
@@ -139,13 +149,14 @@ function raiseOutput(item: WireOutputItem): Op[] {
             return [
                 ...raiseMessage({ ...item, role: "assistant" }, false),
                 {
-                    op: "openai_realtime.output_meta",
-                    item: needsOutputTemplate(item)
-                        ? item
-                        : simpleOutputMeta(item),
-                    appliesTo: "response",
-                },
-            ];
+                  op: "openai_realtime.output_meta",
+                  item: needsOutputTemplate(item)
+                      ? item
+                      : simpleOutputMeta(item),
+                  appliesTo: "response",
+                  ...(required ? { preservesContent: true } : {}),
+              },
+          ];
         }
         case "function_call": {
             return [
@@ -235,6 +246,13 @@ function needsOutputTemplate(item: WireOutputItem): boolean {
 }
 
 function hasUnsupportedOutputContent(item: WireOutputItem): boolean {
+    return (
+        item.type === "message" &&
+        item.content.some((part) => isUnsupportedTextPart(part))
+    );
+}
+
+function hasUnsupportedRequestContent(item: WireConversationItem): boolean {
     return (
         item.type === "message" &&
         item.content.some((part) => isUnsupportedTextPart(part))

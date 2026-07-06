@@ -23,6 +23,24 @@ export type StopReason =
 export type ToolChoice = "auto" | "none" | "required" | { name: string };
 export type ServerToolKind = "web_search" | "code_execution";
 export type ThinkingEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type Base64MediaSource = {
+    type: "base64";
+    mediaType: string;
+    data: string;
+    filename?: string;
+};
+export type UrlMediaSource = {
+    type: "url";
+    url: string;
+    mediaType?: string;
+    filename?: string;
+};
+export type ImageSource =
+    | { type: "url"; url: string }
+    | Base64MediaSource;
+export type AudioSource = Base64MediaSource;
+export type DocumentSource = UrlMediaSource | Base64MediaSource;
+export type VideoSource = Base64MediaSource;
 
 export type CoreOp =
     | { op: "llm.model"; model: string }
@@ -33,6 +51,10 @@ export type CoreOp =
     | { op: "request.stop_sequences"; value: string[] }
     | { op: "llm.thinking"; effort: ThinkingEffort }
     | { op: "llm.text"; role: Role; content: string }
+    | { op: "llm.image"; role: "user"; source: ImageSource }
+    | { op: "llm.audio"; role: "user"; source: AudioSource }
+    | { op: "llm.document"; role: "user"; source: DocumentSource }
+    | { op: "llm.video"; role: "user"; source: VideoSource }
     | {
           op: "llm.tool";
           name: string;

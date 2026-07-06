@@ -14,6 +14,8 @@ Anthropic Messages (`POST /v1/messages`). Code:
 | ordinary tools                              | `llm.tool`              |
 | canonical web search / code execution tools | `llm.server_tool`       |
 | `tool_choice`                               | `llm.tool_choice`       |
+| `image` blocks with url/base64 sources      | `llm.image`             |
+| PDF `document` blocks with url/base64 source | `llm.document`          |
 
 Anthropic has no system message. System text lowers to the top-level `system`
 field.
@@ -23,6 +25,7 @@ field.
 | op                                      | purpose                                                         |
 | --------------------------------------- | --------------------------------------------------------------- |
 | `anthropic_messages.message`            | one wire message; raises text, tool use, and tool result blocks |
+| `anthropic_messages.content_block`      | provider-only content blocks such as documents or image extras  |
 | `anthropic_messages.tool_result_meta`   | Anthropic-only tool-result fields                               |
 | `anthropic_messages.tool`               | provider-specific tool config                                   |
 | `anthropic_messages.stop_reason`        | maps stop reasons to `response.stop`                            |
@@ -40,13 +43,20 @@ field.
 - Remove unsupported sampling params by default; throw in strict mode.
 - Lower `llm.thinking` to the model's supported thinking wire shape.
 - Clamp unsupported thinking efforts by default; throw in strict mode.
+- Media model validation is hard failure even in lenient mode. It never drops
+  media.
 
 ## Lints
 
 - Mid-conversation system text throws instead of being hoisted and reordered.
 - Unsupported structured output throws instead of being dropped.
+- Image blocks lower only for user-role URL/base64 sources. File-backed images
+  and blocks with provider-only extras stay as Anthropic content residuals.
+- PDF document blocks lower only for user-role URL/base64 sources. Documents
+  with citations or other provider-only extras stay as content-bearing
+  Anthropic residuals.
 
 ## Out of scope
 
-Streaming events, image blocks, extended thinking blocks, prompt caching
-markers, and citations.
+Streaming events, provider-neutral provider file handles, audio/video, extended
+thinking blocks, prompt caching markers, and citations.

@@ -7,6 +7,11 @@
 import type { Op, OpOf, Program } from "../../core/ops.js";
 import { opData } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import {
+    assertDocumentSource,
+    dataUrlFromBase64,
+    mediaDataUrlFromBase64,
+} from "../../core/media.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
     WireContentPart,
@@ -18,6 +23,9 @@ import type {
 export const lowerRequestStages: Stage[] = [
     rejectStructuredOutput,
     lowerRequestTexts,
+    lowerRequestImages,
+    lowerRequestDocuments,
+    mergeAdjacentMessageInputs,
     lowerToolCalls,
     lowerToolResults,
 ];
@@ -68,6 +76,115 @@ export function lowerRequestTexts(program: Program): Program {
             },
         ];
     });
+}
+
+export function lowerRequestImages(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.image") return [op];
+        const image = op as OpOf<"llm.image">;
+        if (image.role !== "user") {
+            throw new LintError(
+                `openai_responses request lower: unsupported image role ${JSON.stringify(image.role)}`,
+            );
+        }
+        return [
+            {
+                op: "openai_responses.input",
+                item: {
+                    type: "message" as const,
+                    role: "user" as const,
+                    content: [
+                        {
+                            type: "input_image",
+                            image_url:
+                                image.source.type === "url"
+                                    ? image.source.url
+                                    : dataUrlFromBase64(image.source),
+                        },
+                    ],
+                },
+            },
+        ];
+    });
+}
+
+export function lowerRequestDocuments(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.document") return [op];
+        const document = op as OpOf<"llm.document">;
+        assertDocumentSource(
+            document.source,
+            "openai_responses request lower llm.document",
+        );
+        if (document.source.type === "base64" && !document.source.filename) {
+            throw new LintError(
+                "openai_responses request lower: llm.document base64 sources require filename",
+            );
+        }
+        return [
+            {
+                op: "openai_responses.input",
+                item: {
+                    type: "message" as const,
+                    role: "user" as const,
+                    content: [
+                        {
+                            type: "input_file",
+                            ...(document.source.filename
+                                ? { filename: document.source.filename }
+                                : {}),
+                            ...(document.source.type === "url"
+                                ? { file_url: document.source.url }
+                                : {
+                                      file_data: mediaDataUrlFromBase64(
+                                          document.source,
+                                          "document",
+                                          "openai_responses request lower llm.document",
+                                      ),
+                                  }),
+                        },
+                    ],
+                },
+            },
+        ];
+    });
+}
+
+export function mergeAdjacentMessageInputs(program: Program): Program {
+    const out: Program = [];
+    for (const op of program) {
+        const item =
+            op.op === "openai_responses.input"
+                ? opData<{
+                      item: { type?: string; role?: string; content?: unknown };
+                  }>(op).item
+                : undefined;
+        const previous = out[out.length - 1];
+        const previousItem =
+            previous?.op === "openai_responses.input"
+                ? opData<{
+                      item: { type?: string; role?: string; content?: unknown };
+                  }>(previous).item
+                : undefined;
+        if (
+            item?.type === "message" &&
+            previousItem?.type === "message" &&
+            item.role === previousItem.role &&
+            Array.isArray(item.content) &&
+            Array.isArray(previousItem.content)
+        ) {
+            out[out.length - 1] = {
+                ...previous,
+                item: {
+                    ...previousItem,
+                    content: [...previousItem.content, ...item.content],
+                },
+            } as Op;
+            continue;
+        }
+        out.push(op);
+    }
+    return out;
 }
 
 export function lowerToolCalls(program: Program): Program {
@@ -182,6 +299,22 @@ export function collectOutputItems(program: Program): Program {
                 pendingToolCalls.push(op as OpOf<"llm.tool_call">);
                 break;
             }
+            case "llm.image":
+                throw new LintError(
+                    "openai_responses response lower: llm.image cannot be sent in a response program",
+                );
+            case "llm.audio":
+                throw new LintError(
+                    "openai_responses response lower: llm.audio cannot be sent in a response program",
+                );
+            case "llm.document":
+                throw new LintError(
+                    "openai_responses response lower: llm.document cannot be sent in a response program",
+                );
+            case "llm.video":
+                throw new LintError(
+                    "openai_responses response lower: llm.video cannot be sent in a response program",
+                );
             case "openai_responses.output_meta": {
                 const meta = opData<{ item: Partial<WireOutputItem> }>(op).item;
                 output.push(

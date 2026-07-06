@@ -3,6 +3,11 @@ export const DIALECT = "openai_responses";
 export interface WireContentPart {
     type: string;
     text?: string;
+    image_url?: string;
+    file_id?: string;
+    file_data?: string;
+    file_url?: string;
+    filename?: string;
     [key: string]: unknown;
 }
 

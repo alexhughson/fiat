@@ -404,7 +404,7 @@ describe("anthropic_messages requests", () => {
         ]);
     });
 
-    test("media stays residual while cached text raises to core text plus Anthropic metadata", () => {
+    test("documents stay residual while images and cached text raise to core ops", () => {
         const body = {
             model: "claude-opus-4-8",
             max_tokens: 512,
@@ -455,11 +455,88 @@ describe("anthropic_messages requests", () => {
             op: "anthropic_messages.content_block",
             block: body.messages[0]!.content[0],
             role: "user",
+            preservesContent: true,
         });
         expect(program).toContainEqual({
-            op: "anthropic_messages.content_block",
-            block: body.messages[0]!.content[1],
+            op: "llm.image",
             role: "user",
+            source: {
+                type: "base64",
+                mediaType: "image/png",
+                data: "iVBORw0KGgo=",
+            },
+        });
+        expect(AnthropicTranslator.toBody(program)).toEqual(body);
+    });
+
+    test("image URL blocks raise to portable image ops", () => {
+        const body = {
+            model: "claude-opus-4-8",
+            max_tokens: 512,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: "what is this?" },
+                        {
+                            type: "image",
+                            source: {
+                                type: "url",
+                                url: "https://example.com/invoice.png",
+                            },
+                        },
+                        { type: "text", text: "answer briefly" },
+                    ],
+                },
+            ],
+        };
+
+        expect(AnthropicTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model: "claude-opus-4-8" },
+            { op: "llm.max_output_tokens", value: 512 },
+            { op: "llm.text", role: "user", content: "what is this?" },
+            {
+                op: "llm.image",
+                role: "user",
+                source: {
+                    type: "url",
+                    url: "https://example.com/invoice.png",
+                },
+            },
+            { op: "llm.text", role: "user", content: "answer briefly" },
+        ]);
+        expect(
+            AnthropicTranslator.toBody(AnthropicTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("non-image base64 image blocks stay native residuals", () => {
+        const body = {
+            model: "claude-opus-4-8",
+            max_tokens: 512,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image",
+                            source: {
+                                type: "base64",
+                                media_type: "application/pdf",
+                                data: "cGRm",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        const program = AnthropicTranslator.fromBody(body);
+        expect(program).toContainEqual({
+            op: "anthropic_messages.content_block",
+            block: body.messages[0]!.content[0],
+            role: "user",
+            preservesContent: true,
         });
         expect(AnthropicTranslator.toBody(program)).toEqual(body);
     });

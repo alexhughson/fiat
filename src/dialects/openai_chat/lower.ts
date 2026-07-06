@@ -6,15 +6,29 @@
 
 import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import {
+    assertAudioSource,
+    assertDocumentSource,
+    dataUrlFromBase64,
+    mediaDataUrlFromBase64,
+} from "../../core/media.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import { lowerFinishReason } from "./raise.js";
-import type { OpenAIChatMessageMeta, WireMessage, WireToolCall } from "./ops.js";
+import type {
+    OpenAIChatMessageMeta,
+    WireMessage,
+    WireToolCall,
+} from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
     lowerRequestTexts,
+    lowerRequestImages,
+    lowerRequestAudio,
+    lowerRequestDocuments,
     lowerToolCalls,
     lowerToolResults,
     applyRequestMessageMeta,
+    mergeAdjacentContentPartMessages,
     mergeToolCallMessages,
 ];
 
@@ -47,6 +61,106 @@ export function lowerRequestTexts(program: Program): Program {
                 message: {
                     role: text.role,
                     content: text.content,
+                } satisfies WireMessage,
+            },
+        ];
+    });
+}
+
+export function lowerRequestImages(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.image") return [op];
+        const image = op as OpOf<"llm.image">;
+        if (image.role !== "user") {
+            throw new LintError(
+                `openai_chat request lower: unsupported image role ${JSON.stringify(image.role)}`,
+            );
+        }
+        return [
+            {
+                op: "openai_chat.message",
+                message: {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url:
+                                    image.source.type === "url"
+                                        ? image.source.url
+                                        : dataUrlFromBase64(image.source),
+                            },
+                        },
+                    ],
+                } satisfies WireMessage,
+            },
+        ];
+    });
+}
+
+export function lowerRequestAudio(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.audio") return [op];
+        const audio = op as OpOf<"llm.audio">;
+        assertAudioSource(audio.source, "openai_chat request lower llm.audio");
+        return [
+            {
+                op: "openai_chat.message",
+                message: {
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_audio",
+                            input_audio: {
+                                data: audio.source.data,
+                                format: openAIChatAudioFormat(
+                                    audio.source.mediaType,
+                                ),
+                            },
+                        },
+                    ],
+                } satisfies WireMessage,
+            },
+        ];
+    });
+}
+
+export function lowerRequestDocuments(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.document") return [op];
+        const document = op as OpOf<"llm.document">;
+        assertDocumentSource(
+            document.source,
+            "openai_chat request lower llm.document",
+        );
+        if (document.source.type !== "base64") {
+            throw new LintError(
+                "openai_chat request lower: llm.document URL sources are not supported by Chat Completions",
+            );
+        }
+        if (!document.source.filename) {
+            throw new LintError(
+                "openai_chat request lower: llm.document base64 sources require filename",
+            );
+        }
+        return [
+            {
+                op: "openai_chat.message",
+                message: {
+                    role: "user",
+                    content: [
+                        {
+                            type: "file",
+                            file: {
+                                filename: document.source.filename,
+                                file_data: mediaDataUrlFromBase64(
+                                    document.source,
+                                    "document",
+                                    "openai_chat request lower llm.document",
+                                ),
+                            },
+                        },
+                    ],
                 } satisfies WireMessage,
             },
         ];
@@ -196,6 +310,61 @@ export function mergeToolCallMessages(program: Program): Program {
     return out;
 }
 
+export function mergeAdjacentContentPartMessages(program: Program): Program {
+    const out: Program = [];
+    for (const op of program) {
+        const message =
+            op.op === "openai_chat.message"
+                ? opData<{ message: WireMessage }>(op).message
+                : undefined;
+        const previous = out[out.length - 1];
+        const previousMessage =
+            previous?.op === "openai_chat.message"
+                ? opData<{ message: WireMessage }>(previous).message
+                : undefined;
+        if (
+            canMergeContentParts(previousMessage) &&
+            canMergeContentParts(message) &&
+            previousMessage.role === message.role &&
+            (Array.isArray(previousMessage.content) ||
+                Array.isArray(message.content))
+        ) {
+            out[out.length - 1] = {
+                ...previous,
+                message: {
+                    ...previousMessage,
+                    content: [
+                        ...messageContentParts(previousMessage),
+                        ...messageContentParts(message),
+                    ],
+                },
+            } as Op;
+            continue;
+        }
+        out.push(op);
+    }
+    return out;
+}
+
+function canMergeContentParts(
+    message: WireMessage | undefined,
+): message is WireMessage {
+    return (
+        message != null &&
+        message.role === "user" &&
+        message.tool_calls == null &&
+        message.tool_call_id == null &&
+        message.name == null &&
+        (typeof message.content === "string" || Array.isArray(message.content))
+    );
+}
+
+function messageContentParts(message: WireMessage) {
+    return typeof message.content === "string"
+        ? [{ type: "text", text: message.content }]
+        : (message.content ?? []);
+}
+
 export function lowerStopReasons(program: Program): Program {
     return program.flatMap((op) =>
         op.op === "response.stop"
@@ -254,6 +423,22 @@ export function collectAssistantMessage(program: Program): Program {
             case "llm.tool_call":
                 toolCalls.push(wireToolCall(op as OpOf<"llm.tool_call">));
                 break;
+            case "llm.image":
+                throw new LintError(
+                    "openai_chat response lower: llm.image cannot be sent in a response program",
+                );
+            case "llm.audio":
+                throw new LintError(
+                    "openai_chat response lower: llm.audio cannot be sent in a response program",
+                );
+            case "llm.document":
+                throw new LintError(
+                    "openai_chat response lower: llm.document cannot be sent in a response program",
+                );
+            case "llm.video":
+                throw new LintError(
+                    "openai_chat response lower: llm.video cannot be sent in a response program",
+                );
             case "openai_chat.message_meta":
                 messageMeta = mergeResponseMessageMeta(
                     messageMeta,
@@ -316,4 +501,20 @@ function wireToolCall(op: {
 
 function chatToolCallId(id: string): string {
     return id.split("|", 1)[0]!.slice(0, 40);
+}
+
+function openAIChatAudioFormat(mediaType: string): string {
+    switch (mediaType) {
+        case "audio/wav":
+        case "audio/wave":
+        case "audio/x-wav":
+            return "wav";
+        case "audio/mp3":
+        case "audio/mpeg":
+            return "mp3";
+        default:
+            throw new LintError(
+                `openai_chat request lower: unsupported llm.audio media type ${JSON.stringify(mediaType)}`,
+            );
+    }
 }

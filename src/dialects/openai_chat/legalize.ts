@@ -1,4 +1,5 @@
-import type { OpOf, Program } from "../../core/ops.js";
+import { LintError } from "../../core/lint.js";
+import { opData, type OpOf, type Program } from "../../core/ops.js";
 import type { Target } from "../../core/rewrite.js";
 import type { WireMessage } from "./ops.js";
 
@@ -39,6 +40,27 @@ export const useDeveloperMessagesForReasoningChatModels = (
     });
 };
 
+export const validateModalities = (
+    program: Program,
+    target: Target,
+): Program => {
+    const modalities = openAIChatModalities(program);
+    if (modalities.size === 0) return program;
+    if (!target.model) {
+        throw new LintError(
+            "openai_chat modality validation requires llm.model",
+        );
+    }
+    for (const modality of modalities) {
+        if (!supportsModality(target.model, modality)) {
+            throw new LintError(
+                `${target.model}: OpenAI Chat Completions does not support ${modality} input`,
+            );
+        }
+    }
+    return program;
+};
+
 function hasFunctionTool(program: Program): boolean {
     return program.some((op) => op.op === "llm.tool");
 }
@@ -56,9 +78,42 @@ function needsReasoningChatModel(model: string): boolean {
     );
 }
 
+function openAIChatModalities(program: Program): Set<string> {
+    const modalities = new Set<string>();
+    for (const op of program) {
+        if (op.op !== "openai_chat.message") continue;
+        const message = opData<{ message: WireMessage }>(op).message;
+        if (!Array.isArray(message.content)) continue;
+        for (const part of message.content) {
+            if (part.type === "image_url") modalities.add("image");
+            if (part.type === "input_audio") modalities.add("audio");
+            if (part.type === "file") modalities.add("document");
+        }
+    }
+    return modalities;
+}
+
+function supportsModality(model: string, modality: string): boolean {
+    switch (modality) {
+        case "image":
+            return supportsOpenAIVision(model);
+        case "audio":
+            return /(?:^|-)audio(?:-|$)/.test(model);
+        case "document":
+            return supportsOpenAIVision(model);
+        default:
+            return false;
+    }
+}
+
+function supportsOpenAIVision(model: string): boolean {
+    return /^(?:gpt-5|gpt-4o|gpt-4\.1|o\d)(?:[.-]|$)/.test(model);
+}
+
 export const legalizations: ((program: Program, target: Target) => Program)[] =
     [
         omitReasoningEffortWithToolsForGPT55Chat,
         useMaxCompletionTokensForReasoningChatModels,
         useDeveloperMessagesForReasoningChatModels,
+        validateModalities,
     ];

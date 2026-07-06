@@ -14,6 +14,10 @@ import {
     type Program,
 } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import {
+    assertDocumentSource,
+    assertImageMediaType,
+} from "../../core/media.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
     WireAnthropicMessage,
@@ -28,6 +32,8 @@ export const lowerRequestStages: Stage[] = [
     applyRequestTextMeta,
     dropEmptyText,
     lowerRequestTexts,
+    lowerRequestImages,
+    lowerRequestDocuments,
     lowerToolCalls,
     applyRequestToolResultMeta,
     lowerToolResults,
@@ -103,6 +109,10 @@ export function lintMidConversationSystem(program: Program): Program {
                 break;
             case "llm.tool_call":
             case "llm.tool_result":
+            case "llm.image":
+            case "llm.audio":
+            case "llm.document":
+            case "llm.video":
             case "anthropic_messages.message":
                 sawConversation = true;
                 break;
@@ -237,6 +247,63 @@ export function lowerRequestTexts(program: Program): Program {
         if (text.role === "system") return [op];
         return [messageOp(text.role, { type: "text", text: text.content })];
     });
+}
+
+export function lowerRequestImages(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.image") return [op];
+        const image = op as OpOf<"llm.image">;
+        if (image.role !== "user") {
+            throw new LintError(
+                `anthropic_messages request lower: unsupported image role ${JSON.stringify(image.role)}`,
+            );
+        }
+        return [
+            messageOp("user", {
+                type: "image",
+                source: anthropicImageSource(image.source),
+            }),
+        ];
+    });
+}
+
+export function lowerRequestDocuments(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "llm.document") return [op];
+        const document = op as OpOf<"llm.document">;
+        assertDocumentSource(
+            document.source,
+            "anthropic_messages request lower llm.document",
+        );
+        return [
+            messageOp("user", {
+                type: "document",
+                source: anthropicDocumentSource(document.source),
+            }),
+        ];
+    });
+}
+
+function anthropicImageSource(image: OpOf<"llm.image">["source"]) {
+    if (image.type === "url") return { type: "url", url: image.url };
+    assertImageMediaType(
+        image.mediaType,
+        "anthropic_messages request lower llm.image",
+    );
+    return {
+        type: "base64",
+        media_type: image.mediaType,
+        data: image.data,
+    };
+}
+
+function anthropicDocumentSource(document: OpOf<"llm.document">["source"]) {
+    if (document.type === "url") return { type: "url", url: document.url };
+    return {
+        type: "base64",
+        media_type: document.mediaType,
+        data: document.data,
+    };
 }
 
 export function lowerToolCalls(program: Program): Program {
@@ -718,6 +785,22 @@ export function collectAssistantMessage(program: Program): Program {
                 });
                 break;
             }
+            case "llm.image":
+                throw new LintError(
+                    "anthropic_messages response lower: llm.image cannot be sent in a response program",
+                );
+            case "llm.audio":
+                throw new LintError(
+                    "anthropic_messages response lower: llm.audio cannot be sent in a response program",
+                );
+            case "llm.document":
+                throw new LintError(
+                    "anthropic_messages response lower: llm.document cannot be sent in a response program",
+                );
+            case "llm.video":
+                throw new LintError(
+                    "anthropic_messages response lower: llm.video cannot be sent in a response program",
+                );
             case "anthropic_messages.content_block":
                 blocks.push(opData<{ block: WireBlock }>(op).block);
                 break;

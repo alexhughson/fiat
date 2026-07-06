@@ -81,6 +81,209 @@ describe("openai_responses requests", () => {
         ).toEqual(body);
     });
 
+    test("custom grammar tools stay as responses-only tool residuals", () => {
+        const customTool = {
+            type: "custom",
+            name: "apply_patch",
+            format: {
+                type: "grammar",
+                syntax: "lark",
+                definition: "start: /.+/",
+            },
+        };
+        const body = {
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [{ type: "input_text", text: "patch the file" }],
+                },
+            ],
+            tools: [customTool],
+        };
+
+        expect(OpenAIResponsesTranslator.fromBody(body)).toContainEqual({
+            op: "openai_responses.tool",
+            tool: customTool,
+            appliesTo: "request",
+        });
+        expect(
+            OpenAIResponsesTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o-mini" },
+                { op: "llm.text", role: "user", content: "patch the file" },
+                {
+                    op: "openai_responses.tool",
+                    tool: customTool,
+                    appliesTo: "request",
+                },
+            ]),
+        ).toEqual(body);
+        expect(
+            OpenAIResponsesTranslator.toBody(
+                OpenAIResponsesTranslator.fromBody(body),
+            ),
+        ).toEqual(body);
+    });
+
+    test("custom grammar tool choice stays as a responses-only residual", () => {
+        const body = {
+            model: "gpt-4o-mini",
+            input: "patch the file",
+            tools: [
+                {
+                    type: "custom",
+                    name: "apply_patch",
+                    format: {
+                        type: "grammar",
+                        syntax: "lark",
+                        definition: "start: /.+/",
+                    },
+                },
+            ],
+            tool_choice: { type: "custom", name: "apply_patch" },
+        };
+
+        expect(OpenAIResponsesTranslator.fromBody(body)).toContainEqual({
+            op: "openai_responses.tool_choice",
+            value: body.tool_choice,
+        });
+        expect(
+            OpenAIResponsesTranslator.toBody(
+                OpenAIResponsesTranslator.fromBody(body),
+            ),
+        ).toEqual({
+            ...body,
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [{ type: "input_text", text: "patch the file" }],
+                },
+            ],
+        });
+    });
+
+    test("input_image URL parts raise to portable image ops and round-trip", () => {
+        const body = {
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        { type: "input_text", text: "what is this?" },
+                        {
+                            type: "input_image",
+                            image_url: "https://example.com/invoice.png",
+                        },
+                        { type: "input_text", text: "answer briefly" },
+                    ],
+                },
+            ],
+        };
+
+        expect(OpenAIResponsesTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model: "gpt-4o-mini" },
+            { op: "llm.text", role: "user", content: "what is this?" },
+            {
+                op: "llm.image",
+                role: "user",
+                source: {
+                    type: "url",
+                    url: "https://example.com/invoice.png",
+                },
+            },
+            { op: "llm.text", role: "user", content: "answer briefly" },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toBody(
+                OpenAIResponsesTranslator.fromBody(body),
+            ),
+        ).toEqual(body);
+    });
+
+    test("input_image data URLs normalize to portable base64", () => {
+        const body = {
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_image",
+                            image_url: "data:image/jpeg;base64,anBn",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(OpenAIResponsesTranslator.fromBody(body)).toContainEqual({
+            op: "llm.image",
+            role: "user",
+            source: {
+                type: "base64",
+                mediaType: "image/jpeg",
+                data: "anBn",
+            },
+        });
+    });
+
+    test("file-backed input_image stays a native Responses residual", () => {
+        const body = {
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        { type: "input_text", text: "what is this?" },
+                        {
+                            type: "input_image",
+                            file_id: "file_123",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(OpenAIResponsesTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model: "gpt-4o-mini" },
+            {
+                op: "openai_responses.input",
+                item: body.input[0],
+                preservesContent: true,
+            },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toBody(
+                OpenAIResponsesTranslator.fromBody(body),
+            ),
+        ).toEqual(body);
+    });
+
+    test("non-image input_image data URLs do not enter the portable image op", () => {
+        expect(() =>
+            OpenAIResponsesTranslator.fromBody({
+                model: "gpt-4o-mini",
+                input: [
+                    {
+                        type: "message",
+                        role: "user",
+                        content: [
+                            {
+                                type: "input_image",
+                                image_url: "data:application/pdf;base64,cGRm",
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).toThrow("expected an image/* data URL");
+    });
+
     test("reasoning requests serialize effort and encrypted-content include", () => {
         expect(
             OpenAIResponsesTranslator.toBody([

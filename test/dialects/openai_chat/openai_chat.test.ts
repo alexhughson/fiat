@@ -60,6 +60,118 @@ describe("openai_chat requests", () => {
         ).toEqual(body);
     });
 
+    test("image URL parts raise to portable image ops and round-trip", () => {
+        const body = {
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: "what is this?" },
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: "https://example.com/invoice.png",
+                            },
+                        },
+                        { type: "text", text: "answer briefly" },
+                    ],
+                },
+            ],
+        };
+
+        expect(OpenAIChatTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model: "gpt-4o" },
+            { op: "llm.text", role: "user", content: "what is this?" },
+            {
+                op: "llm.image",
+                role: "user",
+                source: {
+                    type: "url",
+                    url: "https://example.com/invoice.png",
+                },
+            },
+            { op: "llm.text", role: "user", content: "answer briefly" },
+        ]);
+        expect(
+            OpenAIChatTranslator.toBody(OpenAIChatTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("image data URLs normalize to portable base64 and lower back to data URLs", () => {
+        const body = {
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: "data:image/png;base64,aW1hZ2U=",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        const program = OpenAIChatTranslator.fromBody(body);
+        expect(program).toContainEqual({
+            op: "llm.image",
+            role: "user",
+            source: {
+                type: "base64",
+                mediaType: "image/png",
+                data: "aW1hZ2U=",
+            },
+        });
+        expect(OpenAIChatTranslator.toBody(program)).toEqual(body);
+    });
+
+    test("image metadata fails loudly until a dialect image meta op exists", () => {
+        expect(() =>
+            OpenAIChatTranslator.fromBody({
+                model: "gpt-4o",
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            {
+                                type: "image_url",
+                                image_url: {
+                                    url: "https://example.com/invoice.png",
+                                    detail: "high",
+                                },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).toThrow("unsupported fields detail");
+    });
+
+    test("non-image data URLs do not enter the portable image op", () => {
+        expect(() =>
+            OpenAIChatTranslator.fromBody({
+                model: "gpt-4o",
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            {
+                                type: "image_url",
+                                image_url: {
+                                    url: "data:application/pdf;base64,cGRm",
+                                },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).toThrow("expected an image/* data URL");
+    });
+
     test("shared request controls round-trip through core ops", () => {
         const body = {
             model: "gpt-5.5",

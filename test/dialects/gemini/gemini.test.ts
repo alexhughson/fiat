@@ -429,6 +429,84 @@ describe("gemini requests", () => {
         ).toEqual(body);
     });
 
+    test("REST inline image data raises to portable image ops", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        { text: "what is this?" },
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                        },
+                        { text: "answer briefly" },
+                    ],
+                },
+            ],
+        };
+
+        expect(GeminiTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model },
+            { op: "llm.text", role: "user", content: "what is this?" },
+            {
+                op: "llm.image",
+                role: "user",
+                source: {
+                    type: "base64",
+                    mediaType: "image/png",
+                    data: "aW1hZ2U=",
+                },
+            },
+            { op: "llm.text", role: "user", content: "answer briefly" },
+        ]);
+        expect(
+            GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("Gemini file_data stays native instead of pretending to be portable image input", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            file_data: {
+                                mime_type: "image/png",
+                                file_uri: "gs://bucket/image.png",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(
+            GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("URL image sources fail for Gemini generateContent until a file upload exists", () => {
+        expect(() =>
+            GeminiTranslator.toBody([
+                { op: "llm.model", model },
+                {
+                    op: "llm.image",
+                    role: "user",
+                    source: {
+                        type: "url",
+                        url: "https://example.com/invoice.png",
+                    },
+                },
+            ]),
+        ).toThrow("require provider file upload");
+    });
+
     test("roleless request contents from REST examples round-trip as native Gemini content", () => {
         const body = {
             model,

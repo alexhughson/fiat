@@ -12,6 +12,21 @@ export const DIALECT = "openai_chat";
 export interface WireContentPart {
     type: string;
     text?: string;
+    image_url?: {
+        url?: string;
+        [key: string]: unknown;
+    };
+    input_audio?: {
+        data?: string;
+        format?: string;
+        [key: string]: unknown;
+    };
+    file?: {
+        filename?: string;
+        file_data?: string;
+        file_id?: string;
+        [key: string]: unknown;
+    };
     [key: string]: unknown;
 }
 

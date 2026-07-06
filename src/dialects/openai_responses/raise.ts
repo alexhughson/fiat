@@ -1,8 +1,14 @@
 // lower IR -> core IR, as a pipeline of stages. Shared between requests and
 // responses. Extend by appending a stage to `raiseStages`.
 
-import { opData, type Op, type Program, type StopReason } from "../../core/ops.js";
+import {
+    opData,
+    type Op,
+    type Program,
+    type StopReason,
+} from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import { documentSourceFromUrl, imageSourceFromUrl } from "../../core/media.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
     WireContentPart,
@@ -88,9 +94,17 @@ function raiseInput(item: WireInputItem): Op[] {
     switch (item.type) {
         case undefined:
         case "message":
-            return raiseMessage(
-                item.role === "developer" ? "system" : item.role,
-                item.content,
+            return (
+                raiseMessage(
+                    item.role === "developer" ? "system" : item.role,
+                    item.content,
+                ) ?? [
+                    {
+                        op: "openai_responses.input",
+                        item,
+                        preservesContent: true,
+                    },
+                ]
             );
         case "function_call":
             return [raiseFunctionCall(item)];
@@ -105,15 +119,22 @@ function raiseInput(item: WireInputItem): Op[] {
 
 function raiseOutput(item: WireOutputItem): Op[] {
     switch (item.type) {
-        case "message":
+        case "message": {
+            const raised = raiseMessage("assistant", item.content);
+            if (!raised) {
+                throw new LintError(
+                    "openai_responses output message: unsupported file-backed content part",
+                );
+            }
             return [
-                ...raiseMessage("assistant", item.content),
+                ...raised,
                 {
                     op: "openai_responses.output_meta",
                     item,
                     appliesTo: "response",
                 },
             ];
+        }
         case "function_call":
             return [
                 raiseFunctionCall(item),
@@ -133,19 +154,115 @@ function raiseOutput(item: WireOutputItem): Op[] {
 function raiseMessage(
     role: "system" | "user" | "assistant",
     content: string | WireContentPart[],
-): Op[] {
+): Op[] | undefined {
     if (typeof content === "string") return [{ op: "llm.text", role, content }];
-    return content.map((part) => {
-        if (
-            (part.type !== "input_text" && part.type !== "output_text") ||
-            typeof part.text !== "string"
-        ) {
-            throw new LintError(
-                `openai_responses message: unsupported content part type ${JSON.stringify(part.type)}`,
-            );
+    const out: Op[] = [];
+    for (const part of content) {
+        switch (part.type) {
+            case "input_text":
+            case "output_text":
+                if (typeof part.text !== "string") {
+                    throw new LintError(
+                        `openai_responses ${part.type} part: missing text`,
+                    );
+                }
+                out.push({ op: "llm.text", role, content: part.text });
+                break;
+            case "input_image":
+                if (isFileBackedInputImage(part)) return undefined;
+                out.push(raiseImagePart(role, part));
+                break;
+            case "input_file":
+                {
+                    const document = raiseFilePart(role, part);
+                    if (!document) return undefined;
+                    out.push(document);
+                    break;
+                }
+            default:
+                throw new LintError(
+                    `openai_responses message: unsupported content part type ${JSON.stringify(part.type)}`,
+                );
         }
-        return { op: "llm.text", role, content: part.text };
-    });
+    }
+    return out;
+}
+
+function isFileBackedInputImage(part: WireContentPart): boolean {
+    return typeof part.file_id === "string";
+}
+
+function raiseFilePart(
+    role: "system" | "user" | "assistant",
+    part: WireContentPart,
+): Op | undefined {
+    if (role !== "user") {
+        throw new LintError(
+            `openai_responses input_file part: unsupported role ${JSON.stringify(role)}`,
+        );
+    }
+    if (typeof part.file_id === "string") return undefined;
+    assertOnlyKeys(
+        part,
+        ["type", "file_data", "file_url", "filename"],
+        "openai_responses input_file part",
+    );
+    const sourceValue =
+        typeof part.file_data === "string"
+            ? part.file_data
+            : typeof part.file_url === "string"
+              ? part.file_url
+              : undefined;
+    if (!sourceValue) {
+        throw new LintError(
+            "openai_responses input_file part: expected file_id, file_data, or file_url",
+        );
+    }
+    const source = documentSourceFromUrl(
+        sourceValue,
+        "openai_responses input_file",
+    );
+    return {
+        op: "llm.document",
+        role: "user",
+        source:
+            source.type === "base64"
+                ? { ...source, filename: stringOrUndefined(part.filename) }
+                : source,
+    };
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+    return typeof value === "string" ? value : undefined;
+}
+
+function raiseImagePart(
+    role: "system" | "user" | "assistant",
+    part: WireContentPart,
+): Op {
+    if (role !== "user") {
+        throw new LintError(
+            `openai_responses input_image part: unsupported role ${JSON.stringify(role)}`,
+        );
+    }
+    assertOnlyKeys(
+        part,
+        ["type", "image_url"],
+        "openai_responses input_image part",
+    );
+    if (typeof part.image_url !== "string") {
+        throw new LintError(
+            "openai_responses input_image.image_url: expected a string",
+        );
+    }
+    return {
+        op: "llm.image",
+        role: "user",
+        source: imageSourceFromUrl(
+            part.image_url,
+            "openai_responses input_image.image_url",
+        ),
+    };
 }
 
 function raiseFunctionCall(item: WireFunctionCall): Op {
@@ -181,6 +298,17 @@ function parseArguments(raw: string, callId: string): Record<string, unknown> {
         );
     }
     return parsed as Record<string, unknown>;
+}
+
+function assertOnlyKeys(
+    value: Record<string, unknown>,
+    keys: string[],
+    what: string,
+): void {
+    const allowed = new Set(keys);
+    const extra = Object.keys(value).filter((key) => !allowed.has(key));
+    if (extra.length > 0)
+        throw new LintError(`${what}: unsupported fields ${extra.join(", ")}`);
 }
 
 function raiseFinishReason(reason: string): StopReason {

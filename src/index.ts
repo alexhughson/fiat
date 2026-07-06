@@ -1,6 +1,10 @@
 export type {
     CoreOp,
     DialectOp,
+    AudioSource,
+    Base64MediaSource,
+    DocumentSource,
+    ImageSource,
     JsonSchema,
     Op,
     Program,
@@ -9,6 +13,8 @@ export type {
     StopReason,
     ThinkingEffort,
     ToolChoice,
+    UrlMediaSource,
+    VideoSource,
 } from "./core/ops.js";
 export { isCoreOp, namespaceOf } from "./core/ops.js";
 export { append, firstOp, opsOf } from "./core/program.js";

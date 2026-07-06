@@ -1,7 +1,12 @@
 // lower IR -> core IR, as a pipeline of stages. Shared between requests and
 // responses. Extend by appending a stage to `raiseStages`.
 
-import { opData, type Op, type Program, type StopReason } from "../../core/ops.js";
+import {
+    opData,
+    type Op,
+    type Program,
+    type StopReason,
+} from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import {
@@ -390,6 +395,14 @@ function raiseBlock(role: "user" | "assistant", block: WireBlock): Op[] {
                         : []),
                 ];
             }
+        case "image": {
+            const image = imageBlock(role, block);
+            return image ? [image] : [contentBlock(role, block)];
+        }
+        case "document": {
+            const document = documentBlock(role, block);
+            return document ? [document] : [contentBlock(role, block)];
+        }
         case "thinking":
         case "redacted_thinking":
             return [
@@ -403,13 +416,101 @@ function raiseBlock(role: "user" | "assistant", block: WireBlock): Op[] {
     }
 }
 
+function imageBlock(role: "user" | "assistant", block: WireBlock): Op | null {
+    if (role !== "user" || !hasOnlyKeys(block, ["type", "source"])) {
+        return null;
+    }
+    const source = block.source;
+    if (
+        typeof source !== "object" ||
+        source === null ||
+        Array.isArray(source)
+    ) {
+        return null;
+    }
+    const record = source as Record<string, unknown>;
+    if (record.type === "url" && hasOnlyKeys(record, ["type", "url"])) {
+        return {
+            op: "llm.image",
+            role: "user",
+            source: { type: "url", url: asString(record.url, "image.url") },
+        };
+    }
+    if (
+        record.type === "base64" &&
+        hasOnlyKeys(record, ["type", "media_type", "data"])
+    ) {
+        const mediaType = asString(record.media_type, "image.media_type");
+        if (!mediaType.startsWith("image/")) return null;
+        return {
+            op: "llm.image",
+            role: "user",
+            source: {
+                type: "base64",
+                mediaType,
+                data: asString(record.data, "image.data"),
+            },
+        };
+    }
+    return null;
+}
+
+function documentBlock(
+    role: "user" | "assistant",
+    block: WireBlock,
+): Op | null {
+    if (role !== "user" || !hasOnlyKeys(block, ["type", "source"])) {
+        return null;
+    }
+    const source = block.source;
+    if (
+        typeof source !== "object" ||
+        source === null ||
+        Array.isArray(source)
+    ) {
+        return null;
+    }
+    const record = source as Record<string, unknown>;
+    if (record.type === "url" && hasOnlyKeys(record, ["type", "url"])) {
+        return {
+            op: "llm.document",
+            role: "user",
+            source: { type: "url", url: asString(record.url, "document.url") },
+        };
+    }
+    if (
+        record.type === "base64" &&
+        hasOnlyKeys(record, ["type", "media_type", "data"])
+    ) {
+        const mediaType = asString(record.media_type, "document.media_type");
+        if (mediaType !== "application/pdf") return null;
+        return {
+            op: "llm.document",
+            role: "user",
+            source: {
+                type: "base64",
+                mediaType,
+                data: asString(record.data, "document.data"),
+            },
+        };
+    }
+    return null;
+}
+
 function contentBlock(role: "user" | "assistant", block: WireBlock): Op {
     return {
         op: "anthropic_messages.content_block",
         block,
         role,
+        ...(role === "user" && isMediaBlock(block)
+            ? { preservesContent: true }
+            : {}),
         ...(role === "assistant" ? { appliesTo: "response" as const } : {}),
     };
+}
+
+function isMediaBlock(block: WireBlock): boolean {
+    return block.type === "image" || block.type === "document";
 }
 
 function tryFlattenResultContent(content: WireBlock["content"]): string | null {

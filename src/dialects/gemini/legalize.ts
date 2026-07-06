@@ -1,6 +1,7 @@
 // Target-scoped Gemini Generate Content checks that depend on model family.
 
 import { LintError, lintOrWarn } from "../../core/lint.js";
+import { mediaKindForType } from "../../core/media.js";
 import {
     opData,
     type Op,
@@ -8,6 +9,7 @@ import {
     type ThinkingEffort,
 } from "../../core/ops.js";
 import type { Target } from "../../core/rewrite.js";
+import type { WireContent } from "./ops.js";
 
 // Consumes the model-free gemini.thinking carrier lowerThinking produces and
 // picks the wire shape for the target model: thinkingLevel for Gemini 3,
@@ -279,5 +281,42 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export const validateModalities = (
+    program: Program,
+    target: Target,
+): Program => {
+    const modalities = geminiModalities(program);
+    if (modalities.size === 0) return program;
+    if (!target.model) {
+        throw new LintError("gemini modality validation requires llm.model");
+    }
+    if (!/^(?:models\/)?gemini(?:[.-]|$)/.test(target.model)) {
+        throw new LintError(
+            `${target.model}: Gemini GenerateContent does not support multimodal input`,
+        );
+    }
+    return program;
+};
+
+function geminiModalities(program: Program): Set<string> {
+    const modalities = new Set<string>();
+    for (const op of program) {
+        if (op.op === "llm.audio") modalities.add("audio");
+        if (op.op === "llm.document") modalities.add("document");
+        if (op.op === "llm.video") modalities.add("video");
+        if (op.op !== "gemini.content") continue;
+        const content = opData<{ content: WireContent }>(op).content;
+        for (const part of content.parts) {
+            const inlineData = part.inline_data;
+            if (!isRecord(inlineData)) continue;
+            const mediaType = inlineData.mime_type;
+            if (typeof mediaType !== "string") continue;
+            const kind = mediaKindForType(mediaType);
+            if (kind) modalities.add(kind);
+        }
+    }
+    return modalities;
+}
+
 export const legalizations: ((program: Program, target: Target) => Program)[] =
-    [legalizeGeminiThinking, legalizeThinkingLevel];
+    [legalizeGeminiThinking, legalizeThinkingLevel, validateModalities];
