@@ -1,4 +1,4 @@
-import type { ThinkingEffort } from "../../core/ops";
+import type { ThinkingEffort } from "../../core/ops.js";
 
 export const DIALECT = "gemini";
 

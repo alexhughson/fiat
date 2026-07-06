@@ -4,13 +4,13 @@
 // user/model turns). System text stays a core op — requestToWire serializes
 // it into systemInstruction. Extend by appending to the stage arrays.
 
-import { opData, type Op, type OpOf, type Program } from "../../core/ops";
-import { LintError, lintOrWarn } from "../../core/lint";
-import type { Target } from "../../core/rewrite";
-import { firstOp } from "../../core/program";
-import { stagePipeline, type Stage } from "../../core/rewrite";
-import { lowerFinishReason } from "./raise";
-import type { GeminiPartMeta, WireContent, WirePart } from "./ops";
+import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
+import { LintError, lintOrWarn } from "../../core/lint.js";
+import type { Target } from "../../core/rewrite.js";
+import { firstOp } from "../../core/program.js";
+import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { lowerFinishReason } from "./raise.js";
+import type { GeminiPartMeta, WireContent, WirePart } from "./ops.js";
 
 interface ResponsePartMeta {
     meta?: Record<string, unknown>;

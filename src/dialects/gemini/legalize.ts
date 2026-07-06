@@ -1,13 +1,13 @@
 // Target-scoped Gemini Generate Content checks that depend on model family.
 
-import { LintError, lintOrWarn } from "../../core/lint";
+import { LintError, lintOrWarn } from "../../core/lint.js";
 import {
     opData,
     type Op,
     type Program,
     type ThinkingEffort,
-} from "../../core/ops";
-import type { Target } from "../../core/rewrite";
+} from "../../core/ops.js";
+import type { Target } from "../../core/rewrite.js";
 
 // Consumes the model-free gemini.thinking carrier lowerThinking produces and
 // picks the wire shape for the target model: thinkingLevel for Gemini 3,

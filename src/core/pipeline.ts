@@ -4,10 +4,10 @@ import {
     opData,
     type DialectOp,
     type Program,
-} from "./ops";
-import { firstOp } from "./program";
-import type { Codec, Dialect } from "./registry";
-import type { Stage, Target } from "./rewrite";
+} from "./ops.js";
+import { firstOp } from "./program.js";
+import type { Codec, Dialect } from "./registry.js";
+import type { Stage, Target } from "./rewrite.js";
 
 export type Kind = "request" | "response";
 

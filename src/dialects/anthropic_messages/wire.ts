@@ -8,23 +8,23 @@ import {
     type Program,
     type ServerToolKind,
     type ToolChoice,
-} from "../../core/ops";
-import { firstOp } from "../../core/program";
-import { declaredToolsByName, type DeclaredTool } from "../../core/tools";
-import { LintError } from "../../core/lint";
+} from "../../core/ops.js";
+import { firstOp } from "../../core/program.js";
+import { declaredToolsByName, type DeclaredTool } from "../../core/tools.js";
+import { LintError } from "../../core/lint.js";
 import {
     asArray,
     asBoolean,
     asNumber,
     asRecord,
     asString,
-} from "../../core/wire";
+} from "../../core/wire.js";
 import type {
     WireAnthropicMessage,
     WireAnthropicStreamEvent,
     WireAnthropicTool,
     WireBlock,
-} from "./ops";
+} from "./ops.js";
 
 export function requestFromWire(wire: unknown): Program {
     const body = asRecord(wire, "anthropic_messages request body");

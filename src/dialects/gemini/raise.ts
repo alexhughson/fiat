@@ -1,11 +1,11 @@
 // lower IR -> core IR, as a pipeline of stages. Shared between requests and
 // responses. Extend by appending a stage to `raiseStages`.
 
-import { opData, type Op, type Program, type StopReason } from "../../core/ops";
-import { LintError } from "../../core/lint";
-import { stagePipeline, type Stage } from "../../core/rewrite";
-import { asNumber, asRecord, asString } from "../../core/wire";
-import type { GeminiPartMeta, WireContent, WirePart } from "./ops";
+import { opData, type Op, type Program, type StopReason } from "../../core/ops.js";
+import { LintError } from "../../core/lint.js";
+import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { asNumber, asRecord, asString } from "../../core/wire.js";
+import type { GeminiPartMeta, WireContent, WirePart } from "./ops.js";
 
 export const raiseStages: Stage[] = [
     raiseContents,

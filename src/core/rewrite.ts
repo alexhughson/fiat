@@ -1,4 +1,4 @@
-import type { Program } from "./ops";
+import type { Program } from "./ops.js";
 
 // Where a program is headed. Target-scoped stages use this to pick model
 // behavior and whether to clean up or lint unsupported controls.

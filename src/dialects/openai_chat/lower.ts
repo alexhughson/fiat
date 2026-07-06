@@ -4,11 +4,11 @@
 // collecting a response into one choice message) lives in small named stages
 // appended after them. Extend by appending to the stage arrays.
 
-import { opData, type Op, type OpOf, type Program } from "../../core/ops";
-import { LintError } from "../../core/lint";
-import { stagePipeline, type Stage } from "../../core/rewrite";
-import { lowerFinishReason } from "./raise";
-import type { OpenAIChatMessageMeta, WireMessage, WireToolCall } from "./ops";
+import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
+import { LintError } from "../../core/lint.js";
+import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { lowerFinishReason } from "./raise.js";
+import type { OpenAIChatMessageMeta, WireMessage, WireToolCall } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
     lowerRequestTexts,

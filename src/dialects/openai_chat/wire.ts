@@ -11,9 +11,9 @@ import {
     type Program,
     type ThinkingEffort,
     type ToolChoice,
-} from "../../core/ops";
-import { firstOp } from "../../core/program";
-import { LintError } from "../../core/lint";
+} from "../../core/ops.js";
+import { firstOp } from "../../core/program.js";
+import { LintError } from "../../core/lint.js";
 import {
     asArray,
     asBoolean,
@@ -22,8 +22,8 @@ import {
     asString,
     asStringArray,
     asThinkingEffort,
-} from "../../core/wire";
-import type { WireMessage } from "./ops";
+} from "../../core/wire.js";
+import type { WireMessage } from "./ops.js";
 
 const RESPONSE_ENVELOPE_PARAM_KEYS = new Set([
     "id",

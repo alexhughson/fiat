@@ -5,6 +5,28 @@ Fiat is:
 1. An alternative schema for LLM prompts/requests
 2. Functions to convert to AND from major LLM APIs and this alternative schema
 
+## Install
+
+Install version `0.1` directly from the GitHub repo:
+
+```bash
+npm install github:alexhughson/fiat#v0.1
+pnpm add github:alexhughson/fiat#v0.1
+yarn add github:alexhughson/fiat#v0.1
+```
+
+To follow `main` instead:
+
+```bash
+npm install github:alexhughson/fiat#main
+```
+
+Then import the package as `fiat`:
+
+```js
+import { OpenAIChatTranslator } from "fiat";
+```
+
 The prompt schema looks like this:
 
 ```javascript
@@ -173,4 +195,3 @@ This gives us some nice benefits:
 - You can write pure transforms against the fiat format, and apply them to prompts against any LLM provider
 - You can build endpoints that accept and return the signature of any llm provider, backed by your own routing and transformation logic.  Build your own LiteLLM 
 - Responses can be directly appended to existing requests, so mutations read a lot more simple
-

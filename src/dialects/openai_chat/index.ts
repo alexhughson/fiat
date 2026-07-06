@@ -1,9 +1,9 @@
-import type { Dialect } from "../../core/registry";
-import { makeTranslator } from "../../core/translator";
-import { DIALECT } from "./ops";
-import { legalizations } from "./legalize";
-import { lowerRequest, lowerResponse, lowerStreamResponse } from "./lower";
-import { raise } from "./raise";
+import type { Dialect } from "../../core/registry.js";
+import { makeTranslator } from "../../core/translator.js";
+import { DIALECT } from "./ops.js";
+import { legalizations } from "./legalize.js";
+import { lowerRequest, lowerResponse, lowerStreamResponse } from "./lower.js";
+import { raise } from "./raise.js";
 import {
     requestFromWire,
     requestToWire,
@@ -11,7 +11,7 @@ import {
     responseToWire,
     streamResponseFromWire,
     streamResponseToWire,
-} from "./wire";
+} from "./wire.js";
 
 export const OpenAIChatDialect = {
     name: DIALECT,
@@ -37,10 +37,10 @@ export const OpenAIChatDialect = {
 } satisfies Dialect;
 
 export const OpenAIChatTranslator = makeTranslator(OpenAIChatDialect);
-export { raiseStages } from "./raise";
+export { raiseStages } from "./raise.js";
 export {
     lowerRequestStages,
     lowerResponseStages,
     lowerStreamResponseStages,
-} from "./lower";
-export type { OpenAIChatOp, WireMessage, WireToolCall } from "./ops";
+} from "./lower.js";
+export type { OpenAIChatOp, WireMessage, WireToolCall } from "./ops.js";

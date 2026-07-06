@@ -9,27 +9,27 @@ export type {
     StopReason,
     ThinkingEffort,
     ToolChoice,
-} from "./core/ops";
-export { isCoreOp, namespaceOf } from "./core/ops";
-export { append, firstOp, opsOf } from "./core/program";
-export { LintError } from "./core/lint";
-export { stagePipeline } from "./core/rewrite";
-export type { Stage, Target } from "./core/rewrite";
-export type { Codec, Dialect } from "./core/registry";
+} from "./core/ops.js";
+export { isCoreOp, namespaceOf } from "./core/ops.js";
+export { append, firstOp, opsOf } from "./core/program.js";
+export { LintError } from "./core/lint.js";
+export { stagePipeline } from "./core/rewrite.js";
+export type { Stage, Target } from "./core/rewrite.js";
+export type { Codec, Dialect } from "./core/registry.js";
 export {
     dropForeignResiduals,
     lowerStreamResponsesToWire,
-} from "./core/pipeline";
+} from "./core/pipeline.js";
 export type {
     DialectRef,
     Kind,
     LowerOptions,
     RaiseOptions,
-} from "./core/pipeline";
-export { makeTranslator, Translator } from "./core/translator";
+} from "./core/pipeline.js";
+export { makeTranslator, Translator } from "./core/translator.js";
 
-export { OpenAIChatTranslator } from "./dialects/openai_chat";
-export { AnthropicTranslator } from "./dialects/anthropic_messages";
-export { OpenAIResponsesTranslator } from "./dialects/openai_responses";
-export { OpenAIRealtimeTranslator } from "./dialects/openai_realtime";
-export { GeminiTranslator } from "./dialects/gemini";
+export { OpenAIChatTranslator } from "./dialects/openai_chat/index.js";
+export { AnthropicTranslator } from "./dialects/anthropic_messages/index.js";
+export { OpenAIResponsesTranslator } from "./dialects/openai_responses/index.js";
+export { OpenAIRealtimeTranslator } from "./dialects/openai_realtime/index.js";
+export { GeminiTranslator } from "./dialects/gemini/index.js";

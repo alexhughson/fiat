@@ -1,5 +1,5 @@
-import type { Program } from "./ops";
-import type { Target } from "./rewrite";
+import type { Program } from "./ops.js";
+import type { Target } from "./rewrite.js";
 
 // One direction of a dialect (requests or responses). The four functions are
 // the four edges of the MLIR-style pipeline:

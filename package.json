@@ -1,14 +1,24 @@
 {
-    "name": "metamodel",
+    "name": "fiat",
     "version": "0.1.0",
     "description": "An alternative schema for LLM requests, and converters to/from major LLM APIs",
     "type": "module",
-    "main": "./src/index.ts",
-    "types": "./src/index.ts",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
     "exports": {
-        ".": "./src/index.ts"
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "default": "./dist/index.js"
+        }
     },
+    "files": [
+        "dist/**/*.js",
+        "dist/**/*.d.ts",
+        "README.md"
+    ],
     "scripts": {
+        "build": "tsc -p tsconfig.build.json",
         "e2e:anthropic": "bun e2e/anthropic/validate.ts",
         "e2e:anthropic:live": "bun e2e/anthropic/run.ts",
         "e2e:gemini": "bun e2e/gemini/run.ts",
@@ -22,14 +32,13 @@
         "example:openai-realtime": "bun examples/openai-realtime-chat-server.ts",
         "format": "prettier . --write",
         "format:check": "prettier . --check",
+        "prepare": "tsc -p tsconfig.build.json",
         "test": "bun test ./test/*.test.ts ./test/**/*.test.ts",
         "test:live": "bun test ./e2e/live/run.ts",
         "typecheck": "bunx tsc --noEmit"
     },
-    "dependencies": {
-        "@opentui/core": "0.4.3"
-    },
     "devDependencies": {
+        "@opentui/core": "0.4.3",
         "@types/bun": "^1.1.0",
         "prettier": "^3.9.4",
         "typescript": "^5.5.0"

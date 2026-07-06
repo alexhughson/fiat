@@ -6,17 +6,17 @@ import {
     type Program,
     type ServerToolKind,
     type ToolChoice,
-} from "../../core/ops";
-import { firstOp } from "../../core/program";
-import { declaredToolsByName, type DeclaredTool } from "../../core/tools";
-import { LintError } from "../../core/lint";
-import { asArray, asNumber, asRecord, asString } from "../../core/wire";
+} from "../../core/ops.js";
+import { firstOp } from "../../core/program.js";
+import { declaredToolsByName, type DeclaredTool } from "../../core/tools.js";
+import { LintError } from "../../core/lint.js";
+import { asArray, asNumber, asRecord, asString } from "../../core/wire.js";
 import type {
     WireContent,
     WireFunctionDeclaration,
     WirePart,
     WireTool,
-} from "./ops";
+} from "./ops.js";
 
 export function requestFromWire(wire: unknown): Program {
     const body = asRecord(wire, "gemini request body");

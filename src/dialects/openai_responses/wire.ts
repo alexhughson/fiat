@@ -7,12 +7,12 @@ import {
     type ServerToolKind,
     type ThinkingEffort,
     type ToolChoice,
-} from "../../core/ops";
-import { firstOp } from "../../core/program";
-import { declaredToolsByName, type DeclaredTool } from "../../core/tools";
-import { LintError } from "../../core/lint";
-import { asArray, asNumber, asRecord, asString } from "../../core/wire";
-import type { WireInputItem, WireOutputItem, WireTool } from "./ops";
+} from "../../core/ops.js";
+import { firstOp } from "../../core/program.js";
+import { declaredToolsByName, type DeclaredTool } from "../../core/tools.js";
+import { LintError } from "../../core/lint.js";
+import { asArray, asNumber, asRecord, asString } from "../../core/wire.js";
+import type { WireInputItem, WireOutputItem, WireTool } from "./ops.js";
 
 const RESPONSE_ENVELOPE_PARAM_KEYS = new Set([
     "id",

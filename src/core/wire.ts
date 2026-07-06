@@ -1,7 +1,7 @@
 // Tiny assertions for parsing untrusted wire payloads. Failures throw with
 // context — malformed input halts the pipeline, it never degrades.
 
-import type { ThinkingEffort } from "./ops";
+import type { ThinkingEffort } from "./ops.js";
 
 export function asRecord(
     value: unknown,

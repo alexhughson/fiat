@@ -1,5 +1,5 @@
-import type { OpOf, Program, ServerToolKind } from "./ops";
-import { LintError } from "./lint";
+import type { OpOf, Program, ServerToolKind } from "./ops.js";
+import { LintError } from "./lint.js";
 
 export type DeclaredTool =
     | { type: "function"; name: string }

@@ -1,4 +1,4 @@
-import type { Program } from "./ops";
+import type { Program } from "./ops.js";
 import {
     type LowerOptions,
     lowerStreamResponseToWire,
@@ -7,8 +7,8 @@ import {
     type RaiseOptions,
     raiseFromWire,
     raiseStreamResponseFromWire,
-} from "./pipeline";
-import type { Dialect } from "./registry";
+} from "./pipeline.js";
+import type { Dialect } from "./registry.js";
 
 export class Translator {
     readonly name: string;

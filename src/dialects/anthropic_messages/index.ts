@@ -1,9 +1,9 @@
-import type { Dialect } from "../../core/registry";
-import { makeTranslator } from "../../core/translator";
-import { DIALECT } from "./ops";
-import { legalizations } from "./legalize";
-import { lowerRequest, lowerResponse, lowerStreamResponse } from "./lower";
-import { raise, raiseStreamResponse } from "./raise";
+import type { Dialect } from "../../core/registry.js";
+import { makeTranslator } from "../../core/translator.js";
+import { DIALECT } from "./ops.js";
+import { legalizations } from "./legalize.js";
+import { lowerRequest, lowerResponse, lowerStreamResponse } from "./lower.js";
+import { raise, raiseStreamResponse } from "./raise.js";
 import {
     requestFromWire,
     requestToWire,
@@ -11,7 +11,7 @@ import {
     responseToWire,
     streamResponseFromWire,
     streamResponseToWire,
-} from "./wire";
+} from "./wire.js";
 
 export const AnthropicMessagesDialect = {
     name: DIALECT,
@@ -38,15 +38,15 @@ export const AnthropicMessagesDialect = {
 } satisfies Dialect;
 
 export const AnthropicTranslator = makeTranslator(AnthropicMessagesDialect);
-export { raiseStages, raiseStreamResponseStages } from "./raise";
+export { raiseStages, raiseStreamResponseStages } from "./raise.js";
 export {
     lowerRequestStages,
     lowerResponseStages,
     lowerStreamResponseStages,
-} from "./lower";
+} from "./lower.js";
 export type {
     AnthropicMessagesOp,
     WireAnthropicMessage,
     WireAnthropicStreamEvent,
     WireBlock,
-} from "./ops";
+} from "./ops.js";

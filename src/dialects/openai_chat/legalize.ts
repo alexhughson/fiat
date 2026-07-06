@@ -1,6 +1,6 @@
-import type { OpOf, Program } from "../../core/ops";
-import type { Target } from "../../core/rewrite";
-import type { WireMessage } from "./ops";
+import type { OpOf, Program } from "../../core/ops.js";
+import type { Target } from "../../core/rewrite.js";
+import type { WireMessage } from "./ops.js";
 
 export const omitReasoningEffortWithToolsForGPT55Chat = (
     program: Program,

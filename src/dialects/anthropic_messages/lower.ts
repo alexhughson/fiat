@@ -12,14 +12,14 @@ import {
     type Op,
     type OpOf,
     type Program,
-} from "../../core/ops";
-import { LintError } from "../../core/lint";
-import { stagePipeline, type Stage } from "../../core/rewrite";
+} from "../../core/ops.js";
+import { LintError } from "../../core/lint.js";
+import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
     WireAnthropicMessage,
     WireAnthropicStreamEvent,
     WireBlock,
-} from "./ops";
+} from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
     lintMidConversationSystem,

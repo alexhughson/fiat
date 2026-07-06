@@ -4,16 +4,16 @@
 // stage, collectOutputItems, which reunites core ops with the output_meta
 // residuals raise left behind. Extend by appending to the stage arrays.
 
-import { opData, type Op, type OpOf, type Program } from "../../core/ops";
-import { LintError } from "../../core/lint";
-import { stagePipeline, type Stage } from "../../core/rewrite";
-import { lowerStopReason } from "./raise";
+import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
+import { LintError } from "../../core/lint.js";
+import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { lowerStopReason } from "./raise.js";
 import type {
     WireConversationItemCreateEvent,
     WireFunctionCallItem,
     WireOutputItem,
     WireOutputMessage,
-} from "./ops";
+} from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
     rejectSessionConfig,

@@ -4,16 +4,16 @@
 // output_meta residuals raise left behind. Extend by appending to the stage
 // arrays.
 
-import type { Op, OpOf, Program } from "../../core/ops";
-import { opData } from "../../core/ops";
-import { LintError } from "../../core/lint";
-import { stagePipeline, type Stage } from "../../core/rewrite";
+import type { Op, OpOf, Program } from "../../core/ops.js";
+import { opData } from "../../core/ops.js";
+import { LintError } from "../../core/lint.js";
+import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
     WireContentPart,
     WireFunctionCall,
     WireOutputItem,
     WireOutputMessage,
-} from "./ops";
+} from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
     rejectStructuredOutput,

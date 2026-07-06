@@ -1,4 +1,4 @@
-import type { CoreOp, Op, OpOf, Program } from "./ops";
+import type { CoreOp, Op, OpOf, Program } from "./ops.js";
 
 export function opsOf<K extends CoreOp["op"]>(
     program: Program,

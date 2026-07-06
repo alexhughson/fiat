@@ -5,14 +5,14 @@
 // between requests and responses — the ops are the same shapes in both
 // directions.
 
-import { opData, type Op, type Program, type StopReason } from "../../core/ops";
-import { LintError } from "../../core/lint";
-import { stagePipeline, type Stage } from "../../core/rewrite";
+import { opData, type Op, type Program, type StopReason } from "../../core/ops.js";
+import { LintError } from "../../core/lint.js";
+import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
     OpenAIChatMessageMeta,
     WireContentPart,
     WireMessage,
-} from "./ops";
+} from "./ops.js";
 
 export const raiseStages: Stage[] = [
     raiseMessages,

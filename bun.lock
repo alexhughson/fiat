@@ -3,11 +3,9 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "metamodel",
-      "dependencies": {
-        "@opentui/core": "0.4.3",
-      },
+      "name": "fiat",
       "devDependencies": {
+        "@opentui/core": "0.4.3",
         "@types/bun": "^1.1.0",
         "prettier": "^3.9.4",
         "typescript": "^5.5.0",

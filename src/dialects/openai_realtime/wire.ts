@@ -5,14 +5,14 @@ import {
     type OpOf,
     type Program,
     type ToolChoice,
-} from "../../core/ops";
-import { LintError } from "../../core/lint";
-import { asArray, asNumber, asRecord, asString } from "../../core/wire";
+} from "../../core/ops.js";
+import { LintError } from "../../core/lint.js";
+import { asArray, asNumber, asRecord, asString } from "../../core/wire.js";
 import type {
     WireConversationItem,
     WireConversationItemCreateEvent,
     WireOutputItem,
-} from "./ops";
+} from "./ops.js";
 
 interface RequestParseState {
     responseCreateCount: number;
