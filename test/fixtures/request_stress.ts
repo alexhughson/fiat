@@ -12,9 +12,8 @@ export const mixedHistoryProgram: Program = [
         op: "openai_chat.message_meta",
         message: { role: "developer" },
         appliesTo: "request",
-        required: false,
     },
-    { op: "openai_realtime.response_input_mode", required: false },
+    { op: "openai_realtime.response_input_mode" },
     {
         op: "llm.tool",
         name: "lookup_invoice",
@@ -30,7 +29,6 @@ export const mixedHistoryProgram: Program = [
         name: "lookup_invoice",
         fields: { strict: true },
         appliesTo: "request",
-        required: false,
     },
     {
         op: "llm.tool",
@@ -67,7 +65,6 @@ export const mixedHistoryProgram: Program = [
             id: "call_invoice",
             meta: { thoughtSignature: "hist_sig_invoice" },
         },
-        required: false,
     },
     {
         op: "llm.tool_call",
@@ -82,8 +79,8 @@ export const mixedHistoryProgram: Program = [
     },
     {
         op: "anthropic_messages.tool_result_meta",
+        id: "call_invoice",
         fields: { cache_control: { type: "ephemeral" } },
-        required: false,
     },
     {
         op: "llm.tool_result",
@@ -111,7 +108,6 @@ export const refundWorkflowProgram: Program = [
         op: "openai_chat.message_meta",
         message: { role: "developer" },
         appliesTo: "request",
-        required: false,
     },
     {
         op: "llm.tool",
@@ -128,7 +124,6 @@ export const refundWorkflowProgram: Program = [
         name: "lookup_invoice",
         fields: { strict: true },
         appliesTo: "request",
-        required: false,
     },
     {
         op: "llm.tool",
@@ -152,7 +147,6 @@ export const refundWorkflowProgram: Program = [
     {
         op: "anthropic_messages.text_meta",
         fields: { cache_control: { type: "ephemeral" } },
-        required: false,
     },
     {
         op: "llm.tool_call",
@@ -246,7 +240,6 @@ export const geminiPlannerProgram: Program = [
             id: "call_office",
             meta: { thoughtSignature: "sig_lookup" },
         },
-        required: false,
     },
     {
         op: "llm.tool_result",
@@ -255,8 +248,8 @@ export const geminiPlannerProgram: Program = [
     },
     {
         op: "anthropic_messages.tool_result_meta",
+        id: "call_office",
         fields: { cache_control: { type: "ephemeral" } },
-        required: false,
     },
     {
         op: "llm.text",
@@ -277,7 +270,6 @@ export const geminiPlannerProgram: Program = [
             id: "call_weather",
             meta: { thoughtSignature: "sig_weather" },
         },
-        required: false,
     },
     {
         op: "llm.tool_result",

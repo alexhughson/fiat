@@ -223,7 +223,6 @@ describe("openai_chat requests", () => {
             op: "openai_chat.message_meta",
             message: { role: "developer" },
             appliesTo: "request",
-            required: false,
         });
         expect(OpenAIChatTranslator.toBody(program)).toEqual(body);
     });
@@ -480,7 +479,6 @@ describe("openai_chat requests", () => {
                 op: "openai_chat.body_field",
                 key: "id",
                 value: "chatcmpl-legacy",
-                required: false,
             },
             { op: "openai_chat.body_field", key: "user", value: "user-1234" },
         ]);
@@ -539,21 +537,18 @@ describe("openai_chat responses", () => {
                 key: "id",
                 value: "chatcmpl-123",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_chat.body_field",
                 key: "object",
                 value: "chat.completion",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_chat.body_field",
                 key: "created",
                 value: 1700000000,
                 appliesTo: "response",
-                required: false,
             },
             { op: "llm.model", model: "gpt-4o" },
             {
@@ -569,7 +564,6 @@ describe("openai_chat responses", () => {
                 op: "openai_chat.usage",
                 usage: { total_tokens: 29 },
                 appliesTo: "response",
-                required: false,
             },
         ]);
     });
@@ -625,7 +619,6 @@ describe("openai_chat responses", () => {
                         audio: { id: "audio_1" },
                     },
                     appliesTo: "response",
-                    required: false,
                 },
             ]),
         ).toEqual({
@@ -643,7 +636,6 @@ describe("openai_chat responses", () => {
                     op: "openai_chat.message_meta",
                     message: { refusal: "cannot", content: null },
                     appliesTo: "response",
-                    required: false,
                 },
             ]),
         ).toThrow(LintError);

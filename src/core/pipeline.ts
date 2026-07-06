@@ -6,7 +6,6 @@ import {
     type Program,
 } from "./ops";
 import { firstOp } from "./program";
-import { LintError } from "./lint";
 import type { Codec, Dialect } from "./registry";
 import type { Stage, Target } from "./rewrite";
 
@@ -47,8 +46,8 @@ export function raiseFromWire(
 }
 
 // core -> wire: strip ops that don't address the provider, lower into the
-// target dialect, legalize, lint foreign residuals, serialize. toWire is the
-// final strictness gate: it throws on any op it has no serialization for.
+// target dialect, legalize, drop foreign residuals, serialize. toWire is the
+// final strictness gate: it throws on any target op it has no serialization for.
 export function lowerToWire(
     kind: Kind,
     dialectRef: DialectRef,
@@ -75,7 +74,7 @@ export function lowerToWire(
     for (const legalize of codec.legalizations ?? []) {
         low = legalize(low, target);
     }
-    low = lintForeignResiduals(low, dialect.name);
+    low = dropForeignResiduals(low, dialect.name);
     return codec.toWire(low);
 }
 
@@ -114,6 +113,7 @@ export function lowerStreamResponsesToWire(
         program,
         opts,
     );
+    if (program.length > 0 && low.length === 0) return [];
     // An empty program still goes through toWire so the codec's own
     // strictness applies (anthropic throws) instead of yielding [] silently.
     return codec.eventPerOp && low.length > 0
@@ -146,7 +146,7 @@ function lowerStreamResponseProgram(
     for (const legalize of codec.legalizations ?? []) {
         low = legalize(low, target);
     }
-    low = lintForeignResiduals(low, dialect.name);
+    low = dropForeignResiduals(low, dialect.name);
     return { codec, low };
 }
 
@@ -172,11 +172,10 @@ function stripHostOps(kind: Kind, program: Program): Program {
     });
 }
 
-// After lowering, every op must be either a core op the target's toWire
-// serializes, or an op in the target's own namespace. A foreign dialect op
-// marked { required: false } is dropped; any other means information would
-// be silently lost, so we halt.
-export function lintForeignResiduals(
+// Foreign dialect ops are transcript remnants for endpoints that know how to
+// use them. When lowering to another endpoint, they are intentionally ignored
+// with a warning; target-owned invalid state still reaches toWire and fails.
+export function dropForeignResiduals(
     program: Program,
     dialectName: string,
 ): Program {
@@ -186,10 +185,8 @@ export function lintForeignResiduals(
             kept.push(op);
             continue;
         }
-        if (op.required === false) continue;
-        throw new LintError(
-            `op "${op.op}" survived lowering to "${dialectName}" — no transform consumed it. ` +
-                `Mark it { required: false } to allow dropping it, or register a legalization that maps it.`,
+        console.warn(
+            `metamodel: ignored foreign op "${op.op}" while lowering to "${dialectName}"`,
         );
     }
     return kept;

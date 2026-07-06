@@ -73,7 +73,7 @@ export function requestToWire(program: Program): unknown {
     const toolsByName = new Map<string, Record<string, unknown>>();
     const pendingToolMeta = new Map<
         string,
-        { fields: Record<string, unknown>; required: boolean }
+        { fields: Record<string, unknown> }
     >();
     const responseInput: WireConversationItem[] = [];
     const useResponseInput = program.some(
@@ -115,7 +115,6 @@ export function requestToWire(program: Program): unknown {
                 const meta = opData<{
                     name: string;
                     fields: Record<string, unknown>;
-                    required?: boolean;
                 }>(op);
                 const tool = toolsByName.get(meta.name);
                 if (tool) {
@@ -124,7 +123,6 @@ export function requestToWire(program: Program): unknown {
                     const pending = pendingToolMeta.get(meta.name);
                     pendingToolMeta.set(meta.name, {
                         fields: { ...pending?.fields, ...meta.fields },
-                        required: pending?.required ?? meta.required !== false,
                     });
                 }
                 break;
@@ -174,9 +172,7 @@ export function requestToWire(program: Program): unknown {
     if (instructions.length > 0)
         response.instructions = instructions.join("\n\n");
     if (tools.length > 0) response.tools = tools;
-    const unconsumedToolMeta = [...pendingToolMeta.entries()].filter(
-        ([, meta]) => meta.required,
-    );
+    const unconsumedToolMeta = [...pendingToolMeta.entries()];
     if (unconsumedToolMeta.length > 0) {
         throw new LintError(
             `openai_realtime request toWire: tool metadata for missing tool(s) ${unconsumedToolMeta
@@ -205,7 +201,6 @@ export function responseFromWire(wire: unknown): Program {
             key,
             value,
             appliesTo: "response",
-            required: false,
         });
     }
 
@@ -224,7 +219,6 @@ export function responseFromWire(wire: unknown): Program {
                 key,
                 value,
                 appliesTo: "response",
-                required: false,
             });
         }
         parseResponseDone(
@@ -473,7 +467,6 @@ function parseRequestEvent(
                     eventType: "response.create",
                     key,
                     value,
-                    required: false,
                 });
             }
             parseResponseCreate(
@@ -515,7 +508,6 @@ function streamEventParams(
             key,
             value,
             appliesTo: "response" as const,
-            required: false,
         }));
 }
 
@@ -531,7 +523,6 @@ function streamOutputItemEvent(
         key: "item",
         value: item,
         appliesTo: "response",
-        required: false,
     });
     if (item.type !== "function_call") return program;
     program.push({
@@ -573,7 +564,6 @@ function streamDoneEvent(event: Record<string, unknown>): Program {
             key: "response",
             value: responseMeta,
             appliesTo: "response",
-            required: false,
         });
     }
     let status: string | undefined;
@@ -625,7 +615,6 @@ function parseResponseCreate(
                 state.sawResponseInput = true;
                 program.push({
                     op: "openai_realtime.response_input_mode",
-                    required: false,
                 });
                 for (const item of asArray(value, "response.input")) {
                     program.push({
@@ -718,7 +707,6 @@ function parseResponseDone(
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
                 break;
             case "status_details":
@@ -731,7 +719,6 @@ function parseResponseDone(
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
                 break;
             default:
@@ -740,7 +727,6 @@ function parseResponseDone(
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
         }
     }

@@ -191,7 +191,6 @@ export function responseFromWire(wire: unknown): Program {
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
         }
     }
@@ -287,7 +286,6 @@ export function streamResponseFromWire(wire: unknown): Program {
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
         }
     }
@@ -657,7 +655,6 @@ function candidateFromWire(value: unknown): Program {
             op: "gemini.candidate_meta",
             candidate: meta,
             appliesTo: "response",
-            required: false,
         });
     }
     return program;

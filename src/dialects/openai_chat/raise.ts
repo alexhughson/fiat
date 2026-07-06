@@ -71,7 +71,6 @@ export function raiseUsage(program: Program): Program {
                 op: "openai_chat.usage",
                 usage: rest,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
-                required: false,
             });
         }
         return out;
@@ -99,7 +98,6 @@ function raiseMessage(message: WireMessage): Op[] {
                         op: "openai_chat.message_meta",
                         message: requestMeta,
                         appliesTo: "request",
-                        required: false,
                     });
                 }
             } else {
@@ -109,7 +107,6 @@ function raiseMessage(message: WireMessage): Op[] {
                         op: "openai_chat.message_meta",
                         message: requestMeta,
                         appliesTo: "request",
-                        required: false,
                     });
                 }
             }
@@ -157,7 +154,6 @@ function raiseMessage(message: WireMessage): Op[] {
             op: "openai_chat.message_meta",
             message: meta,
             appliesTo: "response",
-            required: false,
         });
     }
     return ops;

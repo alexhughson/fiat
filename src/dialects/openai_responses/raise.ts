@@ -78,7 +78,6 @@ export function raiseUsage(program: Program): Program {
                 op: "openai_responses.usage",
                 usage: rest,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
-                required: false,
             });
         }
         return out;
@@ -113,7 +112,6 @@ function raiseOutput(item: WireOutputItem): Op[] {
                     op: "openai_responses.output_meta",
                     item,
                     appliesTo: "response",
-                    required: false,
                 },
             ];
         case "function_call":
@@ -123,7 +121,6 @@ function raiseOutput(item: WireOutputItem): Op[] {
                     op: "openai_responses.output_meta",
                     item,
                     appliesTo: "response",
-                    required: false,
                 },
             ];
         default:

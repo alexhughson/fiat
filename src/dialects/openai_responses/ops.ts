@@ -52,20 +52,17 @@ export type OpenAIResponsesOp =
           op: "openai_responses.output_meta";
           item: Partial<WireOutputItem>;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "openai_responses.tool_meta";
           name: string;
           fields: Record<string, unknown>;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "openai_responses.tool";
           tool: WireTool;
           appliesTo?: "request";
-          required?: boolean;
       }
     | {
           op: "openai_responses.finish_reason";
@@ -75,18 +72,15 @@ export type OpenAIResponsesOp =
           op: "openai_responses.usage";
           usage: Record<string, unknown>;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "openai_responses.tool_choice";
           value: unknown;
           appliesTo?: "request";
-          required?: boolean;
       }
     | {
           op: "openai_responses.body_field";
           key: string;
           value: unknown;
           appliesTo?: "request" | "response";
-          required?: boolean;
       };

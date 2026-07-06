@@ -17,7 +17,7 @@ export { stagePipeline } from "./core/rewrite";
 export type { Stage, Target } from "./core/rewrite";
 export type { Codec, Dialect } from "./core/registry";
 export {
-    lintForeignResiduals,
+    dropForeignResiduals,
     lowerStreamResponsesToWire,
 } from "./core/pipeline";
 export type {

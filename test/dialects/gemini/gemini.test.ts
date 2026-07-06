@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
     GeminiTranslator,
     LintError,
@@ -11,6 +11,17 @@ import {
     geminiTextResponseFixture,
     geminiWeatherToolName,
 } from "../../fixtures/gemini";
+
+function withWarnSpy<T>(
+    run: (warn: ReturnType<typeof spyOn<Console, "warn">>) => T,
+): T {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+        return run(warn);
+    } finally {
+        warn.mockRestore();
+    }
+}
 
 const model = geminiModelFixture;
 
@@ -48,7 +59,6 @@ describe("gemini requests", () => {
                     name: "get_weather",
                     response: { temp_c: 21 },
                 },
-                required: false,
             },
             {
                 op: "llm.tool",
@@ -108,9 +118,9 @@ describe("gemini requests", () => {
         ).toEqual(body);
     });
 
-    test("tool_result isError halts instead of serializing as a normal functionResponse", () => {
-        expect(() =>
-            GeminiTranslator.toBody([
+    test("Anthropic tool_result error metadata warns and drops for Gemini", () => {
+        withWarnSpy((warn) => {
+            const body = GeminiTranslator.toBody([
                 { op: "llm.model", model },
                 {
                     op: "llm.tool_call",
@@ -122,10 +132,21 @@ describe("gemini requests", () => {
                     op: "llm.tool_result",
                     id: "call_1",
                     content: '{"message":"nope"}',
-                    isError: true,
                 },
-            ]),
-        ).toThrow("isError");
+                {
+                    op: "anthropic_messages.tool_result_meta",
+                    id: "call_1",
+                    is_error: true,
+                },
+            ]) as Record<string, unknown>;
+
+            expect(body.contents).toBeDefined();
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    'ignored foreign op "anthropic_messages.tool_result_meta"',
+                ),
+            );
+        });
     });
 
     test("unsupported content-level fields halt instead of being dropped", () => {
@@ -705,7 +726,6 @@ describe("gemini responses", () => {
                     index: 0,
                     meta: { thoughtSignature: "thought_sig_1" },
                 },
-                required: false,
             },
             { op: "response.stop", reason: "end_turn" },
             {
@@ -719,7 +739,6 @@ describe("gemini responses", () => {
                     ],
                 },
                 appliesTo: "response",
-                required: false,
             },
             { op: "response.usage", inputTokens: 12, outputTokens: 2 },
             {
@@ -730,14 +749,12 @@ describe("gemini responses", () => {
                     serviceTier: "default",
                 },
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "gemini.body_field",
                 key: "responseId",
                 value: "resp_123",
                 appliesTo: "response",
-                required: false,
             },
         ]);
     });
@@ -769,7 +786,6 @@ describe("gemini responses", () => {
                 id: "call_1",
                 meta: { thoughtSignature: "sig" },
             },
-            required: false,
         });
     });
 
@@ -814,7 +830,6 @@ describe("gemini responses", () => {
                 id: "gemini_call_0",
                 idSource: "synthesized",
             },
-            required: false,
         });
         expect(GeminiTranslator.toResponse(program)).toEqual(wire);
     });

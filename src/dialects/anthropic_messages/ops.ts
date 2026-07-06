@@ -60,33 +60,29 @@ export type AnthropicMessagesOp =
           block: WireBlock;
           role?: "user" | "assistant";
           appliesTo?: "response";
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.system_block";
           block: WireBlock;
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.text_meta";
           fields: Record<string, unknown>;
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.tool";
           tool: WireAnthropicTool;
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.tool_meta";
           name: string;
           fields: Record<string, unknown>;
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.tool_result_meta";
-          fields: Record<string, unknown>;
-          required?: boolean;
+          id: string;
+          fields?: Record<string, unknown>;
+          is_error?: boolean;
       }
     | {
           op: "anthropic_messages.thinking";
@@ -97,48 +93,39 @@ export type AnthropicMessagesOp =
     | {
           op: "anthropic_messages.thinking_config";
           value: Record<string, unknown>;
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.output_config";
           value: Record<string, unknown>;
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.context_management";
           value: Record<string, unknown>;
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.metadata";
           value: Record<string, unknown>;
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.sampling";
           key: "top_p" | "top_k";
           value: number;
-          required?: boolean;
       }
-    // Wire usage verbatim (input_tokens/output_tokens plus cache fields the
-    // core op doesn't model — those survive raise as a { required: false }
-    // residual on this op).
+    // Wire usage verbatim: input_tokens/output_tokens plus cache fields the
+    // core op doesn't model.
     | {
           op: "anthropic_messages.usage";
           usage: Record<string, unknown>;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.stream_event";
           event: WireAnthropicStreamEvent;
           appliesTo?: "response";
-          required?: boolean;
       }
     | {
           op: "anthropic_messages.body_field";
           key: string;
           value: unknown;
           appliesTo?: "request" | "response";
-          required?: boolean;
       };

@@ -79,7 +79,6 @@ describe("anthropic_messages lower request stages", () => {
                 {
                     op: "anthropic_messages.text_meta",
                     fields: { cache_control: { type: "ephemeral" } },
-                    required: false,
                 },
             ]),
         ).toEqual([
@@ -159,19 +158,25 @@ describe("anthropic_messages lower request stages", () => {
         ]);
     });
 
-    test("applyRequestToolResultMeta reattaches adjacent Anthropic cache metadata to tool_result blocks", () => {
+    test("applyRequestToolResultMeta reattaches id-addressed Anthropic metadata to tool_result blocks", () => {
         expect(
             applyRequestToolResultMeta([
                 { op: "llm.model", model: "m" },
+                {
+                    op: "anthropic_messages.tool_result_meta",
+                    id: "toolu_1",
+                    fields: { cache_control: { type: "ephemeral" } },
+                    is_error: true,
+                },
                 {
                     op: "llm.tool_result",
                     id: "toolu_1",
                     content: "done",
                 },
                 {
-                    op: "anthropic_messages.tool_result_meta",
-                    fields: { cache_control: { type: "ephemeral" } },
-                    required: false,
+                    op: "llm.tool_result",
+                    id: "toolu_2",
+                    content: "ok",
                 },
             ]),
         ).toEqual([
@@ -183,10 +188,48 @@ describe("anthropic_messages lower request stages", () => {
                     type: "tool_result",
                     tool_use_id: "toolu_1",
                     content: "done",
+                    is_error: true,
                     cache_control: { type: "ephemeral" },
                 },
             },
+            {
+                op: "llm.tool_result",
+                id: "toolu_2",
+                content: "ok",
+            },
         ]);
+    });
+
+    test("applyRequestToolResultMeta rejects metadata without one matching result", () => {
+        expect(() =>
+            applyRequestToolResultMeta([
+                {
+                    op: "anthropic_messages.tool_result_meta",
+                    id: "missing",
+                    is_error: true,
+                },
+            ]),
+        ).toThrow("missing or ambiguous");
+
+        expect(() =>
+            applyRequestToolResultMeta([
+                {
+                    op: "llm.tool_result",
+                    id: "dup",
+                    content: "first",
+                },
+                {
+                    op: "llm.tool_result",
+                    id: "dup",
+                    content: "second",
+                },
+                {
+                    op: "anthropic_messages.tool_result_meta",
+                    id: "dup",
+                    is_error: true,
+                },
+            ]),
+        ).toThrow("missing or ambiguous");
     });
 
     test("lowerToolResults turns llm.tool_result into a single-block user tool_result message", () => {
@@ -197,7 +240,6 @@ describe("anthropic_messages lower request stages", () => {
                     op: "llm.tool_result",
                     id: "t1",
                     content: "72F",
-                    isError: true,
                 },
             ]),
         ).toEqual([
@@ -211,7 +253,6 @@ describe("anthropic_messages lower request stages", () => {
                             type: "tool_result",
                             tool_use_id: "t1",
                             content: "72F",
-                            is_error: true,
                         },
                     ],
                 },
@@ -230,7 +271,6 @@ describe("anthropic_messages lower request stages", () => {
                         type: "image",
                         source: { type: "base64", data: "abc" },
                     },
-                    required: false,
                 },
             ]),
         ).toEqual([

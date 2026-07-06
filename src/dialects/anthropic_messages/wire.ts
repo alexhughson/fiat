@@ -383,10 +383,6 @@ function toolFromWire(tool: Record<string, unknown>): Program {
             op: "anthropic_messages.tool_meta",
             name: asString(name, "tool.name"),
             fields,
-            ...(Object.keys(fields).length === 1 &&
-            isPlainEphemeralCacheControl(fields.cache_control)
-                ? { required: false }
-                : {}),
         });
     }
     return out;
@@ -460,14 +456,11 @@ export function responseFromWire(wire: unknown): Program {
                 });
                 break;
             default:
-                // Response envelope bookkeeping (id, type, stop_sequence, ...) is
-                // born droppable — see the openai_chat note.
                 program.push({
                     op: "anthropic_messages.body_field",
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
         }
     }
@@ -509,8 +502,8 @@ export function responseToWire(program: Program): unknown {
             case "anthropic_messages.stop_reason":
                 body.stop_reason = opData<{ value: string }>(op).value;
                 break;
-            // Mapped counts from lower plus any { required: false } vendor detail
-            // residual merge into one wire usage object.
+            // Mapped counts from lower plus any vendor detail residual merge
+            // into one wire usage object.
             case "anthropic_messages.usage":
                 usage = {
                     ...usage,
@@ -607,21 +600,10 @@ function systemFromWire(value: unknown): Op[] {
             out.push({
                 op: "anthropic_messages.text_meta",
                 fields: { cache_control },
-                ...(isPlainEphemeralCacheControl(cache_control)
-                    ? { required: false }
-                    : {}),
             });
         }
         return out;
     });
-}
-
-function isPlainEphemeralCacheControl(value: unknown): boolean {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return false;
-    }
-    const record = value as Record<string, unknown>;
-    return record.type === "ephemeral" && Object.keys(record).length === 1;
 }
 
 function toolChoiceFromWire(choice: Record<string, unknown>): ToolChoice {

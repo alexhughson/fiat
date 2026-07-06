@@ -99,7 +99,6 @@ export function raiseUsage(program: Program): Program {
                 op: "gemini.usage",
                 usage: rest,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
-                required: false,
             });
         }
         return out;
@@ -350,7 +349,6 @@ function pushPartMeta(
                 ...base,
                 ...(Object.keys(meta).length > 0 ? { meta } : {}),
             },
-            required: false,
         });
     }
 }

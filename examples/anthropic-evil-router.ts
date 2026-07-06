@@ -16,74 +16,88 @@ if (!geminiKey) throw new Error("GEMINI_API_KEY is required");
 
 const server = Bun.serve({
     port,
-    async fetch(request) {
-        const url = new URL(request.url);
-        if (request.method === "GET" && url.pathname === "/health") {
-            return json({ ok: true, geminiModel });
-        }
-        if (request.method !== "POST" || url.pathname !== "/v1/messages") {
-            return anthropicError(
-                404,
-                "not_found_error",
-                `${request.method} ${url.pathname}`,
-            );
-        }
-
-        try {
-            const body = record(await request.json(), "anthropic request");
-            const core = AnthropicTranslator.fromBody(body);
-            const requestedModel = string(
-                body.model,
-                "anthropic request.model",
-            );
-            const route = hasEvilPromptText(core) ? "gemini" : "anthropic";
-
-            console.log(
-                JSON.stringify({ event: "route", route, requestedModel }),
-            );
-
-            if (route === "anthropic") return callAnthropic(body);
-            if (body.stream === true) {
-                return anthropicError(
-                    400,
-                    "invalid_request_error",
-                    "gemini-routed requests do not support stream: true in this example",
-                );
-            }
-
-            const geminiResponse = await callGemini(
-                record(
-                    GeminiTranslator.toBody(
-                        setModel(geminiModel)(
-                            AnthropicTranslator.fromBody(body),
-                        ),
-                    ),
-                    "gemini request",
-                ),
-            );
-
-            return json(
-                AnthropicTranslator.toResponse(
-                    setModel(requestedModel)(
-                        GeminiTranslator.fromResponse({
-                            model: geminiModel,
-                            ...geminiResponse,
-                        }),
-                    ),
-                ),
-            );
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : String(error);
-            console.error(JSON.stringify({ event: "error", message }));
-            return anthropicError(502, "api_error", message);
-        }
+    routes: {
+        "/health": health,
+        "/v1/messages": messages,
     },
+    fetch: notFound,
 });
 
 console.log(
     `anthropic evil router: http://localhost:${server.port}/v1/messages`,
 );
+
+function health(request: Request): Response {
+    if (request.method !== "GET") return notFound(request);
+    return Response.json({ ok: true, geminiModel });
+}
+
+async function messages(request: Request): Promise<Response> {
+    try {
+        if (request.method !== "POST") return notFound(request);
+
+        const body = (await request.json()) as Record<string, unknown>;
+        const core = AnthropicTranslator.fromBody(body);
+        const requestedModel = body.model as string;
+        const route = hasEvilPromptText(core) ? "gemini" : "anthropic";
+
+        console.log(JSON.stringify({ event: "route", route, requestedModel }));
+
+        if (route === "anthropic") return callAnthropic(body);
+        if (body.stream === true) {
+            return Response.json(
+                {
+                    type: "error",
+                    error: {
+                        type: "invalid_request_error",
+                        message:
+                            "gemini-routed requests do not support stream: true in this example",
+                    },
+                },
+                { status: 400 },
+            );
+        }
+
+        const geminiRequest = GeminiTranslator.toBody(
+            setModel(geminiModel)(core),
+        ) as Record<string, unknown>;
+        const geminiResponse = await callGemini(geminiRequest);
+        const anthropicResponse = AnthropicTranslator.toResponse(
+            setModel(requestedModel)(
+                GeminiTranslator.fromResponse({
+                    model: geminiModel,
+                    ...geminiResponse,
+                }),
+            ),
+        );
+
+        return Response.json(anthropicResponse);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(JSON.stringify({ event: "error", message }));
+        return Response.json(
+            {
+                type: "error",
+                error: { type: "api_error", message },
+            },
+            { status: 502 },
+        );
+    }
+}
+
+function notFound(request: Request): Response {
+    const url = new URL(request.url);
+    return Response.json(
+        {
+            type: "error",
+            error: {
+                type: "not_found_error",
+                message: `${request.method} ${url.pathname}`,
+            },
+        },
+        { status: 404 },
+    );
+}
 
 function hasEvilPromptText(program: Program): boolean {
     return program.some(
@@ -118,7 +132,7 @@ async function callAnthropic(body: Record<string, unknown>): Promise<Response> {
 async function callGemini(
     body: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-    const model = string(body.model, "gemini request.model");
+    const model = body.model as string;
     const { model: _model, ...generateContentBody } = body;
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/${model}:generateContent`,
@@ -133,32 +147,5 @@ async function callGemini(
     );
     const text = await response.text();
     if (!response.ok) throw new Error(`Gemini ${response.status}: ${text}`);
-    return record(JSON.parse(text), "gemini response");
-}
-
-function json(value: unknown, status = 200): Response {
-    return new Response(JSON.stringify(value), {
-        status,
-        headers: { "content-type": "application/json" },
-    });
-}
-
-function anthropicError(
-    status: number,
-    type: string,
-    message: string,
-): Response {
-    return json({ type: "error", error: { type, message } }, status);
-}
-
-function record(value: unknown, what: string): Record<string, unknown> {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        throw new Error(`${what}: expected object`);
-    }
-    return value as Record<string, unknown>;
-}
-
-function string(value: unknown, what: string): string {
-    if (typeof value !== "string") throw new Error(`${what}: expected string`);
-    return value;
+    return JSON.parse(text) as Record<string, unknown>;
 }

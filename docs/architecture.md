@@ -1,117 +1,88 @@
 # Architecture
 
-Metamodel is built MLIR-style: one shared **core IR**, plus one **dialect**
-(lower IR) per provider endpoint. Every request and response is a _program_ —
-a flat JSON array of _ops_ — at every stage. A proxy that accepts openai_chat
-and runs on anthropic_messages is this pipeline:
+Fiat has one shared core IR and one lower dialect per provider endpoint.
+Every stage reads and writes the same type: `Program`, a flat `Op[]`.
 
-```
-openai wire body
-  │ fromWire        (openai_chat)   mechanical flattening
-  ▼
-program: core ops + openai_chat.* ops
-  │ raise           (openai_chat)   semantic mapping; endpoint-only ops stay as residuals
-  ▼
-program: core ops + residuals            ◄── your transforms/lints run here
-  │ lower           (anthropic_messages) regroup core ops into wire structure
-  ▼
-program: core ops + anthropic_messages.* ops
-  │ legalizations   (anthropic request codec) endpoint/model conformance transforms
-  │ residual lint   (pipeline)           foreign ops: drop if { required: false }, else halt
-  │ toWire          (anthropic_messages) strict serialization
-  ▼
-anthropic wire body
+```text
+source wire
+  -> source fromWire
+  -> source raise
+  -> core program
+  -> caller transforms
+  -> target lower
+  -> target legalizations
+  -> foreign residual cleanup
+  -> target toWire
+  -> target wire
 ```
 
-Responses run the same pipeline through each dialect's `response` codec, and
-share the core op vocabulary with requests — so a raised response can be
-appended directly onto a request program to build the next turn.
+## Programs are mixed
 
-## Programs are mixed-dialect
+A program may contain core ops and lower dialect ops at the same time:
 
-There is no separate "lower IR program" type. `fromWire` already emits core
-ops for wire fields that are a trivially bijective rename of one core op
-(`model` → `llm.model`, anthropic `max_tokens` → `llm.max_output_tokens`,
-tool definitions, tool_choice). A dialect defines an op of its own **only**
-when the wire construct is something the core IR reshapes or can't represent:
+```ts
+[
+    { op: "llm.model", model: "gpt-4o" },
+    { op: "llm.text", role: "user", content: "hi" },
+    { op: "openai_chat.body_field", key: "logit_bias", value: { "1": -100 } },
+];
+```
 
-- structure the core IR deliberately flattens — message grouping, tool calls
-  embedded in assistant messages, content block lists
-- provider-specific enums that need mapping — `finish_reason`, `stop_reason`
-- endpoint-only constructs — unknown params, vendor usage detail
+Core namespaces:
 
-Each converter rewrites only the ops it owns and passes everything else
-through. This kills four redundant copy steps per trivial field and keeps
-`raise`/`lower` small.
+- `llm.*`
+- `request.*`
+- `response.*`
+- `meta.*`
 
-Because passthrough is universal, a _partially_ raised or lowered program is
-still a valid program — which is why `raise` and `lower` are pipelines of
-small `Stage` functions (`src/core/rewrite.ts`), each rewriting one op kind,
-rather than monolithic switches. Extending a conversion means passing a
-custom stage via the `beforeRaise`/`afterRaise`/`beforeLower`/`afterLower`
-hooks (`src/core/pipeline.ts`); see
-[dialects.md](dialects.md#raise-and-lower-are-stage-pipelines).
+Provider dialect namespaces:
 
-## Residuals: lossless by default, loud when lost
+- `openai_chat.*`
+- `openai_responses.*`
+- `anthropic_messages.*`
+- `gemini.*`
+- `openai_realtime.*`
 
-When `raise` meets an endpoint-only construct (`logit_bias`, a vendor usage
-field), it leaves a dialect op in the core program instead of dropping it.
-Rules, enforced by `lintForeignResiduals` in `src/core/pipeline.ts`:
+`fromWire` emits core ops directly for one-to-one fields such as `model`,
+`temperature`, token caps, ordinary tools, and tool choice. It emits dialect
+ops for provider structure or provider-only data.
 
-- **Home dialect**: lowering back to the dialect that produced a residual
-  consumes it losslessly (round-trips are exact).
-- **Foreign dialect, `required` unset**: the translation **halts** with a
-  `LintError`. Silent loss of meaning is never the default.
-- **Foreign dialect, `required: false`**: dropped, by design. Ops born
-  droppable: response envelope bookkeeping (`id`, `created`, `type`) and
-  vendor usage detail (cross-provider counts already live in
-  `response.usage`).
-- **Wrong direction, `appliesTo` set**: stripped before lowering. A response
-  residual such as `openai_chat.usage { appliesTo: "response" }` round-trips
-  through `toResponse`, but does not get sent when the same response program
-  is appended to a request for the next turn.
-- Any dialect can register a legalization that consumes another dialect's residual
-  and maps it onto its own ops — that is the interop escape hatch.
+## Residuals
+
+A residual is a dialect op left in a raised program because core IR has no
+portable representation for it.
+
+Rules:
+
+- home target: serialize it back exactly;
+- foreign target: warn and drop it before `toWire`;
+- wrong direction: strip it when `appliesTo` does not match request/response;
+- target-owned unknown op: throw in `toWire`.
+
+Example: OpenAI `logit_bias` raises as `openai_chat.body_field`. It
+round-trips back to OpenAI, but is warned and dropped when lowering to
+Anthropic.
 
 ## Legalizations
 
-Registered legalizations live on the request/response codec they apply to, and
-receive `Target { dialect, kind, model, strict }`. They are plain functions
-run left to right after lowering. Two conventions:
+Legalizations run after `lower` and `afterLower`, before foreign residual
+cleanup and `toWire`.
 
-- **transform / legalize**: rewrite toward what the target accepts. Example:
-  `anthropic_messages.default-max-tokens` inserts the required `max_tokens`
-  cap on requests (`src/dialects/anthropic_messages/legalize.ts`).
-- **strict lint**: when callers pass `{ strict: true }`, throw `LintError`
-  for unsupported request controls that default legalization would otherwise
-  clean up. Example: `top_p` on a Claude model that no longer accepts explicit
-  sampling params.
+Use them for endpoint conformance:
 
-Hard representational failures are still errors in every mode. Example:
-`llm.output` reaching a dialect with no output-schema wire home throws during
-lowering.
+- insert Anthropic `max_tokens` when absent;
+- remove or reject sampling params for models that do not accept them;
+- map portable thinking effort onto a model-specific wire shape.
 
-Caller transforms run on the core IR between raise and lower. For edge-local
-customization, the half-pipeline APIs also accept pure `Stage` hooks:
-`beforeRaise`/`afterRaise` around a dialect's raise edge, and
-`beforeLower`/`afterLower` around its lower edge. These hooks only see the op
-stream for that edge; for example, `anthropic_messages` raise does not know
-whether the program will later lower to OpenAI, Gemini, or Anthropic again.
-
-A dialect's registered `legalizations` run after `lower` and `afterLower`,
-before `toWire`. `toWire` itself is the final gate: it throws on any op it
-can't serialize.
-
-## Host ops
-
-`meta.*` ops address the host (trace ids, routing hints), never a provider.
-The pipeline strips them before lowering. In request programs it also strips
-`response.*` ops and response-only dialect residuals — the artifact of
-appending a response for chaining.
+With `{ strict: true }`, unsupported caller intent should throw instead of
+being cleaned up.
 
 ## Failure posture
 
-No silent fallbacks anywhere: malformed wire input, unparseable tool-call
-arguments, unmappable enum values, and unconsumed residuals all throw. If a
-translation succeeds, it means everything in the source either mapped, was
-explicitly marked droppable, or round-trips losslessly.
+The pipeline should not hide data loss.
+
+- malformed wire input throws;
+- unparseable tool-call JSON throws;
+- unmapped provider enums throw;
+- unrepresentable target-native ops throw;
+- foreign residual drops log a warning.

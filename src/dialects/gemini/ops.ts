@@ -51,54 +51,45 @@ export type GeminiOp =
           // before toWire, which has no serialization for it.
           op: "gemini.thinking";
           effort: ThinkingEffort;
-          required?: boolean;
       }
     | {
           op: "gemini.content";
           content: WireContent;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | { op: "gemini.finish_reason"; value: string }
     | {
           op: "gemini.usage";
           usage: Record<string, unknown>;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "gemini.part_meta";
           part: GeminiPartMeta;
-          required?: boolean;
       }
     | {
           op: "gemini.tool";
           tool: WireTool;
           appliesTo?: "request";
-          required?: boolean;
       }
     | {
           op: "gemini.candidate_meta";
           candidate: Record<string, unknown>;
           appliesTo?: "response";
-          required?: boolean;
       }
     | {
           op: "gemini.generation_config";
           value: Record<string, unknown>;
           appliesTo?: "request";
-          required?: boolean;
       }
     | {
           op: "gemini.tool_config";
           value: Record<string, unknown>;
           appliesTo?: "request";
-          required?: boolean;
       }
     | {
           op: "gemini.body_field";
           key: string;
           value: unknown;
           appliesTo?: "request" | "response";
-          required?: boolean;
       };

@@ -75,7 +75,11 @@ describe("gemini lower request stages", () => {
                     name: "get_weather",
                     arguments: { city: "Paris" },
                 },
-                { op: "llm.tool_result", id: "call_1", content: '{"temp_c":21}' },
+                {
+                    op: "llm.tool_result",
+                    id: "call_1",
+                    content: '{"temp_c":21}',
+                },
             ]),
         ).toEqual([
             {
@@ -176,7 +180,6 @@ describe("gemini lower request stages", () => {
                         id: "call_1",
                         meta: { thoughtSignature: "real_sig" },
                     },
-                    required: false,
                 },
             ]),
         ).toEqual([
@@ -208,7 +211,10 @@ describe("gemini lower request stages", () => {
             applyRequestPartMeta([
                 {
                     op: "gemini.content",
-                    content: { role: "user", parts: [{ text: "old question" }] },
+                    content: {
+                        role: "user",
+                        parts: [{ text: "old question" }],
+                    },
                 },
                 {
                     op: "gemini.content",
@@ -280,7 +286,8 @@ describe("gemini lower request stages", () => {
                                 args: { city: "London" },
                                 id: "call_2",
                             },
-                            thoughtSignature: "skip_thought_signature_validator",
+                            thoughtSignature:
+                                "skip_thought_signature_validator",
                         },
                     ],
                 },

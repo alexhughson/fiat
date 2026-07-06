@@ -52,7 +52,6 @@ describe("openai_chat raise stages", () => {
             {
                 op: "openai_chat.usage",
                 usage: { total_tokens: 29 },
-                required: false,
             },
         ]);
     });

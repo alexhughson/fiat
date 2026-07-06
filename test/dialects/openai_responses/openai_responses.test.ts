@@ -285,7 +285,6 @@ describe("openai_responses requests", () => {
                 op: "openai_responses.body_field",
                 key: "id",
                 value: "resp_legacy",
-                required: false,
             },
             {
                 op: "openai_responses.body_field",
@@ -407,28 +406,24 @@ describe("openai_responses responses", () => {
                 key: "id",
                 value: "resp_123",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_responses.body_field",
                 key: "object",
                 value: "response",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_responses.body_field",
                 key: "created_at",
                 value: 1783049000,
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_responses.body_field",
                 key: "status",
                 value: "completed",
                 appliesTo: "response",
-                required: false,
             },
             { op: "llm.model", model: "gpt-4o-mini" },
             { op: "llm.text", role: "assistant", content: "pong" },
@@ -449,7 +444,6 @@ describe("openai_responses responses", () => {
                     ],
                 },
                 appliesTo: "response",
-                required: false,
             },
             { op: "response.usage", inputTokens: 12, outputTokens: 2 },
             {
@@ -460,14 +454,12 @@ describe("openai_responses responses", () => {
                     total_tokens: 14,
                 },
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_responses.body_field",
                 key: "incomplete_details",
                 value: null,
                 appliesTo: "response",
-                required: false,
             },
             { op: "response.stop", reason: "end_turn" },
         ]);
@@ -657,7 +649,6 @@ describe("openai_responses responses", () => {
                         ],
                     },
                     appliesTo: "response",
-                    required: false,
                 },
             ]),
         ).toThrow(LintError);

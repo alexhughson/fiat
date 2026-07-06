@@ -48,7 +48,6 @@ export type OpenAIChatOp =
           op: "openai_chat.message_meta";
           message: OpenAIChatMessageMeta;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     // Response-only: provider-specific enum strings, mapped to core values in
     // raise (unknown values raise rather than guess).
@@ -63,38 +62,31 @@ export type OpenAIChatOp =
               [key: string]: unknown;
           };
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "openai_chat.stream_choice_param";
           key: string;
           value: unknown;
           appliesTo?: "response";
-          required?: boolean;
       }
     | {
           op: "openai_chat.response_format";
           value: Record<string, unknown>;
-          required?: boolean;
       }
     | {
           op: "openai_chat.choice_count";
           value: number;
-          required?: boolean;
       }
     | {
           op: "openai_chat.max_completion_tokens";
           value: number;
-          required?: boolean;
       }
     // Any body key this dialect has no mapping for. Round-trips through toWire
-    // untouched; survives raise as a residual (default `required`, so lowering
-    // it into another dialect is a lint error unless a transform consumes it
-    // or it is marked { required: false }).
+    // untouched; a foreign target warns and drops it because no other endpoint
+    // has a wire slot for it.
     | {
           op: "openai_chat.body_field";
           key: string;
           value: unknown;
           appliesTo?: "request" | "response";
-          required?: boolean;
       };

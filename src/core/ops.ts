@@ -54,7 +54,7 @@ export type CoreOp =
           name: string;
           arguments: Record<string, unknown>;
       }
-    | { op: "llm.tool_result"; id: string; content: string; isError?: boolean }
+    | { op: "llm.tool_result"; id: string; content: string }
     | {
           op: "llm.output";
           format: "json_schema";
@@ -64,7 +64,7 @@ export type CoreOp =
     | { op: "meta.trace"; traceId: string }
     // Only the cross-provider counts live here. Provider-specific usage fields
     // (cache hits, reasoning tokens, totals) stay in the op stream as a
-    // { required: false } residual on the source dialect's usage op.
+    // residual on the source dialect's usage op.
     | { op: "response.usage"; inputTokens?: number; outputTokens?: number }
     | { op: "response.stop"; reason: StopReason }
     | {
@@ -82,13 +82,10 @@ export type CoreOp =
       };
 
 // A lower-dialect op living inside a core program (a residual), or any op in
-// a lower-IR program. `required: false` marks a residual that may be dropped
-// when lowering to a dialect that can't consume it; residuals default to
-// required, so dropping one is a lint error unless the author opted out.
+// a lower-IR program. Foreign residuals are logged and dropped during lowering.
 export interface DialectOp {
     op: string;
     appliesTo?: "request" | "response";
-    required?: boolean;
     [key: string]: unknown;
 }
 

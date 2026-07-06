@@ -86,7 +86,6 @@ describe("gemini raise stages", () => {
             {
                 op: "gemini.usage",
                 usage: { totalTokenCount: 12 },
-                required: false,
             },
         ]);
     });

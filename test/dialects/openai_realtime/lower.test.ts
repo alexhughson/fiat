@@ -202,9 +202,12 @@ describe("openai_realtime lower response stages", () => {
                 { op: "llm.text", role: "assistant", content: "pong" },
                 {
                     op: "openai_realtime.output_meta",
-                    item: { type: "message", id: "item_1", status: "completed" },
+                    item: {
+                        type: "message",
+                        id: "item_1",
+                        status: "completed",
+                    },
                     appliesTo: "response",
-                    required: false,
                 },
                 {
                     op: "llm.tool_call",
@@ -221,7 +224,6 @@ describe("openai_realtime lower response stages", () => {
                         status: "completed",
                     },
                     appliesTo: "response",
-                    required: false,
                 },
                 residual,
             ]),

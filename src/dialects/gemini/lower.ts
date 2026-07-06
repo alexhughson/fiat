@@ -201,10 +201,6 @@ export function lowerToolResults(program: Program): Program {
         }
         if (op.op !== "llm.tool_result") return [op];
         const result = op as OpOf<"llm.tool_result">;
-        if (result.isError)
-            throw new LintError(
-                `gemini tool_result ${result.id}: isError has no functionResponse mapping`,
-            );
         const meta = metaById.get(result.id);
         const name = meta?.name ?? callNames.get(result.id);
         if (!name) {

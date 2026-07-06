@@ -1,11 +1,22 @@
 // Executable documentation for the anthropic_messages dialect.
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
     AnthropicTranslator,
     LintError,
     OpenAIChatTranslator,
 } from "../../../src/index";
+
+function withWarnSpy<T>(
+    run: (warn: ReturnType<typeof spyOn<Console, "warn">>) => T,
+): T {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+        return run(warn);
+    } finally {
+        warn.mockRestore();
+    }
+}
 
 describe("anthropic_messages requests", () => {
     test("system string and content blocks flatten to the same core ops openai produces", () => {
@@ -64,7 +75,6 @@ describe("anthropic_messages requests", () => {
             {
                 op: "anthropic_messages.text_meta",
                 fields: { cache_control: { type: "ephemeral" } },
-                required: false,
             },
             { op: "llm.text", role: "user", content: "Hello" },
         ]);
@@ -296,8 +306,8 @@ describe("anthropic_messages requests", () => {
         });
         expect(program).toContainEqual({
             op: "anthropic_messages.tool_result_meta",
+            id: "toolu_1",
             fields: { content: body.messages[0]!.content[0]!.content },
-            required: false,
         });
         expect(AnthropicTranslator.toBody(program)).toEqual(body);
     });
@@ -329,8 +339,41 @@ describe("anthropic_messages requests", () => {
         });
         expect(program).toContainEqual({
             op: "anthropic_messages.tool_result_meta",
+            id: "toolu_1",
             fields: { cache_control: { type: "ephemeral" } },
-            required: false,
+        });
+        expect(AnthropicTranslator.toBody(program)).toEqual(body);
+    });
+
+    test("errored tool_result raises to core result plus required Anthropic metadata", () => {
+        const body = {
+            model: "claude-opus-4-8",
+            max_tokens: 100,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "tool_result",
+                            tool_use_id: "toolu_1",
+                            content: "permission denied",
+                            is_error: true,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        const program = AnthropicTranslator.fromBody(body);
+        expect(program).toContainEqual({
+            op: "llm.tool_result",
+            id: "toolu_1",
+            content: "permission denied",
+        });
+        expect(program).toContainEqual({
+            op: "anthropic_messages.tool_result_meta",
+            id: "toolu_1",
+            is_error: true,
         });
         expect(AnthropicTranslator.toBody(program)).toEqual(body);
     });
@@ -407,7 +450,6 @@ describe("anthropic_messages requests", () => {
         expect(program).toContainEqual({
             op: "anthropic_messages.text_meta",
             fields: { cache_control: { type: "ephemeral" } },
-            required: false,
         });
         expect(program).toContainEqual({
             op: "anthropic_messages.content_block",
@@ -449,7 +491,6 @@ describe("anthropic_messages requests", () => {
         expect(program).toContainEqual({
             op: "anthropic_messages.text_meta",
             fields: { cache_control: { type: "ephemeral" } },
-            required: false,
         });
         expect(AnthropicTranslator.toBody(program)).toEqual(body);
     });
@@ -890,14 +931,12 @@ describe("anthropic_messages responses", () => {
                 key: "id",
                 value: "msg_01ABC",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "anthropic_messages.body_field",
                 key: "type",
                 value: "message",
                 appliesTo: "response",
-                required: false,
             },
             { op: "llm.model", model: "claude-sonnet-4-6" },
             { op: "response.stop", reason: "end_turn" },
@@ -906,7 +945,6 @@ describe("anthropic_messages responses", () => {
                 op: "anthropic_messages.usage",
                 usage: { cache_read_input_tokens: 0 },
                 appliesTo: "response",
-                required: false,
             },
         ]);
     });
@@ -944,7 +982,6 @@ describe("anthropic_messages responses", () => {
             },
             role: "assistant",
             appliesTo: "response",
-            required: false,
         });
         expect(program).toContainEqual({
             op: "llm.text",
@@ -1136,7 +1173,6 @@ describe("anthropic_messages response streams", () => {
                 op: "anthropic_messages.stream_event",
                 event,
                 appliesTo: "response",
-                required: false,
             },
         ]);
         expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
@@ -1240,6 +1276,54 @@ describe("anthropic_messages response streams", () => {
             type: "message_delta",
             delta: { stop_reason: "end_turn", stop_sequence: null },
             usage: { input_tokens: 3, output_tokens: 2 },
+        });
+    });
+
+    test("foreign stream residuals warn and drop around complete response lowering", () => {
+        withWarnSpy((warn) => {
+            const events = AnthropicTranslator.toStreamResponses([
+                { op: "llm.model", model: "claude-sonnet-4-6" },
+                {
+                    op: "openai_chat.stream_choice_param",
+                    key: "logprobs",
+                    value: null,
+                    appliesTo: "response",
+                },
+                { op: "llm.text", role: "assistant", content: "hello" },
+            ]) as Record<string, unknown>[];
+
+            expect(events.map((event) => event.type)).toEqual([
+                "message_start",
+                "content_block_start",
+                "content_block_delta",
+                "content_block_stop",
+                "message_stop",
+            ]);
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    'ignored foreign op "openai_chat.stream_choice_param"',
+                ),
+            );
+        });
+    });
+
+    test("foreign-only plural stream conversion returns no events after warning", () => {
+        withWarnSpy((warn) => {
+            expect(
+                AnthropicTranslator.toStreamResponses([
+                    {
+                        op: "openai_chat.stream_choice_param",
+                        key: "logprobs",
+                        value: null,
+                        appliesTo: "response",
+                    },
+                ]),
+            ).toEqual([]);
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    'ignored foreign op "openai_chat.stream_choice_param"',
+                ),
+            );
         });
     });
 

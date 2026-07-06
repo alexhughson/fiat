@@ -21,31 +21,41 @@ if (!apiKey) throw new Error("OPENAI_API_KEY is required");
 
 const server = Bun.serve({
     port,
-    async fetch(request) {
+    routes: {
+        "/health": {
+            GET: () => Response.json({ ok: true, model: realtimeModel }),
+        },
+        "/v1/models": {
+            GET: () =>
+                Response.json({
+                    object: "list",
+                    data: [
+                        {
+                            id: realtimeModel,
+                            object: "model",
+                            created: 0,
+                            owned_by: "openai",
+                        },
+                    ],
+                }),
+        },
+        "/v1/chat/completions": {
+            POST: handleChatCompletions,
+        },
+    },
+    fetch(request) {
         const url = new URL(request.url);
-        if (request.method === "GET" && url.pathname === "/health") {
-            return json({ ok: true, model: realtimeModel });
-        }
-        if (request.method === "GET" && url.pathname === "/v1/models") {
-            return json({
-                object: "list",
-                data: [
-                    {
-                        id: realtimeModel,
-                        object: "model",
-                        created: 0,
-                        owned_by: "openai",
-                    },
-                ],
-            });
-        }
-        if (
-            request.method === "POST" &&
-            url.pathname === "/v1/chat/completions"
-        ) {
-            return handleChatCompletions(request);
-        }
-        return jsonError(404, "not_found", `${request.method} ${url.pathname}`);
+        return Response.json(
+            {
+                error: {
+                    message: `${request.method} ${url.pathname}`,
+                    type: "not_found",
+                    param: null,
+                    code: null,
+                },
+            },
+            { status: 404 },
+        );
     },
 });
 
@@ -55,21 +65,48 @@ console.log(
 
 async function handleChatCompletions(request: Request): Promise<Response> {
     try {
-        const body = await readJson(request);
+        let body: unknown;
+        try {
+            body = await request.json();
+        } catch {
+            throw new ClientError("request body must be valid JSON");
+        }
+
         const realtimeRequest = chatRequestToRealtimeBody(body);
         const realtimeResponse = await callRealtime(realtimeRequest);
         const responseProgram =
             OpenAIRealtimeTranslator.fromResponse(realtimeResponse);
         const chatResponse = OpenAIChatTranslator.toResponse(responseProgram);
 
-        return json(chatResponse);
+        return Response.json(chatResponse);
     } catch (error) {
         if (error instanceof ClientError) {
-            return jsonError(400, "invalid_request_error", error.message);
+            return Response.json(
+                {
+                    error: {
+                        message: error.message,
+                        type: "invalid_request_error",
+                        param: null,
+                        code: null,
+                    },
+                },
+                { status: 400 },
+            );
         }
+
         const message =
             error instanceof Error ? error.message : JSON.stringify(error);
-        return jsonError(502, "realtime_backend_error", message);
+        return Response.json(
+            {
+                error: {
+                    message,
+                    type: "realtime_backend_error",
+                    param: null,
+                    code: null,
+                },
+            },
+            { status: 502 },
+        );
     }
 }
 
@@ -77,14 +114,19 @@ function chatRequestToRealtimeBody(body: unknown): Record<string, unknown> {
     try {
         const requestProgram = OpenAIChatTranslator.fromBody(body);
         const realtimeProgram = prepareForRealtime(requestProgram);
-        return record(
-            OpenAIRealtimeTranslator.toBody(realtimeProgram),
-            "translated realtime request",
-        );
+        const realtimeBody = OpenAIRealtimeTranslator.toBody(realtimeProgram);
+        if (
+            typeof realtimeBody !== "object" ||
+            realtimeBody === null ||
+            Array.isArray(realtimeBody)
+        ) {
+            throw new Error("translated realtime request: expected object");
+        }
+        return realtimeBody as Record<string, unknown>;
     } catch (error) {
         const message =
             error instanceof Error ? error.message : JSON.stringify(error);
-        throw clientError(message);
+        throw new ClientError(message);
     }
 }
 
@@ -95,11 +137,13 @@ function prepareForRealtime(program: Program): Program {
         }
         if (op.op === "request.stream") {
             if (op.value === false) return [];
-            throw clientError("streaming is not implemented by this example");
+            throw new ClientError(
+                "streaming is not implemented by this example",
+            );
         }
         if (op.op === "openai_chat.choice_count") {
             if (op.value === 1) return [];
-            throw clientError("only n=1 is implemented by this example");
+            throw new ClientError("only n=1 is implemented by this example");
         }
         return [op];
     });
@@ -108,10 +152,26 @@ function prepareForRealtime(program: Program): Program {
 async function callRealtime(
     requestBody: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-    const model = string(requestBody.model, "realtime request model");
-    const events = array(requestBody.events, "realtime request events").map(
-        (event) => record(event, "realtime request event"),
-    );
+    const model = requestBody.model;
+    if (typeof model !== "string") {
+        throw new Error("realtime request model: expected string");
+    }
+
+    const inputEvents = requestBody.events;
+    if (!Array.isArray(inputEvents)) {
+        throw new Error("realtime request events: expected array");
+    }
+    const events = inputEvents.map((event) => {
+        if (
+            typeof event !== "object" ||
+            event === null ||
+            Array.isArray(event)
+        ) {
+            throw new Error("realtime request event: expected object");
+        }
+        return event as Record<string, unknown>;
+    });
+
     const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`;
     const responseEvents = await collectRealtimeEvents(url, events);
     const done = responseEvents.find((event) => event.type === "response.done");
@@ -125,7 +185,11 @@ function collectRealtimeEvents(
 ): Promise<Record<string, unknown>[]> {
     return new Promise((resolve, reject) => {
         const received: Record<string, unknown>[] = [];
-        const ws = new BunWebSocket(url, websocketOptions());
+        const ws = new BunWebSocket(url, {
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+            },
+        });
         let sentRequest = false;
         const timeout = setTimeout(() => {
             ws.close();
@@ -143,18 +207,24 @@ function collectRealtimeEvents(
         ws.onclose = (event) => {
             if (received.some((item) => item.type === "response.done")) return;
             clearTimeout(timeout);
+            const receivedTypes =
+                received.map((item) => String(item.type)).join(", ") || "none";
             reject(
                 new Error(
-                    `realtime websocket closed ${event.code} ${event.reason}; received events: ${eventTypes(received)}`,
+                    `realtime websocket closed ${event.code} ${event.reason}; received events: ${receivedTypes}`,
                 ),
             );
         };
         ws.onmessage = (message) => {
             try {
-                const event = record(
-                    JSON.parse(String(message.data)),
-                    "realtime event",
-                );
+                const event = JSON.parse(String(message.data));
+                if (
+                    typeof event !== "object" ||
+                    event === null ||
+                    Array.isArray(event)
+                ) {
+                    throw new Error("realtime event: expected object");
+                }
                 received.push(event);
                 if (event.type === "session.created") sendRequest();
                 if (event.type === "error") {
@@ -175,68 +245,6 @@ function collectRealtimeEvents(
             }
         };
     });
-}
-
-async function readJson(request: Request): Promise<unknown> {
-    try {
-        return await request.json();
-    } catch {
-        throw clientError("request body must be valid JSON");
-    }
-}
-
-function websocketOptions(): Bun.WebSocketOptions {
-    return {
-        headers: {
-            Authorization: `Bearer ${apiKey}`,
-        },
-    };
-}
-
-function json(value: unknown, status = 200): Response {
-    return new Response(JSON.stringify(value), {
-        status,
-        headers: { "content-type": "application/json" },
-    });
-}
-
-function jsonError(status: number, type: string, message: string): Response {
-    return json(
-        {
-            error: {
-                message,
-                type,
-                param: null,
-                code: null,
-            },
-        },
-        status,
-    );
-}
-
-function record(value: unknown, what: string): Record<string, unknown> {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        throw new Error(`${what}: expected object`);
-    }
-    return value as Record<string, unknown>;
-}
-
-function array(value: unknown, what: string): unknown[] {
-    if (!Array.isArray(value)) throw new Error(`${what}: expected array`);
-    return value;
-}
-
-function string(value: unknown, what: string): string {
-    if (typeof value !== "string") throw new Error(`${what}: expected string`);
-    return value;
-}
-
-function eventTypes(events: Record<string, unknown>[]): string {
-    return events.map((event) => String(event.type)).join(", ") || "none";
-}
-
-function clientError(message: string): ClientError {
-    return new ClientError(message);
 }
 
 class ClientError extends Error {}

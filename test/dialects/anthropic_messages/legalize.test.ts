@@ -10,11 +10,14 @@ import {
 describe("anthropic_messages legalizations", () => {
     test("defaultMaxTokens inserts Anthropic's required max_tokens cap when absent", () => {
         expect(
-            defaultMaxTokens([{ op: "llm.model", model: "claude-sonnet-4-5" }], {
-                dialect: "anthropic_messages",
-                kind: "request",
-                model: "claude-sonnet-4-5",
-            }),
+            defaultMaxTokens(
+                [{ op: "llm.model", model: "claude-sonnet-4-5" }],
+                {
+                    dialect: "anthropic_messages",
+                    kind: "request",
+                    model: "claude-sonnet-4-5",
+                },
+            ),
         ).toEqual([
             { op: "llm.model", model: "claude-sonnet-4-5" },
             { op: "llm.max_output_tokens", value: DEFAULT_MAX_TOKENS },
@@ -27,7 +30,11 @@ describe("anthropic_messages legalizations", () => {
                 [
                     { op: "llm.model", model: "claude-sonnet-5" },
                     { op: "llm.temperature", value: 0.2 },
-                    { op: "anthropic_messages.sampling", key: "top_p", value: 0.9 },
+                    {
+                        op: "anthropic_messages.sampling",
+                        key: "top_p",
+                        value: 0.9,
+                    },
                 ],
                 {
                     dialect: "anthropic_messages",

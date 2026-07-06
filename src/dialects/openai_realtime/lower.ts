@@ -125,11 +125,6 @@ export function lowerToolResults(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "llm.tool_result") return [op];
         const result = op as OpOf<"llm.tool_result">;
-        if (result.isError) {
-            throw new LintError(
-                "openai_realtime function_call_output has no error flag; map llm.tool_result.isError before lowering",
-            );
-        }
         return [
             {
                 op: "openai_realtime.item",

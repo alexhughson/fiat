@@ -130,7 +130,6 @@ describe("openai_responses lower response stages", () => {
                         ],
                     },
                     appliesTo: "response",
-                    required: false,
                 },
                 {
                     op: "llm.tool_call",

@@ -204,7 +204,6 @@ export function requestToWire(program: Program): unknown {
                     key: string;
                     value: unknown;
                     appliesTo?: "request" | "response";
-                    required?: boolean;
                 }>(op);
                 if (skipRequestParam(param)) break;
                 body[param.key] = param.value;
@@ -271,15 +270,11 @@ export function responseFromWire(wire: unknown): Program {
                 });
                 break;
             default:
-                // Response envelope bookkeeping (id, object, created, ...). Dropping
-                // it when the program is re-targeted is by design, so unlike request
-                // params these are born droppable.
                 program.push({
                     op: "openai_chat.body_field",
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
         }
     }
@@ -307,7 +302,7 @@ export function responseToWire(program: Program): unknown {
                 finishReason = opData<{ value: string }>(op).value;
                 break;
             // Multiple usage ops merge: lower emits the mapped counts, and a
-            // { required: false } residual from raise may carry vendor detail.
+            // Response usage residuals from raise may carry vendor detail.
             case "openai_chat.usage":
                 usage = {
                     ...usage,
@@ -373,7 +368,6 @@ export function streamResponseFromWire(wire: unknown): Program {
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
         }
     }
@@ -466,11 +460,10 @@ export function streamResponseToWire(program: Program): unknown {
 function skipRequestParam(param: {
     key: string;
     appliesTo?: "request" | "response";
-    required?: boolean;
 }): boolean {
-    if (param.appliesTo === "response") return true;
     return (
-        param.required === false && RESPONSE_ENVELOPE_PARAM_KEYS.has(param.key)
+        param.appliesTo === "response" ||
+        RESPONSE_ENVELOPE_PARAM_KEYS.has(param.key)
     );
 }
 
@@ -573,7 +566,6 @@ function streamChoicesFromWire(value: unknown): Program {
             key,
             value: field,
             appliesTo: "response",
-            required: false,
         });
     }
     const delta = asRecord(choice.delta ?? {}, "choice.delta");

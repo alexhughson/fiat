@@ -90,10 +90,7 @@ export function raiseRequestParams(program: Program): Program {
             );
         }
         if (op.op === "anthropic_messages.context_management") {
-            return droppableIfSupportedContextManagement(
-                op,
-                opData<{ value: Record<string, unknown> }>(op).value,
-            );
+            return [op];
         }
         return [op];
     });
@@ -140,7 +137,6 @@ export function raiseUsage(program: Program): Program {
                 op: "anthropic_messages.usage",
                 usage: rest,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
-                required: false,
             });
         }
         return out;
@@ -171,7 +167,6 @@ function raiseStreamEvent(event: WireAnthropicStreamEvent): Op[] {
                     op: "anthropic_messages.stream_event",
                     event,
                     appliesTo: "response",
-                    required: false,
                 },
             ];
         default:
@@ -312,32 +307,12 @@ function raiseThinkingConfig(op: Op, thinking: Record<string, unknown>): Op[] {
     const { type, display, ...rest } = thinking;
     if (Object.keys(rest).length > 0) return [op];
     if (type === "disabled" && display == null) {
-        return [{ ...op, required: false }];
+        return [];
     }
     if (type === "adaptive" && display === "omitted") {
-        return [{ ...op, required: false }];
+        return [op];
     }
     return [op];
-}
-
-function droppableIfSupportedContextManagement(
-    op: Op,
-    context: Record<string, unknown>,
-): Op[] {
-    const { edits, ...rest } = context;
-    if (Object.keys(rest).length > 0 || !Array.isArray(edits)) return [op];
-    const supported = edits.every((edit) => {
-        if (typeof edit !== "object" || edit === null || Array.isArray(edit)) {
-            return false;
-        }
-        const record = edit as Record<string, unknown>;
-        return (
-            record.type === "clear_thinking_20251015" &&
-            record.keep === "all" &&
-            Object.keys(record).length === 2
-        );
-    });
-    return supported ? [{ ...op, required: false }] : [op];
 }
 
 function raiseMessage(message: WireAnthropicMessage): Op[] {
@@ -362,11 +337,6 @@ function raiseBlock(role: "user" | "assistant", block: WireBlock): Op[] {
                           {
                               op: "anthropic_messages.text_meta",
                               fields: text.fields,
-                              ...(isPlainEphemeralCacheControl(
-                                  text.fields.cache_control,
-                              )
-                                  ? { required: false }
-                                  : {}),
                           } as Op,
                       ]
                     : []),
@@ -399,24 +369,22 @@ function raiseBlock(role: "user" | "assistant", block: WireBlock): Op[] {
             {
                 const content = tryFlattenResultContent(block.content);
                 if (content == null) return [contentBlock(role, block)];
+                const id =
+                    block.tool_use_id ?? missing("tool_result.tool_use_id");
                 const fields = toolResultMetaFields(block);
                 return [
                     {
                         op: "llm.tool_result",
-                        id:
-                            block.tool_use_id ??
-                            missing("tool_result.tool_use_id"),
+                        id,
                         content,
-                        ...(block.is_error ? { isError: true } : {}),
                     },
-                    ...(fields
+                    ...(fields || block.is_error
                         ? [
                               {
                                   op: "anthropic_messages.tool_result_meta",
-                                  fields,
-                                  ...(isDroppableToolResultMeta(fields)
-                                      ? { required: false }
-                                      : {}),
+                                  id,
+                                  ...(fields ? { fields } : {}),
+                                  ...(block.is_error ? { is_error: true } : {}),
                               } as Op,
                           ]
                         : []),
@@ -428,7 +396,6 @@ function raiseBlock(role: "user" | "assistant", block: WireBlock): Op[] {
                 {
                     ...contentBlock(role, block),
                     appliesTo: "response",
-                    required: false,
                 },
             ];
         default:
@@ -473,15 +440,6 @@ function toolResultMetaFields(
     return Object.keys(fields).length > 0 ? fields : undefined;
 }
 
-function isDroppableToolResultMeta(fields: Record<string, unknown>): boolean {
-    const { content, cache_control, ...rest } = fields;
-    return (
-        Object.keys(rest).length === 0 &&
-        (content == null || Array.isArray(content)) &&
-        (cache_control == null || isPlainEphemeralCacheControl(cache_control))
-    );
-}
-
 function missing(field: string): never {
     throw new Error(`anthropic_messages block: missing ${field}`);
 }
@@ -499,14 +457,6 @@ function textBlockWithOnlyCacheMeta(
     if (Object.keys(rest).length > 0) return undefined;
     if (cache_control == null) return { content: text };
     return { content: text, fields: { cache_control } };
-}
-
-function isPlainEphemeralCacheControl(value: unknown): boolean {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return false;
-    }
-    const record = value as Record<string, unknown>;
-    return record.type === "ephemeral" && Object.keys(record).length === 1;
 }
 
 const WIRE_STOP_REASONS: Record<string, StopReason> = {

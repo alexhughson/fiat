@@ -1,9 +1,20 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
     LintError,
     OpenAIChatTranslator,
     OpenAIRealtimeTranslator,
 } from "../../../src/index";
+
+function withWarnSpy<T>(
+    run: (warn: ReturnType<typeof spyOn<Console, "warn">>) => T,
+): T {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+        return run(warn);
+    } finally {
+        warn.mockRestore();
+    }
+}
 
 describe("openai_realtime requests", () => {
     const textRequest = {
@@ -74,7 +85,7 @@ describe("openai_realtime requests", () => {
     test("response input mode embeds conversation context inside response.create", () => {
         expect(
             OpenAIRealtimeTranslator.toBody([
-                { op: "openai_realtime.response_input_mode", required: false },
+                { op: "openai_realtime.response_input_mode" },
                 { op: "llm.text", role: "user", content: "hi" },
                 {
                     op: "llm.tool_result",
@@ -232,8 +243,9 @@ describe("openai_realtime requests", () => {
         ).toThrow(LintError);
     });
 
-    test("audio input stays as a realtime residual and halts cross-provider", () => {
+    test("audio input stays as a realtime residual and drops cross-provider with a warning", () => {
         const body = {
+            model: "gpt-4o-mini",
             events: [
                 {
                     type: "conversation.item.create",
@@ -251,6 +263,7 @@ describe("openai_realtime requests", () => {
         };
 
         expect(OpenAIRealtimeTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model: "gpt-4o-mini" },
             { op: "openai_realtime.item", event: body.events[0] },
         ]);
         expect(
@@ -258,11 +271,18 @@ describe("openai_realtime requests", () => {
                 OpenAIRealtimeTranslator.fromBody(body),
             ),
         ).toEqual(body);
-        expect(() =>
-            OpenAIChatTranslator.toBody(
+        withWarnSpy((warn) => {
+            const chatBody = OpenAIChatTranslator.toBody(
                 OpenAIRealtimeTranslator.fromBody(body),
-            ),
-        ).toThrow(LintError);
+            ) as Record<string, unknown>;
+
+            expect(chatBody.messages).toBeUndefined();
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    'ignored foreign op "openai_realtime.item"',
+                ),
+            );
+        });
     });
 
     test("model, event metadata, item metadata, and content metadata round-trip", () => {
@@ -343,7 +363,7 @@ describe("openai_realtime requests", () => {
         ).toEqual(body);
     });
 
-    test("unsupported tool fields and errored tool results reject instead of degrading", () => {
+    test("unsupported tool fields round-trip and foreign errored tool metadata warns", () => {
         const toolBody = {
             events: [
                 {
@@ -369,16 +389,27 @@ describe("openai_realtime requests", () => {
             ),
         ).toEqual(toolBody);
 
-        expect(() =>
-            OpenAIRealtimeTranslator.toBody([
+        withWarnSpy((warn) => {
+            const body = OpenAIRealtimeTranslator.toBody([
                 {
                     op: "llm.tool_result",
                     id: "call_1",
                     content: "failed",
-                    isError: true,
                 },
-            ]),
-        ).toThrow("no error flag");
+                {
+                    op: "anthropic_messages.tool_result_meta",
+                    id: "call_1",
+                    is_error: true,
+                },
+            ]) as Record<string, unknown>;
+
+            expect(body.events).toBeDefined();
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    'ignored foreign op "anthropic_messages.tool_result_meta"',
+                ),
+            );
+        });
     });
 });
 
@@ -422,35 +453,30 @@ describe("openai_realtime responses", () => {
                 key: "event_id",
                 value: "event_1",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_realtime.body_field",
                 key: "id",
                 value: "resp_1",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_realtime.body_field",
                 key: "object",
                 value: "realtime.response",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_realtime.body_field",
                 key: "status",
                 value: "completed",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_realtime.body_field",
                 key: "status_details",
                 value: null,
                 appliesTo: "response",
-                required: false,
             },
             { op: "llm.model", model: "gpt-realtime" },
             { op: "llm.text", role: "assistant", content: "pong" },
@@ -463,14 +489,12 @@ describe("openai_realtime responses", () => {
                     status: "completed",
                 },
                 appliesTo: "response",
-                required: false,
             },
             { op: "response.usage", inputTokens: 12, outputTokens: 2 },
             {
                 op: "openai_realtime.usage",
                 usage: { total_tokens: 14 },
                 appliesTo: "response",
-                required: false,
             },
             { op: "response.stop", reason: "end_turn" },
         ]);
@@ -595,7 +619,6 @@ describe("openai_realtime responses", () => {
                 op: "openai_realtime.output_meta",
                 item: body.events[0]!.response.output[0],
                 appliesTo: "response",
-                required: false,
             },
         ]);
         expect(

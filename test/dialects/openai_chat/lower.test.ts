@@ -89,7 +89,6 @@ describe("openai_chat lower request stages", () => {
                 op: "openai_chat.message_meta",
                 message: { role: "developer" },
                 appliesTo: "request",
-                required: false,
             },
         ]);
 
@@ -187,7 +186,6 @@ describe("openai_chat lower response stages", () => {
                 op: "openai_chat.message_meta",
                 message: { annotations: [] },
                 appliesTo: "response",
-                required: false,
             },
         ]);
 

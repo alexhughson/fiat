@@ -5,7 +5,14 @@
 // blocks). System text stays a core op — requestToWire serializes it into
 // the top-level system string. Extend by appending to the stage arrays.
 
-import { opData, type Op, type OpOf, type Program } from "../../core/ops";
+import {
+    isCoreOp,
+    namespaceOf,
+    opData,
+    type Op,
+    type OpOf,
+    type Program,
+} from "../../core/ops";
 import { LintError } from "../../core/lint";
 import { stagePipeline, type Stage } from "../../core/rewrite";
 import type {
@@ -248,33 +255,72 @@ export function lowerToolCalls(program: Program): Program {
 }
 
 export function applyRequestToolResultMeta(program: Program): Program {
+    const metaById = new Map<
+        string,
+        {
+            fields?: Record<string, unknown>;
+            is_error?: boolean;
+        }
+    >();
+    const resultCounts = new Map<string, number>();
+
+    for (const op of program) {
+        if (op.op === "llm.tool_result") {
+            const result = op as OpOf<"llm.tool_result">;
+            resultCounts.set(result.id, (resultCounts.get(result.id) ?? 0) + 1);
+        }
+        if (op.op === "anthropic_messages.tool_result_meta") {
+            const meta = opData<{
+                id: string;
+                fields?: Record<string, unknown>;
+                is_error?: boolean;
+            }>(op);
+            if (metaById.has(meta.id)) {
+                throw new LintError(
+                    `anthropic_messages request lower: duplicate tool_result_meta for ${JSON.stringify(meta.id)}`,
+                );
+            }
+            metaById.set(meta.id, meta);
+        }
+    }
+
+    for (const id of metaById.keys()) {
+        if ((resultCounts.get(id) ?? 0) !== 1) {
+            throw new LintError(
+                `anthropic_messages request lower: tool_result_meta references missing or ambiguous llm.tool_result ${JSON.stringify(id)}`,
+            );
+        }
+    }
+
     const out: Program = [];
     for (const op of program) {
-        if (op.op !== "anthropic_messages.tool_result_meta") {
+        if (op.op === "anthropic_messages.tool_result_meta") {
+            continue;
+        }
+
+        if (op.op !== "llm.tool_result") {
             out.push(op);
             continue;
         }
 
-        const previous = out[out.length - 1];
-        if (previous?.op !== "llm.tool_result") {
-            throw new LintError(
-                "anthropic_messages request lower: tool_result_meta must immediately follow the llm.tool_result it annotates",
-            );
+        const result = op as OpOf<"llm.tool_result">;
+        const meta = metaById.get(result.id);
+        if (!meta) {
+            out.push(op);
+            continue;
         }
 
-        const result = previous as OpOf<"llm.tool_result">;
-        const fields = opData<{ fields: Record<string, unknown> }>(op).fields;
-        out[out.length - 1] = {
+        out.push({
             op: "anthropic_messages.content_block",
             role: "user",
             block: {
                 type: "tool_result",
                 tool_use_id: result.id,
                 content: result.content,
-                ...(result.isError ? { is_error: true } : {}),
-                ...fields,
+                ...(meta.is_error ? { is_error: true } : {}),
+                ...(meta.fields ?? {}),
             },
-        };
+        });
     }
     return out;
 }
@@ -288,7 +334,6 @@ export function lowerToolResults(program: Program): Program {
                 type: "tool_result",
                 tool_use_id: result.id,
                 content: result.content,
-                ...(result.isError ? { is_error: true } : {}),
             }),
         ];
     });
@@ -411,6 +456,7 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
     let usage: Record<string, unknown> | undefined;
     let stopReason: string | undefined;
     let index = 0;
+    const passthrough: Program = [];
 
     for (const op of program) {
         switch (op.op) {
@@ -479,8 +525,10 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                 break;
             }
             default:
-                if (opData<{ required?: boolean }>(op).required === false)
+                if (!isCoreOp(op) && namespaceOf(op) !== "anthropic_messages") {
+                    passthrough.push(op);
                     break;
+                }
                 throw new LintError(
                     `anthropic_messages stream lower: no complete response stream mapping for op "${op.op}"`,
                 );
@@ -523,7 +571,7 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
         );
     }
     out.push(streamEvent({ type: "message_stop" }));
-    return out;
+    return [...out, ...passthrough];
 }
 
 export function lowerStreamTextDeltas(program: Program): Program {

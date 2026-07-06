@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
     AnthropicTranslator,
     GeminiTranslator,
@@ -7,6 +7,17 @@ import {
     OpenAIRealtimeTranslator,
     OpenAIResponsesTranslator,
 } from "../src/index";
+
+function withWarnSpy<T>(
+    run: (warn: ReturnType<typeof spyOn<Console, "warn">>) => T,
+): T {
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+        return run(warn);
+    } finally {
+        warn.mockRestore();
+    }
+}
 
 describe("stream response conversion", () => {
     test("openai chat text chunks round-trip and raise to generic text deltas", () => {
@@ -31,21 +42,18 @@ describe("stream response conversion", () => {
                 key: "id",
                 value: "chatcmpl-1",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_chat.body_field",
                 key: "object",
                 value: "chat.completion.chunk",
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_chat.body_field",
                 key: "created",
                 value: 1700000000,
                 appliesTo: "response",
-                required: false,
             },
             { op: "llm.model", model: "gpt-4o" },
             {
@@ -53,14 +61,12 @@ describe("stream response conversion", () => {
                 key: "index",
                 value: 0,
                 appliesTo: "response",
-                required: false,
             },
             {
                 op: "openai_chat.stream_choice_param",
                 key: "logprobs",
                 value: null,
                 appliesTo: "response",
-                required: false,
             },
             { op: "response.text_delta", role: "assistant", content: "hi" },
         ]);
@@ -135,28 +141,24 @@ describe("stream response conversion", () => {
                     key: "type",
                     value: "response.output_text.delta",
                     appliesTo: "response",
-                    required: false,
                 },
                 {
                     op: "openai_responses.body_field",
                     key: "item_id",
                     value: "msg_1",
                     appliesTo: "response",
-                    required: false,
                 },
                 {
                     op: "openai_responses.body_field",
                     key: "output_index",
                     value: 0,
                     appliesTo: "response",
-                    required: false,
                 },
                 {
                     op: "openai_responses.body_field",
                     key: "content_index",
                     value: 0,
                     appliesTo: "response",
-                    required: false,
                 },
                 { op: "response.text_delta", role: "assistant", content: "hi" },
             ],
@@ -193,9 +195,9 @@ describe("stream response conversion", () => {
         ).toEqual(event);
     });
 
-    test("openai responses failed terminal events halt cross-provider translation", () => {
-        expect(() =>
-            OpenAIChatTranslator.toStreamResponse(
+    test("openai responses failed terminal events warn and drop cross-provider metadata", () => {
+        withWarnSpy((warn) => {
+            const chunk = OpenAIChatTranslator.toStreamResponse(
                 OpenAIResponsesTranslator.fromStreamResponse({
                     type: "response.failed",
                     response: {
@@ -203,8 +205,18 @@ describe("stream response conversion", () => {
                         error: { code: "server_error", message: "nope" },
                     },
                 }),
-            ),
-        ).toThrow(LintError);
+            ) as Record<string, unknown>;
+
+            expect(chunk).toMatchObject({
+                object: "chat.completion.chunk",
+                choices: [{ delta: {}, finish_reason: null }],
+            });
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    'ignored foreign op "openai_responses.body_field"',
+                ),
+            );
+        });
     });
 
     test("openai realtime text events and done events use the stream edge", () => {

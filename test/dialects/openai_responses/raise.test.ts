@@ -86,7 +86,6 @@ describe("openai_responses raise stages", () => {
                     ],
                 },
                 appliesTo: "response",
-                required: false,
             },
         ]);
     });
@@ -124,7 +123,6 @@ describe("openai_responses raise stages", () => {
                 op: "openai_responses.usage",
                 usage: { total_tokens: 14 },
                 appliesTo: "response",
-                required: false,
             },
         ]);
     });

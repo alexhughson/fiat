@@ -123,7 +123,7 @@ export function requestToWire(program: Program): unknown {
     const functionToolsByName = new Map<string, Record<string, unknown>>();
     const pendingToolMeta = new Map<
         string,
-        { fields: Record<string, unknown>; required: boolean }
+        { fields: Record<string, unknown> }
     >();
     let toolChoice: ToolChoice | undefined;
     for (const op of program) {
@@ -197,7 +197,6 @@ export function requestToWire(program: Program): unknown {
                 const meta = opData<{
                     name: string;
                     fields: Record<string, unknown>;
-                    required?: boolean;
                 }>(op);
                 const tool = functionToolsByName.get(meta.name);
                 if (tool) {
@@ -206,7 +205,6 @@ export function requestToWire(program: Program): unknown {
                     const pending = pendingToolMeta.get(meta.name);
                     pendingToolMeta.set(meta.name, {
                         fields: { ...pending?.fields, ...meta.fields },
-                        required: pending?.required ?? meta.required !== false,
                     });
                 }
                 break;
@@ -228,7 +226,6 @@ export function requestToWire(program: Program): unknown {
                     key: string;
                     value: unknown;
                     appliesTo?: "request" | "response";
-                    required?: boolean;
                 }>(op);
                 if (skipRequestParam(param)) break;
                 body[param.key] = param.value;
@@ -250,9 +247,7 @@ export function requestToWire(program: Program): unknown {
             "openai_responses request lower",
         );
     }
-    const unconsumedToolMeta = [...pendingToolMeta.entries()].filter(
-        ([, meta]) => meta.required,
-    );
+    const unconsumedToolMeta = [...pendingToolMeta.entries()];
     if (unconsumedToolMeta.length > 0) {
         throw new LintError(
             `openai_responses request toWire: tool metadata for missing tool(s) ${unconsumedToolMeta
@@ -316,7 +311,6 @@ export function responseFromWire(wire: unknown): Program {
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
                 break;
             case "incomplete_details": {
@@ -334,7 +328,6 @@ export function responseFromWire(wire: unknown): Program {
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
                 break;
             }
@@ -344,7 +337,6 @@ export function responseFromWire(wire: unknown): Program {
                     key,
                     value,
                     appliesTo: "response",
-                    required: false,
                 });
         }
     }
@@ -582,7 +574,6 @@ function streamEventParams(
             key,
             value,
             appliesTo: "response",
-            required: false,
         });
     }
     return program;
@@ -599,7 +590,6 @@ function streamOutputItemEvent(
         key: "item",
         value: item,
         appliesTo: "response",
-        required: false,
     });
     if (item.type !== "function_call") return program;
     program.push({
@@ -632,18 +622,6 @@ function streamOutputItemEvent(
 
 function streamTerminalEvent(event: Record<string, unknown>): Program {
     const program = streamEventParams(event, ["response"]);
-    const isFailed = event.type === "response.failed";
-    if (isFailed) {
-        for (let i = 0; i < program.length; i++) {
-            const op = program[i]!;
-            if (
-                op.op === "openai_responses.body_field" &&
-                opData<{ key: string }>(op).key === "type"
-            ) {
-                program[i] = { ...op, required: true };
-            }
-        }
-    }
     const response =
         event.response == null
             ? undefined
@@ -656,7 +634,6 @@ function streamTerminalEvent(event: Record<string, unknown>): Program {
                 key: "response",
                 value: responseMeta,
                 appliesTo: "response",
-                required: isFailed,
             });
         }
     }
@@ -858,10 +835,9 @@ function finishReason(
 function skipRequestParam(param: {
     key: string;
     appliesTo?: "request" | "response";
-    required?: boolean;
 }): boolean {
-    if (param.appliesTo === "response") return true;
     return (
-        param.required === false && RESPONSE_ENVELOPE_PARAM_KEYS.has(param.key)
+        param.appliesTo === "response" ||
+        RESPONSE_ENVELOPE_PARAM_KEYS.has(param.key)
     );
 }

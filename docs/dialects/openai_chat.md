@@ -3,53 +3,48 @@
 OpenAI Chat Completions (`POST /v1/chat/completions`). Code:
 `src/dialects/openai_chat/`.
 
-## Wire ↔ core direct mappings (no dialect op)
+## Direct mappings
 
-| wire                                        | core op                                                                                                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model`                                     | `llm.model`                                                                                                                                 |
-| `temperature`                               | `llm.temperature`                                                                                                                           |
-| `max_tokens`, `max_completion_tokens`       | `llm.max_output_tokens` (`gpt-5*` and `o*` reasoning chat models lower as `max_completion_tokens`; older chat models lower as `max_tokens`) |
-| `tools[].function`                          | `llm.tool` (`parameters` ⇄ `inputSchema`)                                                                                                   |
-| `tool_choice`                               | `llm.tool_choice` (`{type:"function",function:{name}}` ⇄ `{name}`)                                                                          |
-| `response_format` (type `json_schema` only) | `llm.output`; unsupported formats or json-schema extras become `openai_chat.response_format`                                                |
+| wire                                  | core                    |
+| ------------------------------------- | ----------------------- |
+| `model`                               | `llm.model`             |
+| `temperature`                         | `llm.temperature`       |
+| `max_tokens`, `max_completion_tokens` | `llm.max_output_tokens` |
+| `tools[].function`                    | `llm.tool`              |
+| `tool_choice`                         | `llm.tool_choice`       |
+| `response_format.type:"json_schema"`  | `llm.output`            |
+
+Reasoning chat models lower token caps as `max_completion_tokens`; older chat
+models lower them as `max_tokens`.
 
 ## Dialect ops
 
-| op                                  | holds                                          | raise →                                                                                                                                                                                | lower ←                                                                                                                                                                                              |
-| ----------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `openai_chat.message`               | one wire message verbatim                      | `llm.text` per text unit, `llm.tool_call` per embedded call (arguments JSON-parsed, throws on garbage), `llm.tool_result` for `role:"tool"`                                            | regroups: assistant text + following calls merge into one message; a bare call gets `content: null`                                                                                                  |
-| `openai_chat.message_meta`          | OpenAI-only message metadata                   | preserves request `role:"developer"` as request-only metadata; refusal-only assistant responses also raise `refusal` as assistant `llm.text` and keep response metadata for round-trip | request lowering restores `role:"developer"` only in this dialect; response lowering restores `refusal`/`annotations`/`audio` and throws if refusal metadata conflicts with changed synthesized text |
-| `openai_chat.finish_reason`         | wire enum string                               | `response.stop` via `stop→end_turn`, `length→max_tokens`, `tool_calls→tool_use`, `content_filter→content_filter`; anything else throws                                                 | reverse map (`stop_sequence→stop`, refusal/content filter→`content_filter`)                                                                                                                          |
-| `openai_chat.usage`                 | wire usage object                              | `response.usage` from `prompt_tokens`/`completion_tokens`; leftover fields re-emitted as this op with `appliesTo:"response", required:false`                                           | response usage ops merge into one wire object in `toWire`                                                                                                                                            |
-| `openai_chat.response_format`       | unsupported or extra `response_format` payload | request residual                                                                                                                                                                       | serialized back as `response_format`                                                                                                                                                                 |
-| `openai_chat.choice_count`          | request `n`                                    | request residual                                                                                                                                                                       | serialized back as `n`                                                                                                                                                                               |
-| `openai_chat.max_completion_tokens` | reasoning-model request token cap              | n/a                                                                                                                                                                                    | serialized back as `max_completion_tokens`                                                                                                                                                           |
-| `openai_chat.body_field`            | unknown body key                               | residual (requests: required; response envelope: `appliesTo:"response", required:false`)                                                                                               | serialized back as `body[key] = value`                                                                                                                                                               |
+| op                                  | purpose                                                               |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| `openai_chat.message`               | preserves one Chat message; raises text, tool calls, and tool results |
+| `openai_chat.message_meta`          | developer-role metadata and response-only message metadata            |
+| `openai_chat.finish_reason`         | maps Chat finish reasons to `response.stop`                           |
+| `openai_chat.usage`                 | maps shared token counts and preserves usage extras                   |
+| `openai_chat.response_format`       | unsupported or extra response-format payload                          |
+| `openai_chat.choice_count`          | request `n`                                                           |
+| `openai_chat.max_completion_tokens` | reasoning-model token cap                                             |
+| `openai_chat.body_field`            | unknown top-level field                                               |
 
-## Quirks learned from the real API
+## Quirks
 
-- A **forced** tool choice returns `finish_reason: "stop"`, not
-  `"tool_calls"` — detect tool use by the presence of `llm.tool_call` ops,
-  never by the stop reason (`test/live.test.ts`).
-- Consecutive `llm.tool_call` ops lower into one assistant message with
-  multiple `tool_calls`, matching the OpenAI wire shape for parallel calls.
-- Tool call ids are normalized for Chat wire output: a Responses-style
-  `call_id|item_id` keeps only the `call_id`, and overlong ids are truncated
-  to 40 characters.
-- Reasoning chat models (`gpt-5*`, `o*`) serialize portable system text as
-  `developer` messages.
-- Replayed tool history without current tools serializes `tools: []`; the
-  Chat API needs the key present to accept tool-role history.
-- Responses with `n > 1` choices are rejected at `fromWire` (out of scope).
-- `toResponse` synthesizes envelope boilerplate (`id`, `object`, `created`)
-  when the program has none — the proxy case where the real response came
-  from another provider.
-- Response envelope and vendor-usage residuals are response-only; they
-  round-trip through `toResponse`, but appending that response to a request
-  will not resend `id`, `created`, or `usage.total_tokens`.
+- Forced tool choice can return `finish_reason: "stop"`. Detect tool use by
+  `llm.tool_call`, not stop reason.
+- Consecutive tool calls lower into one assistant message with multiple
+  `tool_calls`.
+- Responses-style ids like `call_id|item_id` lower to the Chat `call_id`; ids
+  over 40 characters are truncated.
+- Reasoning chat models serialize portable system text as `developer`.
+- Tool history without current tools still serializes `tools: []`.
+- Responses with `n > 1` are rejected.
+- Response envelope and usage residuals are response-only and are not resent
+  when a response program is appended to a request.
 
-## Out of scope today (add via the cookbook)
+## Out of scope
 
-Streaming chunks, image/audio content parts, and `logprobs`. The Responses
-API is modeled separately as `openai_responses`.
+Streaming chunks, image/audio content parts, and `logprobs`. The Responses API
+is modeled separately as `openai_responses`.

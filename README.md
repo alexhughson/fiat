@@ -35,7 +35,7 @@ It also covers responses from LLMs, which have an aligned schema:
 You can convert correct prompt payloads for LLM providers into this format:
 
 ```js
-import { OpenAIChatTranslator } from "metamodel"
+import { OpenAIChatTranslator } from "fiat"
 
 const program = OpenAIChatTranslator.fromBody({
   model: "gpt-4o",
@@ -57,7 +57,7 @@ const program = OpenAIChatTranslator.fromBody({
 And convert the fiat schema into any LLM provider formats:
 
 ```javascript
-import { AnthropicTranslator } from "metamodel"
+import { AnthropicTranslator } from "fiat"
 
 AnthropicTranslator.toBody(program)
 // =>
@@ -72,10 +72,10 @@ AnthropicTranslator.toBody(program)
 }
 ```
 
-Or compose the two edges directly:
+Which means that you can port request bodies from one API format to another.
 
 ```javascript
-import { AnthropicTranslator, OpenAIChatTranslator } from "metamodel";
+import { AnthropicTranslator, OpenAIChatTranslator } from "fiat";
 
 const anthropicBody = AnthropicTranslator.toBody(
     OpenAIChatTranslator.fromBody(openaiBody),
@@ -85,12 +85,34 @@ const openaiResponse = OpenAIChatTranslator.toResponse(
 );
 ```
 
-For streamed responses, compose `fromStreamResponse(...)` with
-`toStreamResponse(...)` one provider chunk/event at a time. The library
-handles the payload shape conversion, but it does not open SSE connections or
-websocket sessions for you.
+## API Specific concepts
 
-Available translator wrappers:
+Some concepts exist only in one API, or cannot be converted losslessly between different APIs.  In those cases Fiat includes endpoint specific operations.  
+
+So for Anthropic cache control on a message, there is a modifier operation:
+
+```
+{
+    op: "llm.text",
+    role: "user",
+    content: "refund invoice inv_1001 if it was paid twice.",
+},
+{
+    op: "anthropic_messages.text_meta",
+    fields: { cache_control: { type: "ephemeral" } },
+},
+```
+
+When you convert this payload to a non anthropic endpoint, the anthropic cache control data will be lost, but it is still readable by anthropic backends.
+
+## Model particularities
+
+As much as possible, fiat will try to map `llm.*` operations to the best possible match for a given model/endpoint.
+
+So where there are a million different ways of expressing thinking effort, fiat will attempt to map the `none`, `minimal`, `low`, `medium`, `high`, `xhigh` gradiant as closely as possible to what the model supports. 
+
+
+## Available translator wrappers:
 
 | Export                      | Wire dialect             | 
 | --------------------------- | ------------------------ | 
@@ -112,24 +134,22 @@ Translator.toStreamResponse(program); // core IR -> one stream event/chunk
 Translator.toStreamResponses(program); // core IR -> stream event/chunk list
 ```
 
+## Why?
+
+If you've built an LLM backed app, I am sure that you have built some system to allow you to route the same LLM prompt to different providers.
+
+There are plenty of libraries that try to abstract the whole inference system, but I find that they take too much control away.  They bound you by what the library abstracts.  The goal of Fiat is to give you the tools to convert payloads, but let you do what you like with that data.
+
+Fiat:
+
+- only covers structuring the data, so you can control how the calls actually get made.
+- Is a tool rather than an abstraction, so if there is something truly weird you want to do, you can just do it.
+- Has an explicit way of adding provider specific data, so you can have full fidelity calls to particular providers, and best effort porting to another if you want.
+
+
 This gives us some nice benefits:
 
 - You can write pure transforms against the fiat format, and apply them to prompts against any LLM provider
 - You can build endpoints that accept and return the signature of any llm provider, backed by your own routing and transformation logic.  Build your own LiteLLM 
 - Responses can be directly appended to existing requests, so mutations read a lot more simple
-
-## Why?
-
-If you've built an LLM backed app, I am sure that you have built some system to allow you to route the same LLM prompt to different providers.
-
-There are a lot of libraries that abstract on top of all the LLM providers, but they take a lot out of your hands and you are dependent on the library for any feature you want.
-
-Fiat:
-
-- only covers structuring the data, so you can control how the calls actually get made.
-- Is a tool rather than an abstraction, so if there is something truly weird you want to do, you can still make those modifications.
-- Has an explicit way of adding provider specific data, so you can have full fidelity calls to particular providers, and best effort porting to another if you want.
-
-
-## How it works
 

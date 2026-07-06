@@ -1,63 +1,58 @@
 # Core IR
 
-The shared vocabulary. Types live in `src/core/ops.ts`; that file is the
-source of truth, this is the annotated catalog. Core ops represent what is
-shared across LLM APIs and deliberately ignore distinctions that carry no
-meaning (message grouping, JSON-string vs object tool arguments, provider
-field names for token counts).
+Core IR is the provider-neutral op vocabulary. Types live in
+`src/core/ops.ts`.
 
-A program is `Op[]`. Op order is meaningful only where conversation order is
-meaningful: `llm.text` / `llm.tool_call` / `llm.tool_result` ops replay in
-order. Config ops (`llm.model`, `llm.temperature`, ...) may appear anywhere.
+A program is `Op[]`. Conversation order matters for:
 
-## `llm.*` — request semantics
+- `llm.text`
+- `llm.tool_call`
+- `llm.tool_result`
 
-| op                      | fields                                                   | notes                                                                                                                            |
-| ----------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `llm.model`             | `model: string`                                          | passed through verbatim; rerouting is a transform                                                                                |
-| `llm.temperature`       | `value: number`                                          | no range rescaling — a legalization's job if a target needs it                                                                   |
-| `llm.max_output_tokens` | `value: number`                                          | openai `max_tokens`/`max_completion_tokens`, anthropic `max_tokens`                                                              |
-| `llm.text`              | `role: "system"\|"user"\|"assistant"`, `content: string` | one op per text unit; grouping into wire messages is the dialect's job                                                           |
-| `llm.tool`              | `name`, `description?`, `inputSchema: JsonSchema`        | a function tool your application executes                                                                                        |
-| `llm.server_tool`       | `name`, `kind: "web_search"\|"code_execution"`           | a hosted provider tool the provider executes; configured provider-only tools stay residuals                                      |
-| `llm.tool_choice`       | `value: "auto"\|"none"\|"required"\|{ name }`            | `{name}` references a declared function or server tool by request-local name                                                     |
-| `llm.tool_call`         | `id`, `name`, `arguments: object`                        | **always a parsed object.** openai's JSON-string arguments are parsed at raise (throwing on garbage) and re-stringified at lower |
-| `llm.tool_result`       | `id`, `content: string`, `isError?`                      | `id` matches the `llm.tool_call.id`                                                                                              |
-| `llm.output`            | `format: "json_schema"`, `name`, `schema`                | structured output. Dialects without an equivalent lint rather than drop                                                          |
+Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 
-Tool names share one request-local namespace. A program cannot declare both
-`llm.tool { name:"search" }` and `llm.server_tool { name:"search" }`, because
-`llm.tool_choice { value:{ name:"search" } }` would be ambiguous. The lowerer
-resolves the name against the declared tools, then emits the provider's own
-choice shape. For example, OpenAI Responses lowers a choice of a declared
-`web_search` server tool to `{ type: "web_search_preview" }`, while a choice
-of a declared function lowers to `{ type: "function", name }`.
+## Request ops
 
-## `response.*` — response semantics
+| op                       | fields                                    | notes                                      |
+| ------------------------ | ----------------------------------------- | ------------------------------------------ |
+| `llm.model`              | `model`                                   | passed through verbatim                    |
+| `llm.temperature`        | `value`                                   | no range normalization                     |
+| `llm.max_output_tokens`  | `value`                                   | provider token-cap field                   |
+| `request.user`           | `value`                                   | provider user/account id when available    |
+| `request.stream`         | `value`                                   | stream request flag                        |
+| `request.stop_sequences` | `value: string[]`                         | provider stop strings                      |
+| `llm.thinking`           | `effort`                                  | portable effort; dialects choose wire form |
+| `llm.text`               | `role`, `content`                         | one text unit                              |
+| `llm.tool`               | `name`, `description?`, `inputSchema`     | client-executed function tool              |
+| `llm.server_tool`        | `name`, `kind`                            | hosted web search or code execution        |
+| `llm.tool_choice`        | `auto`, `none`, `required`, or `{ name }` | name resolves in the request tool scope    |
+| `llm.tool_call`          | `id`, `name`, `arguments`                 | `arguments` is always a parsed object      |
+| `llm.tool_result`        | `id`, `content`                           | result for a prior tool call               |
+| `llm.output`             | `format:"json_schema"`, `name`, `schema`  | structured output                          |
 
-| op               | fields                                                                                                                                      | notes                                                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `response.stop`  | `reason: "end_turn"\|"max_tokens"\|"tool_use"\|"stop_sequence"\|"content_filter"\|"refusal"\|"pause_turn"\|"model_context_window_exceeded"` | dialects map their enum onto this; unmapped values throw                                                                                                |
-| `response.usage` | `inputTokens?`, `outputTokens?`                                                                                                             | cross-provider counts only. Vendor detail (cache hits, totals) stays in the stream as a `{ required: false }` residual on the source dialect's usage op |
+Provider-specific tool config, usage details, and message metadata stay in
+dialect residual ops.
 
-Assistant output is not a special type: a response raises to `llm.text` /
-`llm.tool_call` ops, which is what makes `append(request, ...response)` the
-whole chaining story. When a request program is lowered, `response.*` ops are
-stripped (bookkeeping doesn't get re-sent). Response-only dialect residuals
-use `appliesTo: "response"` and are stripped from request lowering for the
-same reason.
+## Response ops
 
-## `meta.*` — host semantics
+| op                         | fields                                 | notes                         |
+| -------------------------- | -------------------------------------- | ----------------------------- |
+| `response.stop`            | normalized stop reason                 | provider enum values map here |
+| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only            |
+| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta             |
+| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta        |
 
-| op           | fields            | notes                                           |
-| ------------ | ----------------- | ----------------------------------------------- |
-| `meta.trace` | `traceId: string` | host-side correlation; stripped before any wire |
+Assistant responses raise to `llm.text` and `llm.tool_call`. That is why a
+response program can be appended to the next request program.
 
-## Growing the core IR
+## Host ops
 
-Add a core op only for a concept at least two providers share (thinking
-budgets, images, stop sequences are natural next candidates). One-provider
-concepts stay dialect ops — that's what residuals are for. When adding one:
-extend `CoreOp` in `src/core/ops.ts`, then teach each dialect's converters
-about it; `toWire`'s strictness means unhandled programs fail loudly, not
-silently.
+| op           | fields    | notes                              |
+| ------------ | --------- | ---------------------------------- |
+| `meta.trace` | `traceId` | host correlation; stripped on wire |
+
+## Adding a core op
+
+Add a core op only when at least two providers share the concept. Otherwise,
+keep the data in a dialect residual. After adding a core op, every dialect must
+either map it or fail loudly when it reaches an unsupported target.

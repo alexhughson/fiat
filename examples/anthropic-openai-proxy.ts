@@ -1,5 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
 import {
     AnthropicTranslator,
     OpenAIChatTranslator,
@@ -11,49 +9,17 @@ const port = Number(Bun.env.PORT ?? 3000);
 const backendModel = Bun.env.OPENAI_BACKEND_MODEL ?? "gpt-5.5";
 const openaiApiKey = Bun.env.OPENAI_API_KEY;
 const openaiBaseUrl = Bun.env.OPENAI_BASE_URL ?? "https://api.openai.com";
-const logDir = resolve(
-    Bun.env.PROXY_LOG_DIR ??
-        `examples/output/anthropic-openai-proxy/${new Date().toISOString().replaceAll(":", "-")}`,
-);
 
 if (!openaiApiKey) throw new Error("OPENAI_API_KEY is required");
 
-await mkdir(logDir, { recursive: true });
-
 const server = Bun.serve({
     port,
-    async fetch(request) {
-        const url = new URL(request.url);
-        if (request.method === "GET" && url.pathname === "/health") {
-            return json({
-                ok: true,
-                backend: "openai_chat",
-                backendModel,
-                logDir,
-            });
-        }
-        if (request.method === "GET" && url.pathname === "/v1/models") {
-            return json({
-                object: "list",
-                data: [
-                    {
-                        id: backendModel,
-                        object: "model",
-                        created: 0,
-                        owned_by: "openai",
-                    },
-                ],
-            });
-        }
-        if (request.method === "POST" && url.pathname === "/v1/messages") {
-            return handleMessages(request);
-        }
-        return anthropicError(
-            404,
-            "not_found_error",
-            `${request.method} ${url.pathname}`,
-        );
+    routes: {
+        "/health": health,
+        "/v1/models": models,
+        "/v1/messages": messages,
     },
+    fetch: notFound,
 });
 
 console.log(
@@ -62,87 +28,94 @@ console.log(
         url: `http://localhost:${server.port}`,
         endpoint: `http://localhost:${server.port}/v1/messages`,
         backendModel,
-        logDir,
     }),
 );
 
-async function handleMessages(request: Request): Promise<Response> {
-    const traceId = crypto.randomUUID();
-    const startedAt = Date.now();
-    const trace: Trace = {
-        traceId,
-        startedAt: new Date(startedAt).toISOString(),
+function health(request: Request): Response {
+    if (request.method !== "GET") return notFound(request);
+    return Response.json({
+        ok: true,
+        backend: "openai_chat",
         backendModel,
-        steps: [],
-    };
+    });
+}
 
+function models(request: Request): Response {
+    if (request.method !== "GET") return notFound(request);
+    return Response.json({
+        object: "list",
+        data: [
+            {
+                id: backendModel,
+                object: "model",
+                created: 0,
+                owned_by: "openai",
+            },
+        ],
+    });
+}
+
+async function messages(request: Request): Promise<Response> {
     try {
-        const body = record(await readJson(request), "Anthropic request body");
-        trace.anthropicRequest = body;
-        const wantsStream = body.stream === true;
-        const requestedModel = string(body.model, "Anthropic request model");
-        const openaiRequest = anthropicRequestToOpenAI(body, trace);
-        const openaiResponse = await callOpenAI(openaiRequest, trace);
+        if (request.method !== "POST") return notFound(request);
+
+        const { body, requestedModel, wantsStream } =
+            await readAnthropicRequest(request);
+        const openaiRequest = anthropicRequestToOpenAI(body);
+        const openaiResponse = await callOpenAI(openaiRequest);
         const converted = openAIResponseToAnthropic(
             openaiResponse,
             requestedModel,
-            trace,
         );
-        trace.anthropicResponse = converted.body;
-        trace.durationMs = Date.now() - startedAt;
 
         if (wantsStream) {
-            const streamEvents = convertedToAnthropicStreamEvents(converted);
-            trace.anthropicStreamEvents = streamEvents;
-            await saveTrace(trace);
-            return anthropicStream(streamEvents);
+            return anthropicStream(convertedToAnthropicStreamEvents(converted));
         }
 
-        await saveTrace(trace);
-        return json(converted.body);
+        return Response.json(converted.body);
     } catch (error) {
         const message =
             error instanceof Error ? error.message : JSON.stringify(error);
-        trace.error = {
-            name: error instanceof Error ? error.name : "Error",
-            message,
-        };
-        trace.durationMs = Date.now() - startedAt;
-        await saveTrace(trace);
-        console.error(
-            JSON.stringify({ event: "proxy.error", traceId, message }),
-        );
-        return anthropicError(
-            error instanceof ClientError ? 400 : 502,
-            error instanceof ClientError
-                ? "invalid_request_error"
-                : "api_error",
-            message,
+        console.error(JSON.stringify({ event: "proxy.error", message }));
+        return Response.json(
+            {
+                type: "error",
+                error: {
+                    type:
+                        error instanceof ClientError
+                            ? "invalid_request_error"
+                            : "api_error",
+                    message,
+                },
+            },
+            { status: error instanceof ClientError ? 400 : 502 },
         );
     }
 }
 
+function notFound(request: Request): Response {
+    const url = new URL(request.url);
+    return Response.json(
+        {
+            type: "error",
+            error: {
+                type: "not_found_error",
+                message: `${request.method} ${url.pathname}`,
+            },
+        },
+        { status: 404 },
+    );
+}
+
 function anthropicRequestToOpenAI(
     body: Record<string, unknown>,
-    trace: Trace,
 ): Record<string, unknown> {
     try {
-        let core = AnthropicTranslator.fromBody(body);
-        trace.steps.push({
-            name: "anthropic.request.raise",
-            program: core,
-        });
-        core = requestStages().reduce((current, stage) => stage(current), core);
-        trace.steps.push({
-            name: "proxy.request.policy",
-            program: core,
-        });
-        const openaiBody = record(
-            OpenAIChatTranslator.toBody(core),
-            "OpenAI request body",
+        const core = requestStages().reduce(
+            (current, stage) => stage(current),
+            AnthropicTranslator.fromBody(body),
         );
-        trace.openaiRequest = openaiBody;
-        return openaiBody;
+        return record(OpenAIChatTranslator.toBody(core), "OpenAI request body");
     } catch (error) {
         throw clientError(formatError("request conversion failed", error));
     }
@@ -151,21 +124,11 @@ function anthropicRequestToOpenAI(
 function openAIResponseToAnthropic(
     body: Record<string, unknown>,
     requestedModel: string,
-    trace: Trace,
 ): ConvertedAnthropicResponse {
-    let core = OpenAIChatTranslator.fromResponse(body);
-    trace.steps.push({
-        name: "openai.response.raise",
-        program: core,
-    });
-    core = responseStages(requestedModel).reduce(
+    const core = responseStages(requestedModel).reduce(
         (current, stage) => stage(current),
-        core,
+        OpenAIChatTranslator.fromResponse(body),
     );
-    trace.steps.push({
-        name: "proxy.response.policy",
-        program: core,
-    });
     const anthropicBody = record(
         AnthropicTranslator.toResponse(core),
         "Anthropic response body",
@@ -199,7 +162,6 @@ function responseStages(requestedModel: string): Stage[] {
 
 async function callOpenAI(
     body: Record<string, unknown>,
-    trace: Trace,
 ): Promise<Record<string, unknown>> {
     const response = await fetch(`${openaiBaseUrl}/v1/chat/completions`, {
         method: "POST",
@@ -210,8 +172,6 @@ async function callOpenAI(
         body: JSON.stringify(body),
     });
     const text = await response.text();
-    trace.openaiStatus = response.status;
-    trace.openaiResponseText = text;
     if (!response.ok) {
         throw new Error(
             `OpenAI ${response.status} ${response.statusText}: ${text}`,
@@ -250,33 +210,20 @@ async function readJson(request: Request): Promise<unknown> {
     }
 }
 
-async function saveTrace(trace: Trace): Promise<void> {
-    const file = join(logDir, `${trace.startedAt}-${trace.traceId}.json`);
-    await writeFile(file, `${JSON.stringify(trace, null, 2)}\n`);
-    console.log(
-        JSON.stringify({
-            event: trace.error ? "proxy.trace.error" : "proxy.trace.saved",
-            traceId: trace.traceId,
-            file,
-            durationMs: trace.durationMs,
-            openaiStatus: trace.openaiStatus,
-        }),
-    );
-}
-
-function json(value: unknown, status = 200): Response {
-    return new Response(JSON.stringify(value), {
-        status,
-        headers: { "content-type": "application/json" },
-    });
-}
-
-function anthropicError(
-    status: number,
-    type: string,
-    message: string,
-): Response {
-    return json({ type: "error", error: { type, message } }, status);
+async function readAnthropicRequest(
+    request: Request,
+): Promise<AnthropicRequest> {
+    try {
+        const body = record(await readJson(request), "Anthropic request body");
+        return {
+            body,
+            requestedModel: string(body.model, "Anthropic request model"),
+            wantsStream: body.stream === true,
+        };
+    } catch (error) {
+        if (error instanceof ClientError) throw error;
+        throw clientError(formatError("invalid Anthropic request", error));
+    }
 }
 
 function record(value: unknown, what: string): Record<string, unknown> {
@@ -303,22 +250,13 @@ function formatError(prefix: string, error: unknown): string {
 
 class ClientError extends Error {}
 
-interface Trace {
-    traceId: string;
-    startedAt: string;
-    backendModel: string;
-    durationMs?: number;
-    anthropicRequest?: Record<string, unknown>;
-    openaiRequest?: Record<string, unknown>;
-    openaiStatus?: number;
-    openaiResponseText?: string;
-    anthropicResponse?: Record<string, unknown>;
-    anthropicStreamEvents?: Record<string, unknown>[];
-    error?: { name: string; message: string };
-    steps: Array<{ name: string; program: Program }>;
-}
-
 interface ConvertedAnthropicResponse {
     body: Record<string, unknown>;
     core: Program;
+}
+
+interface AnthropicRequest {
+    body: Record<string, unknown>;
+    requestedModel: string;
+    wantsStream: boolean;
 }

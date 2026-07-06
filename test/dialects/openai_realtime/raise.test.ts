@@ -26,10 +26,7 @@ describe("openai_realtime raise stages", () => {
                 },
                 residual,
             ]),
-        ).toEqual([
-            { op: "llm.text", role: "user", content: "hi" },
-            residual,
-        ]);
+        ).toEqual([{ op: "llm.text", role: "user", content: "hi" }, residual]);
     });
 
     test("raiseOutputs turns a response output item into llm.text plus output_meta carrying its id", () => {
@@ -53,7 +50,6 @@ describe("openai_realtime raise stages", () => {
                 op: "openai_realtime.output_meta",
                 item: { type: "message", id: "item_1", status: "completed" },
                 appliesTo: "response",
-                required: false,
             },
             residual,
         ]);
@@ -68,12 +64,16 @@ describe("openai_realtime raise stages", () => {
         ).toEqual([{ op: "response.stop", reason: "tool_use" }, residual]);
     });
 
-    test("raiseUsage splits cross-provider counts onto response.usage and keeps vendor-specific fields as required:false residual", () => {
+    test("raiseUsage splits cross-provider counts onto response.usage and keeps vendor-specific fields as a residual", () => {
         expect(
             raiseUsage([
                 {
                     op: "openai_realtime.usage",
-                    usage: { input_tokens: 12, output_tokens: 2, total_tokens: 14 },
+                    usage: {
+                        input_tokens: 12,
+                        output_tokens: 2,
+                        total_tokens: 14,
+                    },
                 },
                 residual,
             ]),
@@ -82,7 +82,6 @@ describe("openai_realtime raise stages", () => {
             {
                 op: "openai_realtime.usage",
                 usage: { total_tokens: 14 },
-                required: false,
             },
             residual,
         ]);

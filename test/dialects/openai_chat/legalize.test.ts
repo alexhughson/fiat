@@ -9,8 +9,8 @@ describe("openai_chat legalizations", () => {
         expect(
             omitReasoningEffortWithToolsForGPT55Chat(
                 [
-                { op: "llm.model", model: "gpt-5.5" },
-                { op: "llm.thinking", effort: "medium" },
+                    { op: "llm.model", model: "gpt-5.5" },
+                    { op: "llm.thinking", effort: "medium" },
                     {
                         op: "llm.tool",
                         name: "lookup",

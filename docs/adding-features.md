@@ -1,138 +1,80 @@
-# Adding features: the cookbook
+# Adding Features
 
-Every change has exactly one home. Find your change in this table, touch
-only the listed files, and add both kinds of test.
+Start by choosing the owner of the change.
 
-| you want to…                                              | recipe                             |
-| --------------------------------------------------------- | ---------------------------------- |
-| support a new wire field/construct in an existing dialect | [1](#1-extend-an-existing-dialect) |
-| support a new provider or endpoint                        | [2](#2-add-a-new-dialect)          |
-| conform requests for a specific endpoint/model            | [3](#3-add-a-legalization-or-lint) |
-| represent a concept shared by 2+ providers                | [4](#4-add-a-core-op)              |
+| change                                    | home                                 |
+| ----------------------------------------- | ------------------------------------ |
+| new field in an existing provider payload | `src/dialects/<name>/`               |
+| new provider endpoint                     | new `src/dialects/<name>/` directory |
+| model/provider conformance rule           | `<dialect>/legalize.ts`              |
+| concept shared by multiple providers      | `src/core/ops.ts` plus every dialect |
 
 ## Repo map
 
-```
-src/core/
-  ops.ts        core op types + OpOf/opData narrowing helpers
-  program.ts    firstOp / opsOf / append
-  rewrite.ts    Stage type + stagePipeline (raise/lower are stage pipelines)
-  lint.ts       LintError + lintOrWarn
-  registry.ts   Dialect contract
-  pipeline.ts   raise/lower entrypoints, residual lint
-  translator.ts Translator + makeTranslator (fromBody/toBody/fromResponse/toResponse/fromStreamResponse/toStreamResponse)
-  wire.ts       asRecord/asString/... wire parsing assertions
-src/dialects/<name>/
-  ops.ts        dialect op types + DIALECT constant
-  wire.ts       requestFromWire/requestToWire/responseFromWire/responseToWire/streamResponseFromWire/streamResponseToWire
-  raise.ts      raiseStages: Stage[] — dialect ops -> core ops (+ enum maps)
-  lower.ts      lowerRequestStages / lowerResponseStages / lowerStreamResponseStages: Stage[] — core ops -> dialect ops
-  legalize.ts   request legalizer functions (optional)
-  index.ts      exported Dialect object + exported translator
-test/
-  dialects/<name>/
-    <name>.test.ts  per-dialect executable documentation (no network)
-    stages.test.ts  per-stage executable documentation (no network)
-  translate.test.ts cross-dialect pipeline behavior
-  live.test.ts      real API round-trips (skip without keys in .env)
-docs/
-  architecture.md core-ir.md dialects.md dialects/<name>.md
+```text
+src/core/                 shared Program, Op, Stage, Dialect, pipeline code
+src/dialects/<name>/      endpoint ops, wire codec, raise/lower, legalizers
+test/dialects/<name>/     dialect round-trips and stage tests
+test/translate.test.ts    cross-dialect behavior
+docs/                     architecture and dialect reference
 ```
 
-Before writing anything, decide where the construct sits using the rule in
-[dialects.md](dialects.md#when-does-a-wire-construct-get-a-dialect-op):
-direct core mapping, dialect op, or residual.
+## Extend a dialect
 
-## 1. Extend an existing dialect
+Example: add a new OpenAI Chat content part.
 
-Example shape: "add image content to openai_chat".
+1. If the concept is portable, add the core op first.
+2. Add or extend the smallest raise stage that maps the wire shape to core.
+   If the construct is inside an existing message/block parser, extend that
+   parser instead of adding a disconnected pass.
+3. Add the inverse lower stage.
+4. Touch `wire.ts` only for top-level wire keys or serialization changes.
+5. Add exact `toEqual` tests for wire -> program and program -> wire.
+6. Update the dialect doc table.
 
-1. If the concept is cross-provider, first do recipe 4 (e.g. `llm.image`).
-2. `src/dialects/<name>/raise.ts` — write a new `Stage` function that maps
-   the wire shape to the core op(s) and append it to `raiseStages`. If the
-   construct lives _inside_ a message/block, extend the existing
-   `raiseMessage`/`raiseBlock` helper instead; today's code throws
-   `LintError` on unknown parts, so you are replacing a loud failure, never
-   changing silent behavior. Do not grow an existing stage to handle a new
-   op kind.
-3. `src/dialects/<name>/lower.ts` — the inverse: a new per-op stage appended
-   to `lowerRequestStages`/`lowerResponseStages`. Only write a cross-op
-   stage (one that inspects neighbors) if the rewrite is inherently about op
-   sequences — see `mergeAdjacentSameRole` / `collectAssistantMessage` for
-   the two established shapes.
-4. `wire.ts` only changes if a new top-level body key is involved.
-5. Tests: extend `test/dialects/<name>/<name>.test.ts` with the wire fixture ⇄
-   program fixture (exact `toEqual`, both directions), add or update
-   `test/dialects/<name>/stages.test.ts` for new stage behavior, and update
-   `test/live.test.ts` with one real call if the construct affects what the
-   provider returns.
-6. Update the dialect doc's tables.
+Keep unknown/unsupported input loud. Replacing a `LintError` with a mapping is
+fine; replacing it with a silent drop is not.
 
-## 2. Add a new dialect
+## Add a dialect
 
-Example shape: "add gemini" (`generateContent`). Copy the layout of
-`src/dialects/anthropic_messages/` — it is the better template because its
-wire shape differs more from the core IR.
+1. Create `src/dialects/<name>/ops.ts` with `DIALECT`, wire types, and dialect
+   op types.
+2. Implement `wire.ts`: parse known keys, preserve unknown top-level keys as
+   `<dialect>.body_field`, throw on malformed required fields.
+3. Implement `raise.ts` and `lower.ts` as stage arrays.
+4. Export `<Name>Dialect` and `<Name>Translator` from `index.ts`; re-export
+   from `src/index.ts`.
+5. Add request, response, stream, and cross-provider tests as applicable.
+6. Add `docs/dialects/<name>.md` and link it from `docs/dialects.md`.
 
-1. `src/dialects/gemini/ops.ts` — `DIALECT = "gemini"`, wire types, dialect
-   op types. Expect roughly: a `gemini.content` op (grouping), a finish/stop
-   enum op, a usage op, named ops for known provider-only payloads, and
-   `gemini.body_field` for unknown top-level fields.
-2. `wire.ts` — four functions. Every unknown body key becomes
-   `gemini.body_field`; require the fields the API requires; throw on everything
-   malformed.
-3. `raise.ts` / `lower.ts` — semantic mapping. Enum maps are two explicit
-   `Record`s; unmapped values throw.
-4. `index.ts` — export `GeminiDialect = {...} satisfies Dialect`, then
-   export `GeminiTranslator = makeTranslator(GeminiDialect)`.
-   Add the import + re-export to `src/index.ts`.
-5. Tests: new `test/dialects/gemini/gemini.test.ts` mirroring the structure of
-   `test/dialects/anthropic_messages/anthropic_messages.test.ts` (request
-   roundtrip, tool roundtrip, grouping behavior, response raise, response
-   roundtrip); `test/dialects/gemini/stages.test.ts` for individual stage
-   behavior; a cross-provider case in `test/translate.test.ts`; live tests keyed
-   on `GEMINI_API_KEY`.
-6. New `docs/dialects/gemini.md` with the two mapping tables; link it from
-   `docs/dialects.md`.
+Use `anthropic_messages` as the template when the provider wire differs
+substantially from core IR.
 
-Nothing else changes — the pipeline, lint, and translator code are
-dialect-agnostic.
+## Add a legalization or lint
 
-## 3. Add a legalization or lint
+1. Add the function in `src/dialects/<name>/legalize.ts`.
+2. Append it to the dialect's `legalizations` array and attach that array to
+   the request or response codec.
+3. Scope by `target.model` inside the function.
+4. Test default behavior, strict-mode failure, and a no-op model.
 
-1. `src/dialects/<name>/legalize.ts` — add a request legalization function and append it to
-   the exported `legalizations` array, then attach that array to the dialect's
-   `request` codec in `index.ts`. Model scoping belongs inside the function: read
-   `target.model`, return the input program unchanged when it does not apply.
-2. Decide the type honestly: if the rewrite preserves meaning (defaults,
-   caps, renames, clamping an unsupported effort to the nearest supported
-   effort) it's a legalization. If the caller set `{ strict: true }`, throw
-   `LintError` for the same unsupported data instead of cleaning it up.
-3. Test in `test/dialects/<name>/<name>.test.ts`: one case where the legalization
-   changes the payload, one strict-mode case where it throws, and one model
-   where the legalization is a no-op.
+Use a legalization when the rewrite preserves intent. Use a lint when the
+request cannot be represented without changing intent.
 
-Caller-supplied transforms (routing, prompt rewrites) are not registered
-anywhere. Call the function on the core program between `fromBody(...)` and
-`toBody(...)`; that policy belongs to the application, not this library.
+## Add a core op
 
-## 4. Add a core op
+1. Extend `CoreOp` in `src/core/ops.ts`.
+2. Add the namespace to `CORE_NAMESPACES` if needed.
+3. Teach each dialect to map it or fail loudly when lowering.
+4. Document it in `docs/core-ir.md`.
+5. Add cross-dialect tests.
 
-1. Extend `CoreOp` in `src/core/ops.ts` (new namespace entries beyond
-   `llm/meta/response` also need `CORE_NAMESPACES`).
-2. Teach every existing dialect about it — either a direct `fromWire`/`toWire`
-   mapping or raise/lower handling. A dialect that cannot express it must
-   throw `LintError` in `lower` or `toWire` (see `llm.output` on
-   anthropic_messages), so programs using the op fail loudly there.
-3. Document it in `docs/core-ir.md`; test the mapping in each dialect's
-   suite.
+Do not add a core op for a one-provider feature. Keep that data in a residual.
 
-## Definition of done
+## Done
 
-- `bun test` green **with keys in `.env`** — the live suite is the proof;
-  unit tests alone don't count as verified.
-- `bunx tsc --noEmit` clean.
-- Round-trips are exact (`toEqual` on the original body), not subset checks.
-- No new silent drop: anything you can't map either round-trips as a
-  residual or throws.
-- Docs updated in the same change (dialect tables, core-ir catalog).
+- `bun test`
+- `bunx tsc --noEmit`
+- exact round-trip assertions where the home dialect should be lossless
+- no silent drop: map it, preserve it as a residual, warn/drop it as foreign,
+  or throw

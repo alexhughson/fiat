@@ -66,22 +66,19 @@ export type OpenAIRealtimeOp =
           op: "openai_realtime.item_meta";
           event: WireConversationItemCreateEvent;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
-    | { op: "openai_realtime.response_input_mode"; required?: boolean }
+    | { op: "openai_realtime.response_input_mode" }
     | { op: "openai_realtime.output"; item: WireOutputItem }
     | {
           op: "openai_realtime.output_meta";
           item: Partial<WireOutputItem>;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "openai_realtime.tool_meta";
           name: string;
           fields: Record<string, unknown>;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "openai_realtime.finish_reason";
@@ -91,14 +88,12 @@ export type OpenAIRealtimeOp =
           op: "openai_realtime.usage";
           usage: Record<string, unknown>;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "openai_realtime.response_param";
           key: string;
           value: unknown;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "openai_realtime.event_param";
@@ -106,12 +101,10 @@ export type OpenAIRealtimeOp =
           key: string;
           value: unknown;
           appliesTo?: "request" | "response";
-          required?: boolean;
       }
     | {
           op: "openai_realtime.body_field";
           key: string;
           value: unknown;
           appliesTo?: "request" | "response";
-          required?: boolean;
       };

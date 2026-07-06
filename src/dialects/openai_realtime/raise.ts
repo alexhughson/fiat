@@ -82,7 +82,6 @@ export function raiseUsage(program: Program): Program {
                 op: "openai_realtime.usage",
                 usage: rest,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
-                required: false,
             });
         }
         return out;
@@ -145,7 +144,6 @@ function raiseOutput(item: WireOutputItem): Op[] {
                         ? item
                         : simpleOutputMeta(item),
                     appliesTo: "response",
-                    ...(required ? {} : { required: false }),
                 },
             ];
         }
@@ -158,7 +156,6 @@ function raiseOutput(item: WireOutputItem): Op[] {
                         ? item
                         : simpleOutputMeta(item),
                     appliesTo: "response",
-                    required: false,
                 },
             ];
         }

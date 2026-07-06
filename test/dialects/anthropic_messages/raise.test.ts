@@ -100,7 +100,6 @@ describe("anthropic_messages raise stages", () => {
             {
                 op: "anthropic_messages.thinking_config",
                 value: { type: "adaptive", display: "omitted" },
-                required: false,
             },
             {
                 op: "anthropic_messages.context_management",
@@ -112,7 +111,6 @@ describe("anthropic_messages raise stages", () => {
                         },
                     ],
                 },
-                required: false,
             },
         ]);
     });
@@ -148,7 +146,6 @@ describe("anthropic_messages raise stages", () => {
             {
                 op: "anthropic_messages.usage",
                 usage: { cache_read_input_tokens: 3 },
-                required: false,
             },
         ]);
     });
