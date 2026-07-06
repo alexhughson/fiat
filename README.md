@@ -85,6 +85,27 @@ const openaiResponse = OpenAIChatTranslator.toResponse(
 );
 ```
 
+## Examples
+
+There are a few example tools using fiat in the `examples/` folder.
+
+### Anthropic do no Evil router
+
+Inspired by the safeguards around Fable, `examples/anthropic-evil-router.ts` exposes an Anthropic compatible endpoint.  It passes requests straight through to Anthropic _unless_ there is any mention of evil.  Requests that mention evil are served by Google Gemini, which should do a much worse job of whatever evil task is being asked.
+
+### OpenAI realtime over completions
+
+`examples/openai-realtime-chat-server.ts` exposes an OpenAI completions endpoint, but allows you to use OpenAIs realtime models.  I built it because I was wondering if the realtime models could get below the 1s minimum execution time on major LLM APIs.  They can't.
+
+### Anthropic OpenAI proxy
+
+`examples/anthropic-openai-proxy.ts` is a super simple server which exposes the Anthropic APi but is backed by gpt-5.5.  It works with Claude code, and is pretty simple.
+
+### CLI Chat
+
+There is a small CLI chat app in `examples/cli-chat.ts`
+
+
 ## API Specific concepts
 
 Some concepts exist only in one API, or cannot be converted losslessly between different APIs.  In those cases Fiat includes endpoint specific operations.  
