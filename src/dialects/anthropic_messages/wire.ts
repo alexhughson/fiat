@@ -159,7 +159,7 @@ export function requestFromWire(wire: unknown): Program {
     return program;
 }
 
-export function requestToWire(program: Program): unknown {
+export function requestToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     const systemParts: string[] = [];
     const systemBlocks: WireBlock[] = [];
@@ -477,7 +477,7 @@ export function responseFromWire(wire: unknown): Program {
     return program;
 }
 
-export function responseToWire(program: Program): unknown {
+export function responseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     let message: WireAnthropicMessage | undefined;
     let usage: Record<string, unknown> | undefined;
@@ -551,7 +551,7 @@ export function streamResponseFromWire(wire: unknown): Program {
     ];
 }
 
-export function streamResponseToWire(program: Program): unknown {
+export function streamResponseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     if (program.length !== 1) {
         throw new Error(
             `anthropic_messages stream response toWire: expected exactly 1 event op, got ${program.length}`,

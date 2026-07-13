@@ -18,6 +18,7 @@ import {
     imageSourceFromUrl,
 } from "../../core/media.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { asNumber, asRecord } from "../../core/wire.js";
 import type {
     OpenAIChatMessageMeta,
     WireContentPart,
@@ -28,6 +29,7 @@ export const raiseStages: Stage[] = [
     raiseMessages,
     raiseFinishReasons,
     raiseUsage,
+    raiseResponseIds,
 ];
 
 export const raise: Stage = stagePipeline(raiseStages);
@@ -64,7 +66,32 @@ export function raiseUsage(program: Program): Program {
             usage: Record<string, unknown>;
             appliesTo?: "request" | "response";
         }>(op);
-        const { prompt_tokens, completion_tokens, ...rest } = usageOp.usage;
+        const usage = { ...usageOp.usage };
+        const prompt_tokens = usage.prompt_tokens;
+        const completion_tokens = usage.completion_tokens;
+        delete usage.prompt_tokens;
+        delete usage.completion_tokens;
+
+        let cacheReadTokens: number | undefined;
+        if (usage.prompt_tokens_details != null) {
+            const details = asRecord(
+                usage.prompt_tokens_details,
+                "usage.prompt_tokens_details",
+            );
+            if (details.cached_tokens != null) {
+                cacheReadTokens = asNumber(
+                    details.cached_tokens,
+                    "usage.prompt_tokens_details.cached_tokens",
+                );
+            }
+            const { cached_tokens: _cached, ...detailRest } = details;
+            if (Object.keys(detailRest).length > 0) {
+                usage.prompt_tokens_details = detailRest;
+            } else {
+                delete usage.prompt_tokens_details;
+            }
+        }
+
         const out: Op[] = [
             {
                 op: "response.usage",
@@ -74,16 +101,32 @@ export function raiseUsage(program: Program): Program {
                 ...(completion_tokens != null
                     ? { outputTokens: completion_tokens as number }
                     : {}),
+                ...(cacheReadTokens != null ? { cacheReadTokens } : {}),
             },
         ];
-        if (Object.keys(rest).length > 0) {
+        if (Object.keys(usage).length > 0) {
             out.push({
                 op: "openai_chat.usage",
-                usage: rest,
+                usage,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
             });
         }
         return out;
+    });
+}
+
+export function raiseResponseIds(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "openai_chat.body_field") return [op];
+        const field = opData<{
+            key: string;
+            value: unknown;
+            appliesTo?: "request" | "response";
+        }>(op);
+        if (field.key === "id" && typeof field.value === "string") {
+            return [{ op: "response.id", id: field.value }];
+        }
+        return [op];
     });
 }
 

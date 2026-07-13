@@ -1003,12 +1003,7 @@ describe("anthropic_messages responses", () => {
                 role: "assistant",
                 content: "No, it is correct.",
             },
-            {
-                op: "anthropic_messages.body_field",
-                key: "id",
-                value: "msg_01ABC",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "msg_01ABC" },
             {
                 op: "anthropic_messages.body_field",
                 key: "type",
@@ -1017,13 +1012,44 @@ describe("anthropic_messages responses", () => {
             },
             { op: "llm.model", model: "claude-sonnet-4-6" },
             { op: "response.stop", reason: "end_turn" },
-            { op: "response.usage", inputTokens: 20, outputTokens: 9 },
             {
-                op: "anthropic_messages.usage",
-                usage: { cache_read_input_tokens: 0 },
-                appliesTo: "response",
+                op: "response.usage",
+                inputTokens: 20,
+                outputTokens: 9,
+                cacheReadTokens: 0,
             },
         ]);
+    });
+
+    test("usage with cache read and write tokens round-trip", () => {
+        const response = {
+            id: "msg_cache",
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            content: [{ type: "text", text: "cached" }],
+            stop_reason: "end_turn",
+            usage: {
+                input_tokens: 1200,
+                output_tokens: 40,
+                cache_read_input_tokens: 1152,
+                cache_creation_input_tokens: 64,
+            },
+        };
+
+        const program = AnthropicTranslator.fromResponse(response);
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "msg_cache",
+        });
+        expect(program).toContainEqual({
+            op: "response.usage",
+            inputTokens: 1200,
+            outputTokens: 40,
+            cacheReadTokens: 1152,
+            cacheWriteTokens: 64,
+        });
+        expect(AnthropicTranslator.toResponse(program)).toEqual(response);
     });
 
     test("responses round-trip", () => {
@@ -1237,6 +1263,32 @@ describe("anthropic_messages response streams", () => {
         expect(program).toEqual([
             { op: "response.stop", reason: "end_turn" },
             { op: "response.usage", outputTokens: 4 },
+        ]);
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
+    });
+
+    test("message_delta with cache token usage raises and lowers", () => {
+        const event = {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn" },
+            usage: {
+                input_tokens: 1200,
+                output_tokens: 40,
+                cache_read_input_tokens: 1152,
+                cache_creation_input_tokens: 64,
+            },
+        };
+
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            { op: "response.stop", reason: "end_turn" },
+            {
+                op: "response.usage",
+                inputTokens: 1200,
+                outputTokens: 40,
+                cacheReadTokens: 1152,
+                cacheWriteTokens: 64,
+            },
         ]);
         expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
     });

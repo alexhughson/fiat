@@ -21,7 +21,9 @@ import {
     asRecord,
     asString,
     asStringArray,
+    asServiceTier,
     asThinkingEffort,
+    mergeUsageRecords,
 } from "../../core/wire.js";
 import type { WireMessage } from "./ops.js";
 
@@ -91,6 +93,48 @@ export function requestFromWire(wire: unknown): Program {
                     effort: asThinkingEffort(value, "reasoning_effort"),
                 });
                 break;
+            case "reasoning": {
+                const reasoning = asRecord(value, "reasoning");
+                if (reasoning.exclude === true) {
+                    const effort = reasoning.effort;
+                    if (effort === "none") {
+                        program.push({
+                            op: "llm.thinking",
+                            effort: "off",
+                        });
+                        break;
+                    }
+                    if (effort === "minimal") {
+                        program.push({
+                            op: "llm.thinking",
+                            effort: "minimal",
+                        });
+                        break;
+                    }
+                    if (typeof effort === "string") {
+                        program.push({
+                            op: "llm.thinking",
+                            effort: asThinkingEffort(
+                                effort,
+                                "reasoning.effort",
+                            ),
+                        });
+                        break;
+                    }
+                }
+                program.push({
+                    op: "openai_chat.body_field",
+                    key: "reasoning",
+                    value,
+                });
+                break;
+            }
+            case "service_tier":
+                program.push({
+                    op: "llm.service_tier",
+                    value: asServiceTier(value, "service_tier"),
+                });
+                break;
             case "messages":
                 for (const m of asArray(value, "messages")) {
                     program.push({
@@ -129,7 +173,7 @@ export function requestFromWire(wire: unknown): Program {
     return program;
 }
 
-export function requestToWire(program: Program): unknown {
+export function requestToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     const messages: unknown[] = [];
     const tools: unknown[] = [];
@@ -281,7 +325,7 @@ export function responseFromWire(wire: unknown): Program {
     return program;
 }
 
-export function responseToWire(program: Program): unknown {
+export function responseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     let message: WireMessage | undefined;
     let finishReason: string | undefined;
@@ -304,10 +348,10 @@ export function responseToWire(program: Program): unknown {
             // Multiple usage ops merge: lower emits the mapped counts, and a
             // Response usage residuals from raise may carry vendor detail.
             case "openai_chat.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageRecords(
+                    usage,
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                );
                 break;
             case "openai_chat.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
@@ -374,7 +418,7 @@ export function streamResponseFromWire(wire: unknown): Program {
     return program;
 }
 
-export function streamResponseToWire(program: Program): unknown {
+export function streamResponseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     const delta: Record<string, unknown> = {};
     const toolCalls: unknown[] = [];
@@ -411,10 +455,10 @@ export function streamResponseToWire(program: Program): unknown {
                 finishReason = opData<{ value: string }>(op).value;
                 break;
             case "openai_chat.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageRecords(
+                    usage,
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                );
                 break;
             case "openai_chat.stream_choice_param": {
                 const param = opData<{ key: string; value: unknown }>(op);
@@ -542,6 +586,14 @@ function openAIReasoningEffort(effort: ThinkingEffort): string {
         case "high":
         case "xhigh":
             return effort;
+        case "off":
+            throw new LintError(
+                'openai_chat request toWire: reasoning_effort does not support llm.thinking effort "off"',
+            );
+        case "minimal":
+            throw new LintError(
+                'openai_chat request toWire: reasoning_effort does not support llm.thinking effort "minimal"',
+            );
         case "max":
             throw new LintError(
                 'openai_chat request toWire: reasoning_effort does not support llm.thinking effort "max"',

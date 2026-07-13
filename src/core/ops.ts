@@ -22,7 +22,15 @@ export type StopReason =
 
 export type ToolChoice = "auto" | "none" | "required" | { name: string };
 export type ServerToolKind = "web_search" | "code_execution";
-export type ThinkingEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type ThinkingEffort =
+    | "off"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max";
+export type ServiceTier = "priority";
 export type Base64MediaSource = {
     type: "base64";
     mediaType: string;
@@ -48,8 +56,10 @@ export type CoreOp =
     | { op: "llm.max_output_tokens"; value: number }
     | { op: "request.user"; value: string }
     | { op: "request.stream"; value: boolean }
+    | { op: "request.store"; value: boolean }
     | { op: "request.stop_sequences"; value: string[] }
     | { op: "llm.thinking"; effort: ThinkingEffort }
+    | { op: "llm.service_tier"; value: ServiceTier }
     | { op: "llm.text"; role: Role; content: string }
     | { op: "llm.image"; role: "user"; source: ImageSource }
     | { op: "llm.audio"; role: "user"; source: AudioSource }
@@ -84,10 +94,19 @@ export type CoreOp =
           schema: JsonSchema;
       }
     | { op: "meta.trace"; traceId: string }
-    // Only the cross-provider counts live here. Provider-specific usage fields
-    // (cache hits, reasoning tokens, totals) stay in the op stream as a
-    // residual on the source dialect's usage op.
-    | { op: "response.usage"; inputTokens?: number; outputTokens?: number }
+    // Provider-native token counts. `inputTokens` is exactly what the provider
+    // reported as input (OpenAI-family prompt_tokens includes cached tokens;
+    // other providers may not). Cross-provider normalization is the consumer's
+    // job. Vendor-only detail (reasoning tokens, totals, ...) stays in the
+    // source dialect's usage residual.
+    | {
+          op: "response.usage";
+          inputTokens?: number;
+          outputTokens?: number;
+          cacheReadTokens?: number;
+          cacheWriteTokens?: number;
+      }
+    | { op: "response.id"; id: string }
     | { op: "response.stop"; reason: StopReason }
     | {
           op: "response.text_delta";

@@ -11,7 +11,15 @@ import {
 import { firstOp } from "../../core/program.js";
 import { declaredToolsByName, type DeclaredTool } from "../../core/tools.js";
 import { LintError } from "../../core/lint.js";
-import { asArray, asNumber, asRecord, asString } from "../../core/wire.js";
+import {
+    asArray,
+    asBoolean,
+    asNumber,
+    asRecord,
+    asServiceTier,
+    asString,
+    mergeUsageRecords,
+} from "../../core/wire.js";
 import type { WireInputItem, WireOutputItem, WireTool } from "./ops.js";
 
 const RESPONSE_ENVELOPE_PARAM_KEYS = new Set([
@@ -57,6 +65,24 @@ export function requestFromWire(wire: unknown): Program {
                 program.push({
                     op: "llm.max_output_tokens",
                     value: asNumber(value, "max_output_tokens"),
+                });
+                break;
+            case "stream":
+                program.push({
+                    op: "request.stream",
+                    value: asBoolean(value, "stream"),
+                });
+                break;
+            case "store":
+                program.push({
+                    op: "request.store",
+                    value: asBoolean(value, "store"),
+                });
+                break;
+            case "service_tier":
+                program.push({
+                    op: "llm.service_tier",
+                    value: asServiceTier(value, "service_tier"),
                 });
                 break;
             case "reasoning": {
@@ -111,7 +137,7 @@ export function requestFromWire(wire: unknown): Program {
     return program;
 }
 
-export function requestToWire(program: Program): unknown {
+export function requestToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     const instructions: string[] = [];
     const input: unknown[] = [];
@@ -136,6 +162,15 @@ export function requestToWire(program: Program): unknown {
                 break;
             case "llm.max_output_tokens":
                 body.max_output_tokens = op.value;
+                break;
+            case "request.stream":
+                body.stream = op.value;
+                break;
+            case "request.store":
+                body.store = op.value;
+                break;
+            case "llm.service_tier":
+                body.service_tier = (op as OpOf<"llm.service_tier">).value;
                 break;
             case "llm.thinking":
                 body.reasoning = {
@@ -345,7 +380,7 @@ export function responseFromWire(wire: unknown): Program {
     return program;
 }
 
-export function responseToWire(program: Program): unknown {
+export function responseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     const output: unknown[] = [];
     let usage: Record<string, unknown> | undefined;
@@ -362,10 +397,10 @@ export function responseToWire(program: Program): unknown {
                 finishReason = opData<{ reason: string }>(op).reason;
                 break;
             case "openai_responses.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageRecords(
+                    usage,
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                );
                 break;
             case "openai_responses.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
@@ -432,6 +467,13 @@ export function streamResponseFromWire(wire: unknown): Program {
         case "response.output_item.added":
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
+        case "response.created":
+        case "response.in_progress":
+            return [];
+        case "response.content_part.added":
+        case "response.content_part.done":
+        case "response.output_text.done":
+            return streamEventParams(event, []);
         case "response.completed":
         case "response.incomplete":
         case "response.failed":
@@ -443,11 +485,13 @@ export function streamResponseFromWire(wire: unknown): Program {
     }
 }
 
-export function streamResponseToWire(program: Program): unknown {
+export function streamResponseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     let text = "";
     const toolDeltas: OpOf<"response.tool_call_delta">[] = [];
     let finishReason: string | undefined;
     let usage: Record<string, unknown> | undefined;
+    let responseId: string | undefined;
+    let model: string | undefined;
     const event: Record<string, unknown> = {};
     let sawTextDelta = false;
 
@@ -462,15 +506,23 @@ export function streamResponseToWire(program: Program): unknown {
                 toolDeltas.push(op as OpOf<"response.tool_call_delta">);
                 event.type ??= "response.function_call_arguments.delta";
                 break;
+            case "response.id":
+                responseId = (op as OpOf<"response.id">).id;
+                event.type ??= "response.completed";
+                break;
+            case "llm.model":
+                model = (op as OpOf<"llm.model">).model;
+                event.type ??= "response.completed";
+                break;
             case "openai_responses.finish_reason":
                 finishReason = opData<{ reason: string }>(op).reason;
                 event.type ??= terminalEventType(finishReason);
                 break;
             case "openai_responses.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageRecords(
+                    usage,
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                );
                 event.type ??= "response.completed";
                 break;
             case "openai_responses.body_field": {
@@ -525,11 +577,13 @@ export function streamResponseToWire(program: Program): unknown {
     }
 
     event.type ??= terminalEventType(finishReason);
-    if (usage || finishReason != null) {
+    if (usage || finishReason != null || responseId != null || model != null) {
         const response = asRecord(
             event.response ?? {},
             "stream event.response",
         );
+        if (responseId != null) response.id = responseId;
+        if (model != null) response.model = model;
         response.status ??=
             finishReason === "max_tokens" || finishReason === "content_filter"
                 ? "incomplete"

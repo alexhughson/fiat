@@ -22,6 +22,14 @@ OpenAI Responses (`POST /v1/responses`). Code:
 
 Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 
+## Consumer-set request fields
+
+The client sends exactly what the program lowers to — no hidden defaults.
+`request.store` lowers to wire `store`; fiat does **not** inject `store: false`.
+Callers that need `store: false` must include
+`{ op: "request.store", value: false }` in the program. Clutch's old client
+always sent `store: false`; migrating callers must add the op.
+
 ## Dialect ops
 
 | op                               | purpose                                        |

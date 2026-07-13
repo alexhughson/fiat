@@ -142,10 +142,11 @@ describe("anthropic_messages raise stages", () => {
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
-            { op: "response.usage", inputTokens: 20, outputTokens: 9 },
             {
-                op: "anthropic_messages.usage",
-                usage: { cache_read_input_tokens: 3 },
+                op: "response.usage",
+                inputTokens: 20,
+                outputTokens: 9,
+                cacheReadTokens: 3,
             },
         ]);
     });

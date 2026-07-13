@@ -35,6 +35,7 @@ export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 export const lowerResponseStages: Stage[] = [
     lowerStopReasons,
     lowerUsageCounts,
+    lowerResponseIds,
     collectOutputItems,
 ];
 
@@ -267,7 +268,28 @@ export function lowerUsageCounts(program: Program): Program {
                     ...(counts.outputTokens != null
                         ? { output_tokens: counts.outputTokens }
                         : {}),
+                    ...(counts.cacheReadTokens != null
+                        ? {
+                              input_tokens_details: {
+                                  cached_tokens: counts.cacheReadTokens,
+                              },
+                          }
+                        : {}),
                 },
+            },
+        ];
+    });
+}
+
+export function lowerResponseIds(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "response.id") return [op];
+        return [
+            {
+                op: "openai_responses.body_field",
+                key: "id",
+                value: (op as OpOf<"response.id">).id,
+                appliesTo: "response",
             },
         ];
     });

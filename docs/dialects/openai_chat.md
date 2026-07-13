@@ -55,6 +55,29 @@ models lower them as `max_tokens`.
 - Media model validation is hard failure even in lenient mode. It never drops
   media.
 
+
+## OpenRouter legalization
+
+OpenRouter-specific request shaping runs only when lowering with
+`toBody(program, { variant: "openrouter" })`. Model-id prefixes such as
+`google/` or `openai/` do not enable this path on their own.
+
+When `variant: "openrouter"` is set:
+
+- `llm.thinking` lowers to `{ reasoning: { effort, exclude: true } }` only
+  when the op is present. No `llm.thinking` op means no `reasoning` field.
+- `llm.thinking` effort `off` maps to wire `none` for `openai/gpt-5`,
+  `openai/o`, and `xai/grok` model ids, and to wire `minimal` for
+  `google/gemini-3` model ids.
+- `llm.service_tier: "priority"` lowers to `service_tier` only for model ids
+  with prefixes `anthropic/`, `google/`, or `openai/`.
+- Unsupported `llm.service_tier` values warn and drop in lenient mode, or
+  throw `LintError` in strict mode.
+
+Native Chat Completions (`variant` omitted) never injects OpenRouter
+`reasoning` objects. `llm.thinking` effort `off` is dropped with a warning
+in lenient mode because `reasoning_effort` has no off value.
+
 ## Out of scope
 
 Streaming chunks, image `detail` metadata, file-backed images, video inputs,

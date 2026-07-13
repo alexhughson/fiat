@@ -24,8 +24,10 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 | `llm.max_output_tokens`  | `value`                                   | provider token-cap field                   |
 | `request.user`           | `value`                                   | provider user/account id when available    |
 | `request.stream`         | `value`                                   | stream request flag                        |
+| `request.store`          | `value`                                   | OpenAI Responses store flag; no default    |
 | `request.stop_sequences` | `value: string[]`                         | provider stop strings                      |
-| `llm.thinking`           | `effort`                                  | portable effort; dialects choose wire form |
+| `llm.thinking`           | `effort`                                  | portable effort including `off` and `minimal`; dialects choose wire form |
+| `llm.service_tier`       | `value: "priority"`                       | priority routing when the target supports it |
 | `llm.text`               | `role`, `content`                         | one text unit                              |
 | `llm.image`              | `role:"user"`, `source`                   | image URL or base64 image data             |
 | `llm.audio`              | `role:"user"`, `source`                   | base64 audio data                          |
@@ -45,7 +47,14 @@ either `{ type:"url", url }` or `{ type:"base64", mediaType:"application/pdf",
 data, filename? }`. Video is base64-only and requires `video/*`.
 
 Provider-owned file ids, provider file URIs, image detail knobs, tool config,
-usage details, and message metadata stay in dialect residual ops. Residuals
+and message metadata stay in dialect residual ops. `response.usage` carries
+the provider's own input/output and cache counts when the wire exposes them;
+other usage detail (reasoning tokens, totals, tier labels, ...) stays in the
+dialect usage residual. `inputTokens` is not normalized across providers:
+OpenAI-family `prompt_tokens` / `input_tokens` includes cached tokens, while
+other APIs may report cache reads separately — fiat passes the provider number
+through, and consumers that need a single billable-input figure subtract cache
+reads themselves. Cost is not modeled in core IR. Residuals
 that preserve user content are marked so translating them to another backend
 throws instead of warning and dropping the content.
 
@@ -54,7 +63,8 @@ throws instead of warning and dropping the content.
 | op                         | fields                                 | notes                         |
 | -------------------------- | -------------------------------------- | ----------------------------- |
 | `response.stop`            | normalized stop reason                 | provider enum values map here |
-| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only            |
+| `response.id`              | `id`                                   | provider response id when echoed |
+| `response.usage`           | `inputTokens?`, `outputTokens?`, `cacheReadTokens?`, `cacheWriteTokens?` | provider-native counts |
 | `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta             |
 | `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta        |
 

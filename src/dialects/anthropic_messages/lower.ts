@@ -47,6 +47,7 @@ export const lowerResponseStages: Stage[] = [
     dropEmptyText,
     lowerStopReasons,
     lowerUsageCounts,
+    lowerResponseIds,
     collectAssistantMessage,
 ];
 
@@ -491,7 +492,30 @@ export function lowerUsageCounts(program: Program): Program {
                     ...(counts.outputTokens != null
                         ? { output_tokens: counts.outputTokens }
                         : {}),
+                    ...(counts.cacheReadTokens != null
+                        ? { cache_read_input_tokens: counts.cacheReadTokens }
+                        : {}),
+                    ...(counts.cacheWriteTokens != null
+                        ? {
+                              cache_creation_input_tokens:
+                                  counts.cacheWriteTokens,
+                          }
+                        : {}),
                 },
+            },
+        ];
+    });
+}
+
+export function lowerResponseIds(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "response.id") return [op];
+        return [
+            {
+                op: "anthropic_messages.body_field",
+                key: "id",
+                value: (op as OpOf<"response.id">).id,
+                appliesTo: "response",
             },
         ];
     });
@@ -574,6 +598,15 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                     ...(counts.outputTokens != null
                         ? { output_tokens: counts.outputTokens }
                         : {}),
+                    ...(counts.cacheReadTokens != null
+                        ? { cache_read_input_tokens: counts.cacheReadTokens }
+                        : {}),
+                    ...(counts.cacheWriteTokens != null
+                        ? {
+                              cache_creation_input_tokens:
+                                  counts.cacheWriteTokens,
+                          }
+                        : {}),
                 };
                 break;
             }
@@ -591,6 +624,8 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                 pushRawStreamBlockEvents(events, block, index++);
                 break;
             }
+            case "response.id":
+                break;
             default:
                 if (!isCoreOp(op) && namespaceOf(op) !== "anthropic_messages") {
                     passthrough.push(op);
@@ -729,6 +764,15 @@ export function lowerStreamStopAndUsage(program: Program): Program {
                         : {}),
                     ...(counts.outputTokens != null
                         ? { output_tokens: counts.outputTokens }
+                        : {}),
+                    ...(counts.cacheReadTokens != null
+                        ? { cache_read_input_tokens: counts.cacheReadTokens }
+                        : {}),
+                    ...(counts.cacheWriteTokens != null
+                        ? {
+                              cache_creation_input_tokens:
+                                  counts.cacheWriteTokens,
+                          }
                         : {}),
                 };
                 break;

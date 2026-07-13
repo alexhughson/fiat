@@ -10,6 +10,7 @@ import {
 import { LintError } from "../../core/lint.js";
 import { documentSourceFromUrl, imageSourceFromUrl } from "../../core/media.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { asNumber, asRecord } from "../../core/wire.js";
 import type {
     WireContentPart,
     WireFunctionCall,
@@ -23,6 +24,7 @@ export const raiseStages: Stage[] = [
     raiseOutputs,
     raiseFinishReasons,
     raiseUsage,
+    raiseResponseMetadata,
 ];
 
 export const raise: Stage = stagePipeline(raiseStages);
@@ -67,7 +69,32 @@ export function raiseUsage(program: Program): Program {
             usage: Record<string, unknown>;
             appliesTo?: "request" | "response";
         }>(op);
-        const { input_tokens, output_tokens, ...rest } = usageOp.usage;
+        const usage = { ...usageOp.usage };
+        const input_tokens = usage.input_tokens;
+        const output_tokens = usage.output_tokens;
+        delete usage.input_tokens;
+        delete usage.output_tokens;
+
+        let cacheReadTokens: number | undefined;
+        if (usage.input_tokens_details != null) {
+            const details = asRecord(
+                usage.input_tokens_details,
+                "usage.input_tokens_details",
+            );
+            if (details.cached_tokens != null) {
+                cacheReadTokens = asNumber(
+                    details.cached_tokens,
+                    "usage.input_tokens_details.cached_tokens",
+                );
+            }
+            const { cached_tokens: _cached, ...detailRest } = details;
+            if (Object.keys(detailRest).length > 0) {
+                usage.input_tokens_details = detailRest;
+            } else {
+                delete usage.input_tokens_details;
+            }
+        }
+
         const out: Op[] = [
             {
                 op: "response.usage",
@@ -77,16 +104,52 @@ export function raiseUsage(program: Program): Program {
                 ...(output_tokens != null
                     ? { outputTokens: output_tokens as number }
                     : {}),
+                ...(cacheReadTokens != null ? { cacheReadTokens } : {}),
             },
         ];
-        if (Object.keys(rest).length > 0) {
+        if (Object.keys(usage).length > 0) {
             out.push({
                 op: "openai_responses.usage",
-                usage: rest,
+                usage,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
             });
         }
         return out;
+    });
+}
+
+export function raiseResponseMetadata(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "openai_responses.body_field") return [op];
+        const field = opData<{
+            key: string;
+            value: unknown;
+            appliesTo?: "request" | "response";
+        }>(op);
+        if (field.key === "id" && typeof field.value === "string") {
+            return [{ op: "response.id", id: field.value }];
+        }
+        if (
+            field.key === "response" &&
+            typeof field.value === "object" &&
+            field.value !== null &&
+            !Array.isArray(field.value)
+        ) {
+            const response = field.value as Record<string, unknown>;
+            const out: Op[] = [];
+            if (typeof response.id === "string") {
+                out.push({ op: "response.id", id: response.id });
+            }
+            if (typeof response.model === "string") {
+                out.push({ op: "llm.model", model: response.model });
+            }
+            const { id: _id, model: _model, ...rest } = response;
+            if (Object.keys(rest).length > 0) {
+                out.push({ ...op, value: rest });
+            }
+            return out.length > 0 ? out : [];
+        }
+        return [op];
     });
 }
 

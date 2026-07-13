@@ -43,6 +43,7 @@ export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 export const lowerResponseStages: Stage[] = [
     lowerStopReasons,
     lowerUsageCounts,
+    lowerResponseIds,
     collectModelContent,
 ];
 
@@ -51,6 +52,7 @@ export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 export const lowerStreamResponseStages: Stage[] = [
     lowerStopReasons,
     lowerUsageCounts,
+    lowerResponseIds,
     collectStreamModelContent,
 ];
 
@@ -541,7 +543,24 @@ export function lowerUsageCounts(program: Program): Program {
                     ...(counts.outputTokens != null
                         ? { candidatesTokenCount: counts.outputTokens }
                         : {}),
+                    ...(counts.cacheReadTokens != null
+                        ? { cachedContentTokenCount: counts.cacheReadTokens }
+                        : {}),
                 },
+            },
+        ];
+    });
+}
+
+export function lowerResponseIds(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "response.id") return [op];
+        return [
+            {
+                op: "gemini.body_field",
+                key: "responseId",
+                value: (op as OpOf<"response.id">).id,
+                appliesTo: "response",
             },
         ];
     });

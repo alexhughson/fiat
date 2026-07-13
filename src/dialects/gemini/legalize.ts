@@ -39,6 +39,14 @@ export const legalizeGeminiThinking = (
         return withoutThinking;
     }
 
+    if (thinking.effort === "off") {
+        lintOrWarn(
+            target.strict,
+            `${target.model}: llm.thinking effort "off" is not expressed on Gemini generateContent requests`,
+        );
+        return withoutThinking;
+    }
+
     const thinkingConfig = thinkingConfigForModel(
         target.model,
         thinking.effort,
@@ -80,6 +88,7 @@ function thinkingLevelForModel(
     effort: string,
 ): "LOW" | "MEDIUM" | "HIGH" | undefined {
     switch (normalizedLevel(effort)) {
+        case "minimal":
         case "low":
             return "LOW";
         case "medium":
@@ -251,6 +260,8 @@ function thinkingLevelToBudget(op: Program[number]) {
 
 function thinkingBudgetForLevel(level: unknown): number | undefined {
     switch (normalizedLevel(level)) {
+        case "minimal":
+            return 512;
         case "low":
             return 1024;
         case "medium":
@@ -318,5 +329,20 @@ function geminiModalities(program: Program): Set<string> {
     return modalities;
 }
 
+export const validateServiceTier = (
+    program: Program,
+    target: Target,
+): Program => {
+    if (!program.some((op) => op.op === "llm.service_tier")) return program;
+    const model = target.model ?? "unknown model";
+    lintOrWarn(target.strict, `${model}: Gemini cannot express llm.service_tier.`);
+    return program.filter((op) => op.op !== "llm.service_tier");
+};
+
 export const legalizations: ((program: Program, target: Target) => Program)[] =
-    [legalizeGeminiThinking, legalizeThinkingLevel, validateModalities];
+    [
+        legalizeGeminiThinking,
+        legalizeThinkingLevel,
+        validateModalities,
+        validateServiceTier,
+    ];
