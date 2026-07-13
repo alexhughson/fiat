@@ -114,6 +114,62 @@ describe("assistant accumulator", () => {
         ]);
     });
 
+    test("rekeys tool call id when provider changes id at same index", () => {
+        const message = fold([
+            [
+                {
+                    op: "response.tool_call_delta",
+                    index: 0,
+                    id: "aaa",
+                    name: "lookup",
+                    arguments: '{"a":',
+                },
+                {
+                    op: "response.tool_call_delta",
+                    index: 0,
+                    id: "bbb",
+                    arguments: "1}",
+                },
+            ],
+        ]);
+
+        expect(message.content).toHaveLength(1);
+        expect(message.content[0]).toEqual({
+            type: "tool_call",
+            id: "bbb",
+            name: "lookup",
+            arguments: { a: 1 },
+        });
+    });
+
+    test("merges complete llm.tool_call with streaming deltas on the same index", () => {
+        const message = fold([
+            [
+                {
+                    op: "response.tool_call_delta",
+                    index: 0,
+                    id: "call_1",
+                    name: "lookup",
+                    arguments: '{"q":',
+                },
+                {
+                    op: "llm.tool_call",
+                    id: "call_1",
+                    name: "lookup",
+                    arguments: { q: "fiat" },
+                },
+            ],
+        ]);
+
+        expect(message.content).toHaveLength(1);
+        expect(message.content[0]).toEqual({
+            type: "tool_call",
+            id: "call_1",
+            name: "lookup",
+            arguments: { q: "fiat" },
+        });
+    });
+
     test("merges tool calls when id arrives after index-keyed placeholder", () => {
         const message = fold([
             [
@@ -329,6 +385,17 @@ describe("assistant accumulator", () => {
             outputTokens: 7,
             cacheReadTokens: 3,
         });
+    });
+
+    test("response id is first-wins", () => {
+        const message = fold([
+            [
+                { op: "response.id", id: "resp_first" },
+                { op: "response.id", id: "resp_second" },
+            ],
+        ]);
+
+        expect(message.responseId).toBe("resp_first");
     });
 
     test("carries cache write tokens and response metadata ops", () => {

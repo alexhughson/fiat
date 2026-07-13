@@ -70,6 +70,18 @@ function foldUsage(
     return next;
 }
 
+/**
+ * Folds a sequence of raised Fiat programs into a canonical assistant message.
+ *
+ * **Input contract:** feed programs produced by `Translator.fromStreamResponse` /
+ * `Translator.fromResponse` (raised ops). Dialect residual ops (e.g.
+ * `openai_chat.body_field`) are deliberately ignored, so folding raw wire
+ * programs loses usage, response id, and other metadata that only appears after
+ * raise.
+ *
+ * **Event ownership:** the accumulator emits `done` from `finish()`. Transport-
+ * level start / error / aborted events belong to the caller.
+ */
 export function createAssistantAccumulator(
     options: AssistantAccumulatorOptions = {},
 ): AssistantAccumulator {
@@ -210,7 +222,7 @@ export function createAssistantAccumulator(
         }
 
         if (op.op === "response.id") {
-            output.responseId = op.id;
+            output.responseId ??= op.id;
             return;
         }
 
