@@ -482,6 +482,8 @@ export function streamResponseToWire(program: Program): unknown {
     const toolDeltas: OpOf<"response.tool_call_delta">[] = [];
     let finishReason: string | undefined;
     let usage: Record<string, unknown> | undefined;
+    let responseId: string | undefined;
+    let model: string | undefined;
     const event: Record<string, unknown> = {};
     let sawTextDelta = false;
 
@@ -495,6 +497,14 @@ export function streamResponseToWire(program: Program): unknown {
             case "response.tool_call_delta":
                 toolDeltas.push(op as OpOf<"response.tool_call_delta">);
                 event.type ??= "response.function_call_arguments.delta";
+                break;
+            case "response.id":
+                responseId = (op as OpOf<"response.id">).id;
+                event.type ??= "response.completed";
+                break;
+            case "llm.model":
+                model = (op as OpOf<"llm.model">).model;
+                event.type ??= "response.completed";
                 break;
             case "openai_responses.finish_reason":
                 finishReason = opData<{ reason: string }>(op).reason;
@@ -559,11 +569,13 @@ export function streamResponseToWire(program: Program): unknown {
     }
 
     event.type ??= terminalEventType(finishReason);
-    if (usage || finishReason != null) {
+    if (usage || finishReason != null || responseId != null || model != null) {
         const response = asRecord(
             event.response ?? {},
             "stream event.response",
         );
+        if (responseId != null) response.id = responseId;
+        if (model != null) response.model = model;
         response.status ??=
             finishReason === "max_tokens" || finishReason === "content_filter"
                 ? "incomplete"

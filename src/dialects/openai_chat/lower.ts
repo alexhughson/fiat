@@ -37,6 +37,7 @@ export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 export const lowerResponseStages: Stage[] = [
     lowerStopReasons,
     lowerUsageCounts,
+    lowerResponseIds,
     collectAssistantMessage,
 ];
 
@@ -45,6 +46,7 @@ export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 export const lowerStreamResponseStages: Stage[] = [
     lowerStopReasons,
     lowerUsageCounts,
+    lowerResponseIds,
 ];
 
 export const lowerStreamResponse: Stage = stagePipeline(
@@ -394,7 +396,28 @@ export function lowerUsageCounts(program: Program): Program {
                     ...(counts.outputTokens != null
                         ? { completion_tokens: counts.outputTokens }
                         : {}),
+                    ...(counts.cacheReadTokens != null
+                        ? {
+                              prompt_tokens_details: {
+                                  cached_tokens: counts.cacheReadTokens,
+                              },
+                          }
+                        : {}),
                 },
+            },
+        ];
+    });
+}
+
+export function lowerResponseIds(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "response.id") return [op];
+        return [
+            {
+                op: "openai_chat.body_field",
+                key: "id",
+                value: (op as OpOf<"response.id">).id,
+                appliesTo: "response",
             },
         ];
     });

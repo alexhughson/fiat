@@ -19,6 +19,7 @@ export const raiseStages: Stage[] = [
     raiseOutputs,
     raiseFinishReasons,
     raiseUsage,
+    raiseResponseIds,
 ];
 
 export const raise: Stage = stagePipeline(raiseStages);
@@ -85,6 +86,21 @@ export function raiseUsage(program: Program): Program {
             });
         }
         return out;
+    });
+}
+
+export function raiseResponseIds(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "openai_realtime.body_field") return [op];
+        const field = opData<{
+            key: string;
+            value: unknown;
+            appliesTo?: "request" | "response";
+        }>(op);
+        if (field.key === "id" && typeof field.value === "string") {
+            return [{ op: "response.id", id: field.value }];
+        }
+        return [op];
     });
 }
 

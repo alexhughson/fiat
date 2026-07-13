@@ -28,6 +28,7 @@ export const raiseStages: Stage[] = [
     raiseRequestParams,
     raiseStopReasons,
     raiseUsage,
+    raiseResponseIds,
 ];
 
 export const raise: Stage = stagePipeline(raiseStages);
@@ -125,7 +126,16 @@ export function raiseUsage(program: Program): Program {
             usage: Record<string, unknown>;
             appliesTo?: "request" | "response";
         }>(op);
-        const { input_tokens, output_tokens, ...rest } = usageOp.usage;
+        const usage = { ...usageOp.usage };
+        const input_tokens = usage.input_tokens;
+        const output_tokens = usage.output_tokens;
+        const cache_read_input_tokens = usage.cache_read_input_tokens;
+        const cache_creation_input_tokens = usage.cache_creation_input_tokens;
+        delete usage.input_tokens;
+        delete usage.output_tokens;
+        delete usage.cache_read_input_tokens;
+        delete usage.cache_creation_input_tokens;
+
         const out: Op[] = [
             {
                 op: "response.usage",
@@ -135,16 +145,42 @@ export function raiseUsage(program: Program): Program {
                 ...(output_tokens != null
                     ? { outputTokens: output_tokens as number }
                     : {}),
+                ...(cache_read_input_tokens != null
+                    ? {
+                          cacheReadTokens: cache_read_input_tokens as number,
+                      }
+                    : {}),
+                ...(cache_creation_input_tokens != null
+                    ? {
+                          cacheWriteTokens:
+                              cache_creation_input_tokens as number,
+                      }
+                    : {}),
             },
         ];
-        if (Object.keys(rest).length > 0) {
+        if (Object.keys(usage).length > 0) {
             out.push({
                 op: "anthropic_messages.usage",
-                usage: rest,
+                usage,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
             });
         }
         return out;
+    });
+}
+
+export function raiseResponseIds(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "anthropic_messages.body_field") return [op];
+        const field = opData<{
+            key: string;
+            value: unknown;
+            appliesTo?: "request" | "response";
+        }>(op);
+        if (field.key === "id" && typeof field.value === "string") {
+            return [{ op: "response.id", id: field.value }];
+        }
+        return [op];
     });
 }
 

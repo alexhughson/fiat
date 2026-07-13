@@ -17,6 +17,7 @@ export const raiseStages: Stage[] = [
     raiseContents,
     raiseFinishReasons,
     raiseUsage,
+    raiseResponseIds,
 ];
 
 export const raise: Stage = stagePipeline(raiseStages);
@@ -25,6 +26,7 @@ export const raiseStreamResponseStages: Stage[] = [
     raiseStreamContents,
     raiseFinishReasons,
     raiseUsage,
+    raiseResponseIds,
 ];
 
 export const raiseStreamResponse: Stage = stagePipeline(
@@ -77,8 +79,21 @@ export function raiseUsage(program: Program): Program {
             usage: Record<string, unknown>;
             appliesTo?: "request" | "response";
         }>(op);
-        const { promptTokenCount, candidatesTokenCount, ...rest } =
-            usageOp.usage;
+        const usage = { ...usageOp.usage };
+        const promptTokenCount = usage.promptTokenCount;
+        const candidatesTokenCount = usage.candidatesTokenCount;
+        delete usage.promptTokenCount;
+        delete usage.candidatesTokenCount;
+
+        let cacheReadTokens: number | undefined;
+        if (usage.cachedContentTokenCount != null) {
+            cacheReadTokens = asNumber(
+                usage.cachedContentTokenCount,
+                "usageMetadata.cachedContentTokenCount",
+            );
+            delete usage.cachedContentTokenCount;
+        }
+
         const out: Op[] = [
             {
                 op: "response.usage",
@@ -98,16 +113,32 @@ export function raiseUsage(program: Program): Program {
                           ),
                       }
                     : {}),
+                ...(cacheReadTokens != null ? { cacheReadTokens } : {}),
             },
         ];
-        if (Object.keys(rest).length > 0) {
+        if (Object.keys(usage).length > 0) {
             out.push({
                 op: "gemini.usage",
-                usage: rest,
+                usage,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
             });
         }
         return out;
+    });
+}
+
+export function raiseResponseIds(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "gemini.body_field") return [op];
+        const field = opData<{
+            key: string;
+            value: unknown;
+            appliesTo?: "request" | "response";
+        }>(op);
+        if (field.key === "responseId" && typeof field.value === "string") {
+            return [{ op: "response.id", id: field.value }];
+        }
+        return [op];
     });
 }
 
