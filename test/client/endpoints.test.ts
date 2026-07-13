@@ -110,6 +110,25 @@ describe("gemini omitModel via toBody", () => {
             (withModel as { contents: unknown[] }).contents,
         );
     });
+
+    test("stream client option does not add stream field to gemini body", () => {
+        const program = [
+            { op: "llm.model", model: "gemini-2.5-flash" },
+            {
+                op: "gemini.content",
+                content: { role: "user", parts: [{ text: "hi" }] },
+            },
+        ] as const;
+
+        const body = GeminiTranslator.toBody(program, {
+            strict: true,
+            stream: true,
+            omitModel: true,
+        }) as Record<string, unknown>;
+
+        expect(body.stream).toBeUndefined();
+        expect(body.model).toBeUndefined();
+    });
 });
 
 describe("client dialect registry", () => {

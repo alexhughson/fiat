@@ -124,6 +124,8 @@ export function requestToWire(
                     ),
                 });
                 break;
+            case "request.stream":
+                break;
             case "gemini.content":
                 contents.push(opData<{ content: WireContent }>(op).content);
                 break;
