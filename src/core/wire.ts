@@ -83,3 +83,30 @@ export function asServiceTier(value: unknown, what: string): "priority" {
         `${what}: expected "priority", got ${JSON.stringify(value)}`,
     );
 }
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value != null && !Array.isArray(value);
+}
+
+// Shallow-merge usage objects but deep-merge *_details sub-objects so
+// lowered cache counts and raise residuals (e.g. audio_tokens) both survive.
+export function mergeUsageRecords(
+    base: Record<string, unknown> | undefined,
+    next: Record<string, unknown>,
+): Record<string, unknown> {
+    if (base == null) return { ...next };
+    const merged = { ...base };
+    for (const [key, value] of Object.entries(next)) {
+        const existing = merged[key];
+        if (
+            key.endsWith("_details") &&
+            isPlainRecord(existing) &&
+            isPlainRecord(value)
+        ) {
+            merged[key] = { ...existing, ...value };
+        } else {
+            merged[key] = value;
+        }
+    }
+    return merged;
+}

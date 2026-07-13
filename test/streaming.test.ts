@@ -150,6 +150,35 @@ describe("stream response conversion", () => {
         expect(OpenAIChatTranslator.toStreamResponse(program)).toEqual(chunk);
     });
 
+    test("openai chat stream terminal chunk preserves multi-key prompt_tokens_details", () => {
+        const chunk = {
+            id: "chatcmpl-terminal-audio",
+            object: "chat.completion.chunk",
+            created: 1700000000,
+            model: "gpt-4o",
+            choices: [
+                {
+                    index: 0,
+                    delta: {},
+                    finish_reason: "stop",
+                    logprobs: null,
+                },
+            ],
+            usage: {
+                prompt_tokens: 1200,
+                completion_tokens: 40,
+                total_tokens: 1240,
+                prompt_tokens_details: {
+                    cached_tokens: 1152,
+                    audio_tokens: 0,
+                },
+            },
+        };
+
+        const program = OpenAIChatTranslator.fromStreamResponse(chunk);
+        expect(OpenAIChatTranslator.toStreamResponse(program)).toEqual(chunk);
+    });
+
     test("openai responses text and terminal events round-trip", () => {
         const textEvent = {
             type: "response.output_text.delta",

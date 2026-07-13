@@ -819,6 +819,25 @@ describe("openai_responses responses", () => {
         expect(OpenAIResponsesTranslator.toResponse(program)).toEqual(response);
     });
 
+    test("usage input_tokens_details with cache and audio tokens round-trip", () => {
+        const response = {
+            ...wireResponse,
+            usage: {
+                input_tokens: 1200,
+                output_tokens: 40,
+                total_tokens: 1240,
+                input_tokens_details: {
+                    cached_tokens: 1152,
+                    audio_tokens: 0,
+                },
+                output_tokens_details: { reasoning_tokens: 0 },
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromResponse(response);
+        expect(OpenAIResponsesTranslator.toResponse(program)).toEqual(response);
+    });
+
     test("completed responses without incomplete_details round-trip without adding it", () => {
         const response = {
             id: "resp_minimal_completed",

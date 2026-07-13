@@ -23,6 +23,7 @@ import {
     asStringArray,
     asServiceTier,
     asThinkingEffort,
+    mergeUsageRecords,
 } from "../../core/wire.js";
 import type { WireMessage } from "./ops.js";
 
@@ -347,10 +348,10 @@ export function responseToWire(program: Program): unknown {
             // Multiple usage ops merge: lower emits the mapped counts, and a
             // Response usage residuals from raise may carry vendor detail.
             case "openai_chat.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageRecords(
+                    usage,
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                );
                 break;
             case "openai_chat.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
@@ -454,10 +455,10 @@ export function streamResponseToWire(program: Program): unknown {
                 finishReason = opData<{ value: string }>(op).value;
                 break;
             case "openai_chat.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageRecords(
+                    usage,
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                );
                 break;
             case "openai_chat.stream_choice_param": {
                 const param = opData<{ key: string; value: unknown }>(op);

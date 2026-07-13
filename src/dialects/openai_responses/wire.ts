@@ -11,7 +11,15 @@ import {
 import { firstOp } from "../../core/program.js";
 import { declaredToolsByName, type DeclaredTool } from "../../core/tools.js";
 import { LintError } from "../../core/lint.js";
-import { asArray, asBoolean, asNumber, asRecord, asServiceTier, asString } from "../../core/wire.js";
+import {
+    asArray,
+    asBoolean,
+    asNumber,
+    asRecord,
+    asServiceTier,
+    asString,
+    mergeUsageRecords,
+} from "../../core/wire.js";
 import type { WireInputItem, WireOutputItem, WireTool } from "./ops.js";
 
 const RESPONSE_ENVELOPE_PARAM_KEYS = new Set([
@@ -389,10 +397,10 @@ export function responseToWire(program: Program): unknown {
                 finishReason = opData<{ reason: string }>(op).reason;
                 break;
             case "openai_responses.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageRecords(
+                    usage,
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                );
                 break;
             case "openai_responses.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
@@ -511,10 +519,10 @@ export function streamResponseToWire(program: Program): unknown {
                 event.type ??= terminalEventType(finishReason);
                 break;
             case "openai_responses.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageRecords(
+                    usage,
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                );
                 event.type ??= "response.completed";
                 break;
             case "openai_responses.body_field": {

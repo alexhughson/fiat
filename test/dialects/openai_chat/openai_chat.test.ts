@@ -716,6 +716,35 @@ describe("openai_chat responses", () => {
         expect(OpenAIChatTranslator.toResponse(program)).toEqual(response);
     });
 
+    test("usage prompt_tokens_details with cache and audio tokens round-trip", () => {
+        const response = {
+            id: "chatcmpl-cache-audio",
+            object: "chat.completion",
+            created: 1700000000,
+            model: "gpt-4o",
+            choices: [
+                {
+                    index: 0,
+                    message: { role: "assistant", content: "cached" },
+                    finish_reason: "stop",
+                    logprobs: null,
+                },
+            ],
+            usage: {
+                prompt_tokens: 1200,
+                completion_tokens: 40,
+                total_tokens: 1240,
+                prompt_tokens_details: {
+                    cached_tokens: 1152,
+                    audio_tokens: 0,
+                },
+            },
+        };
+
+        const program = OpenAIChatTranslator.fromResponse(response);
+        expect(OpenAIChatTranslator.toResponse(program)).toEqual(response);
+    });
+
     test("response-only assistant metadata round-trips without leaking into requests", () => {
         const response = {
             id: "chatcmpl-refusal",
