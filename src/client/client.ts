@@ -124,6 +124,14 @@ async function postRequest(
     return response;
 }
 
+/**
+ * Stream a provider response as raised core programs from SSE events.
+ *
+ * Sends exactly what the program lowers to via `translator.toBody` — no hidden
+ * defaults. For `openai_responses`, callers that need `store: false` must
+ * include `{ op: "request.store", value: false }` in the program (clutch's old
+ * client always sent `store: false`; migrating callers must add the op).
+ */
 export async function* streamResponse(
     translator: Translator,
     program: Program,
@@ -152,6 +160,14 @@ export async function* streamResponse(
     }
 }
 
+/**
+ * Complete a non-streaming provider response as a raised core program.
+ *
+ * Sends exactly what the program lowers to via `translator.toBody` — no hidden
+ * defaults. For `openai_responses`, callers that need `store: false` must
+ * include `{ op: "request.store", value: false }` in the program (clutch's old
+ * client always sent `store: false`; migrating callers must add the op).
+ */
 export async function completeResponse(
     translator: Translator,
     program: Program,

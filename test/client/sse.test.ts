@@ -36,6 +36,18 @@ describe("parseSseData", () => {
         expect(events).toEqual(['{"a":1}', "[DONE]"]);
     });
 
+    test("parses JSON event split mid-value across chunks", async () => {
+        const events = await collectSse(
+            sseResponse(['data: {"a":', "1}\n\n"]),
+        );
+        expect(events).toEqual(['{"a":1}']);
+    });
+
+    test("parses text payload split mid-word across chunks", async () => {
+        const events = await collectSse(sseResponse(["data: hel", "lo\n\n"]));
+        expect(events).toEqual(["hello"]);
+    });
+
     test("joins multi-line data events", async () => {
         const events = await collectSse(
             sseResponse(["data: line1\ndata: line2\n\n"]),
