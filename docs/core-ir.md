@@ -26,7 +26,7 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 | `request.stream`         | `value`                                   | stream request flag                        |
 | `request.store`          | `value`                                   | OpenAI Responses store flag; no default    |
 | `request.stop_sequences` | `value: string[]`                         | provider stop strings                      |
-| `llm.thinking`           | `effort`                                  | portable effort including `minimal`; dialects choose wire form |
+| `llm.thinking`           | `effort`                                  | portable effort including `off` and `minimal`; dialects choose wire form |
 | `llm.service_tier`       | `value: "priority"`                       | priority routing when the target supports it |
 | `llm.text`               | `role`, `content`                         | one text unit                              |
 | `llm.image`              | `role:"user"`, `source`                   | image URL or base64 image data             |

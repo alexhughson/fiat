@@ -69,7 +69,10 @@ omits the synthetic id again.
   `medium=MEDIUM`, `high=HIGH`.
 - Gemini 3 does not accept `xhigh` or `max`; default lowering clamps to
   `HIGH`, strict mode throws.
-- Gemini 2.5 maps efforts to budgets:
+- Fiat maps portable `minimal` to `thinkingBudget: 512` on Gemini 2.5.
+  This is deliberately below `low` (1024); it is a fiat convention, not a
+  documented Google wire value.
+- - Gemini 2.5 maps efforts to budgets:
   `low=1024`, `medium=4096`, `high=8192`, `xhigh=16384`, `max=24576`.
 - Native `thinkingLevel` reaching Gemini 2.5 is legalized to budgets by
   default.
