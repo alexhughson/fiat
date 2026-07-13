@@ -39,6 +39,14 @@ export const legalizeGeminiThinking = (
         return withoutThinking;
     }
 
+    if (thinking.effort === "off") {
+        lintOrWarn(
+            target.strict,
+            `${target.model}: llm.thinking effort "off" is not expressed on Gemini generateContent requests`,
+        );
+        return withoutThinking;
+    }
+
     const thinkingConfig = thinkingConfigForModel(
         target.model,
         thinking.effort,
@@ -327,7 +335,8 @@ export const validateServiceTier = (
 ): Program => {
     if (!program.some((op) => op.op === "llm.service_tier")) return program;
     const model = target.model ?? "unknown model";
-    throw new LintError(`${model}: Gemini cannot express llm.service_tier.`);
+    lintOrWarn(target.strict, `${model}: Gemini cannot express llm.service_tier.`);
+    return program.filter((op) => op.op !== "llm.service_tier");
 };
 
 export const legalizations: ((program: Program, target: Target) => Program)[] =

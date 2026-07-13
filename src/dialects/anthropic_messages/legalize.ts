@@ -414,9 +414,11 @@ export const validateServiceTier = (
 ): Program => {
     if (!program.some((op) => op.op === "llm.service_tier")) return program;
     const model = target.model ?? "unknown model";
-    throw new LintError(
+    lintOrWarn(
+        target.strict,
         `${model}: Anthropic Messages cannot express llm.service_tier.`,
     );
+    return program.filter((op) => op.op !== "llm.service_tier");
 };
 
 export const legalizations: ((program: Program, target: Target) => Program)[] =

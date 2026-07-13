@@ -65,6 +65,36 @@ describe("lenient mode warns on dropped or clamped meaning", () => {
         );
     });
 
+
+    test("dropping unsupported service_tier on Gemini warns in lenient mode", () => {
+        const body = GeminiTranslator.toBody([
+            { op: "llm.model", model: "models/gemini-3-pro-preview" },
+            { op: "llm.service_tier", value: "priority" },
+            { op: "llm.text", role: "user", content: "hi" },
+        ]);
+
+        expect(body).not.toHaveProperty("service_tier");
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining("Gemini cannot express llm.service_tier"),
+        );
+    });
+
+    test("dropping unsupported service_tier on Anthropic warns in lenient mode", () => {
+        const body = AnthropicTranslator.toBody([
+            { op: "llm.model", model: "claude-sonnet-4-6" },
+            { op: "llm.service_tier", value: "priority" },
+            { op: "llm.max_output_tokens", value: 1024 },
+            { op: "llm.text", role: "user", content: "hi" },
+        ]);
+
+        expect(body).not.toHaveProperty("service_tier");
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining(
+                "Anthropic Messages cannot express llm.service_tier",
+            ),
+        );
+    });
+
     test("strict mode throws instead of warning", () => {
         expect(() =>
             AnthropicTranslator.toBody(
