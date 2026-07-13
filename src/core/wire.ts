@@ -62,6 +62,7 @@ export function asThinkingEffort(
     what: string,
 ): ThinkingEffort {
     if (
+        value === "minimal" ||
         value === "low" ||
         value === "medium" ||
         value === "high" ||
@@ -71,6 +72,13 @@ export function asThinkingEffort(
         return value;
     }
     throw new Error(
-        `${what}: expected low, medium, high, xhigh, or max, got ${JSON.stringify(value)}`,
+        `${what}: expected minimal, low, medium, high, xhigh, or max, got ${JSON.stringify(value)}`,
+    );
+}
+
+export function asServiceTier(value: unknown, what: string): "priority" {
+    if (value === "priority") return value;
+    throw new Error(
+        `${what}: expected "priority", got ${JSON.stringify(value)}`,
     );
 }

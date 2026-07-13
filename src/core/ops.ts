@@ -22,7 +22,14 @@ export type StopReason =
 
 export type ToolChoice = "auto" | "none" | "required" | { name: string };
 export type ServerToolKind = "web_search" | "code_execution";
-export type ThinkingEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type ThinkingEffort =
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max";
+export type ServiceTier = "priority";
 export type Base64MediaSource = {
     type: "base64";
     mediaType: string;
@@ -48,8 +55,10 @@ export type CoreOp =
     | { op: "llm.max_output_tokens"; value: number }
     | { op: "request.user"; value: string }
     | { op: "request.stream"; value: boolean }
+    | { op: "request.store"; value: boolean }
     | { op: "request.stop_sequences"; value: string[] }
     | { op: "llm.thinking"; effort: ThinkingEffort }
+    | { op: "llm.service_tier"; value: ServiceTier }
     | { op: "llm.text"; role: Role; content: string }
     | { op: "llm.image"; role: "user"; source: ImageSource }
     | { op: "llm.audio"; role: "user"; source: AudioSource }
