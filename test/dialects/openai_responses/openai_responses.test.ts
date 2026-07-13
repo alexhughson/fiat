@@ -305,6 +305,133 @@ describe("openai_responses requests", () => {
         });
     });
 
+    test("service_tier, stream, and store ops round-trip on responses requests", () => {
+        const body = {
+            model: "gpt-5.4",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [{ type: "input_text", text: "hi" }],
+                },
+            ],
+            stream: true,
+            store: false,
+            service_tier: "priority",
+        };
+        const program = OpenAIResponsesTranslator.fromBody(body);
+        expect(program).toContainEqual({ op: "request.stream", value: true });
+        expect(program).toContainEqual({ op: "request.store", value: false });
+        expect(program).toContainEqual({
+            op: "llm.service_tier",
+            value: "priority",
+        });
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual(body);
+    });
+
+    test("ignorable stream lifecycle events return empty or metadata-only programs", () => {
+        expect(
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.created",
+                response: { id: "resp_1", status: "in_progress" },
+            }),
+        ).toEqual([]);
+        expect(
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.in_progress",
+                response: { id: "resp_1", status: "in_progress" },
+            }),
+        ).toEqual([]);
+        expect(
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.content_part.added",
+                item_id: "msg_1",
+                output_index: 0,
+                content_index: 0,
+                part: { type: "output_text" },
+            }),
+        ).toEqual([
+            {
+                op: "openai_responses.body_field",
+                key: "type",
+                value: "response.content_part.added",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "item_id",
+                value: "msg_1",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "output_index",
+                value: 0,
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "content_index",
+                value: 0,
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "part",
+                value: { type: "output_text" },
+                appliesTo: "response",
+            },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.output_text.done",
+                item_id: "msg_1",
+                output_index: 0,
+                content_index: 0,
+                text: "hi",
+            }),
+        ).toEqual([
+            {
+                op: "openai_responses.body_field",
+                key: "type",
+                value: "response.output_text.done",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "item_id",
+                value: "msg_1",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "output_index",
+                value: 0,
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "content_index",
+                value: 0,
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "text",
+                value: "hi",
+                appliesTo: "response",
+            },
+        ]);
+    });
+
+    test("unknown openai responses stream events still throw", () => {
+        expect(() =>
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.foo",
+            }),
+        ).toThrow('unsupported event type "response.foo"');
+    });
+
     test("minimal hosted server tools raise to core and lower from name-only choice", () => {
         const program = OpenAIResponsesTranslator.fromBody({
             model: "gpt-4o-mini",

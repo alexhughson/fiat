@@ -11,7 +11,7 @@ import {
 import { firstOp } from "../../core/program.js";
 import { declaredToolsByName, type DeclaredTool } from "../../core/tools.js";
 import { LintError } from "../../core/lint.js";
-import { asArray, asNumber, asRecord, asString } from "../../core/wire.js";
+import { asArray, asBoolean, asNumber, asRecord, asServiceTier, asString } from "../../core/wire.js";
 import type { WireInputItem, WireOutputItem, WireTool } from "./ops.js";
 
 const RESPONSE_ENVELOPE_PARAM_KEYS = new Set([
@@ -57,6 +57,24 @@ export function requestFromWire(wire: unknown): Program {
                 program.push({
                     op: "llm.max_output_tokens",
                     value: asNumber(value, "max_output_tokens"),
+                });
+                break;
+            case "stream":
+                program.push({
+                    op: "request.stream",
+                    value: asBoolean(value, "stream"),
+                });
+                break;
+            case "store":
+                program.push({
+                    op: "request.store",
+                    value: asBoolean(value, "store"),
+                });
+                break;
+            case "service_tier":
+                program.push({
+                    op: "llm.service_tier",
+                    value: asServiceTier(value, "service_tier"),
                 });
                 break;
             case "reasoning": {
@@ -136,6 +154,15 @@ export function requestToWire(program: Program): unknown {
                 break;
             case "llm.max_output_tokens":
                 body.max_output_tokens = op.value;
+                break;
+            case "request.stream":
+                body.stream = op.value;
+                break;
+            case "request.store":
+                body.store = op.value;
+                break;
+            case "llm.service_tier":
+                body.service_tier = (op as OpOf<"llm.service_tier">).value;
                 break;
             case "llm.thinking":
                 body.reasoning = {
@@ -432,6 +459,13 @@ export function streamResponseFromWire(wire: unknown): Program {
         case "response.output_item.added":
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
+        case "response.created":
+        case "response.in_progress":
+            return [];
+        case "response.content_part.added":
+        case "response.content_part.done":
+        case "response.output_text.done":
+            return streamEventParams(event, []);
         case "response.completed":
         case "response.incomplete":
         case "response.failed":
