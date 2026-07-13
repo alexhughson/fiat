@@ -80,6 +80,7 @@ function thinkingLevelForModel(
     effort: string,
 ): "LOW" | "MEDIUM" | "HIGH" | undefined {
     switch (normalizedLevel(effort)) {
+        case "minimal":
         case "low":
             return "LOW";
         case "medium":
@@ -251,6 +252,8 @@ function thinkingLevelToBudget(op: Program[number]) {
 
 function thinkingBudgetForLevel(level: unknown): number | undefined {
     switch (normalizedLevel(level)) {
+        case "minimal":
+            return 512;
         case "low":
             return 1024;
         case "medium":
@@ -318,5 +321,19 @@ function geminiModalities(program: Program): Set<string> {
     return modalities;
 }
 
+export const validateServiceTier = (
+    program: Program,
+    target: Target,
+): Program => {
+    if (!program.some((op) => op.op === "llm.service_tier")) return program;
+    const model = target.model ?? "unknown model";
+    throw new LintError(`${model}: Gemini cannot express llm.service_tier.`);
+};
+
 export const legalizations: ((program: Program, target: Target) => Program)[] =
-    [legalizeGeminiThinking, legalizeThinkingLevel, validateModalities];
+    [
+        legalizeGeminiThinking,
+        legalizeThinkingLevel,
+        validateModalities,
+        validateServiceTier,
+    ];

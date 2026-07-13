@@ -666,6 +666,7 @@ describe("gemini requests", () => {
 
     test("llm.thinking lowers to Gemini 3 Pro thinkingLevel enum values", () => {
         const cases = [
+            ["minimal", "LOW"],
             ["low", "LOW"],
             ["medium", "HIGH"],
             ["high", "HIGH"],
@@ -690,6 +691,7 @@ describe("gemini requests", () => {
 
     test("llm.thinking lowers to Gemini 3 Flash thinkingLevel enum values", () => {
         const cases = [
+            ["minimal", "LOW"],
             ["low", "LOW"],
             ["medium", "MEDIUM"],
             ["high", "HIGH"],
@@ -730,6 +732,7 @@ describe("gemini requests", () => {
 
     test("Gemini 2.5 maps every portable thinking effort to a budget", () => {
         const cases = [
+            ["minimal", 512],
             ["low", 1024],
             ["medium", 4096],
             ["high", 8192],

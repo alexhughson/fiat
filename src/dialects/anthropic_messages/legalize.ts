@@ -408,6 +408,17 @@ function supportsAnthropicModality(model: string, modality: string): boolean {
     }
 }
 
+export const validateServiceTier = (
+    program: Program,
+    target: Target,
+): Program => {
+    if (!program.some((op) => op.op === "llm.service_tier")) return program;
+    const model = target.model ?? "unknown model";
+    throw new LintError(
+        `${model}: Anthropic Messages cannot express llm.service_tier.`,
+    );
+};
+
 export const legalizations: ((program: Program, target: Target) => Program)[] =
     [
         defaultMaxTokens,
@@ -415,4 +426,5 @@ export const legalizations: ((program: Program, target: Target) => Program)[] =
         legalizeThinking,
         validateOutputConfigEffort,
         validateModalities,
+        validateServiceTier,
     ];
