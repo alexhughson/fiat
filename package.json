@@ -38,9 +38,9 @@
         "format": "prettier . --write",
         "format:check": "prettier . --check",
         "prepare": "tsc -p tsconfig.build.json",
-        "test": "bun test ./test/*.test.ts ./test/**/*.test.ts",
+        "test": "bun run typecheck && bun test ./test/*.test.ts ./test/**/*.test.ts",
         "test:live": "bun test ./e2e/live/run.ts",
-        "typecheck": "bunx tsc --noEmit"
+        "typecheck": "tsc -p tsconfig.build.json --noEmit"
     },
     "devDependencies": {
         "@opentui/core": "0.4.3",

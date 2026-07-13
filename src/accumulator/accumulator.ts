@@ -212,25 +212,28 @@ export function createAssistantAccumulator(
         }
 
         if (op.op === "response.stop") {
-            output.stopReason = stopReasonFromFiat(op.reason);
+            const stop = op as OpOf<"response.stop">;
+            output.stopReason = stopReasonFromFiat(stop.reason);
             return;
         }
 
         if (op.op === "response.usage") {
-            output.usage = foldUsage(op, output.usage);
+            output.usage = foldUsage(op as OpOf<"response.usage">, output.usage);
             return;
         }
 
         if (op.op === "response.id") {
-            output.responseId ??= op.id;
+            const id = op as OpOf<"response.id">;
+            output.responseId ??= id.id;
             return;
         }
 
         if (op.op === "llm.model") {
-            if (options.model !== undefined && op.model !== options.model) {
-                output.responseModel = op.model;
+            const model = op as OpOf<"llm.model">;
+            if (options.model !== undefined && model.model !== options.model) {
+                output.responseModel = model.model;
             } else if (options.model === undefined) {
-                output.model = op.model;
+                output.model = model.model;
             }
         }
     };
