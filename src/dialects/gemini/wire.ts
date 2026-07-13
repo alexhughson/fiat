@@ -8,6 +8,7 @@ import {
     type ToolChoice,
 } from "../../core/ops.js";
 import { firstOp } from "../../core/program.js";
+import type { ToWireOptions } from "../../core/registry.js";
 import { declaredToolsByName, type DeclaredTool } from "../../core/tools.js";
 import { LintError } from "../../core/lint.js";
 import { asArray, asNumber, asRecord, asString } from "../../core/wire.js";
@@ -68,7 +69,10 @@ export function requestFromWire(wire: unknown): Program {
     return program;
 }
 
-export function requestToWire(program: Program): unknown {
+export function requestToWire(
+    program: Program,
+    opts?: ToWireOptions,
+): unknown {
     const body: Record<string, unknown> = {};
     const contents: WireContent[] = [];
     const systemParts: WirePart[] = [];
@@ -84,7 +88,7 @@ export function requestToWire(program: Program): unknown {
     for (const op of program) {
         switch (op.op) {
             case "llm.model":
-                body.model = op.model;
+                if (!opts?.omitModel) body.model = op.model;
                 break;
             case "llm.temperature":
                 mergeBodyRecord(body, "generationConfig", {
@@ -157,7 +161,9 @@ export function requestToWire(program: Program): unknown {
     if (systemParts.length > 0) body.systemInstruction = { parts: systemParts };
     flushFunctionDeclarations();
     if (tools.length > 0) body.tools = tools;
-    if (!body.model)
+    if (!opts?.omitModel && !body.model)
+        throw new Error("gemini request toWire: program has no llm.model op");
+    if (opts?.omitModel && !firstOp(program, "llm.model"))
         throw new Error("gemini request toWire: program has no llm.model op");
     if (!body.contents)
         throw new Error("gemini request toWire: program has no contents");
@@ -197,7 +203,7 @@ export function responseFromWire(wire: unknown): Program {
     return program;
 }
 
-export function responseToWire(program: Program): unknown {
+export function responseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     let content: WireContent | undefined;
     let finishReason: string | undefined;
@@ -292,7 +298,7 @@ export function streamResponseFromWire(wire: unknown): Program {
     return program;
 }
 
-export function streamResponseToWire(program: Program): unknown {
+export function streamResponseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     let content: WireContent | undefined;
     let finishReason: string | undefined;

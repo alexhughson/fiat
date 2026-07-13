@@ -137,7 +137,7 @@ export function requestFromWire(wire: unknown): Program {
     return program;
 }
 
-export function requestToWire(program: Program): unknown {
+export function requestToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     const instructions: string[] = [];
     const input: unknown[] = [];
@@ -380,7 +380,7 @@ export function responseFromWire(wire: unknown): Program {
     return program;
 }
 
-export function responseToWire(program: Program): unknown {
+export function responseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     const output: unknown[] = [];
     let usage: Record<string, unknown> | undefined;
@@ -485,7 +485,7 @@ export function streamResponseFromWire(wire: unknown): Program {
     }
 }
 
-export function streamResponseToWire(program: Program): unknown {
+export function streamResponseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     let text = "";
     const toolDeltas: OpOf<"response.tool_call_delta">[] = [];
     let finishReason: string | undefined;

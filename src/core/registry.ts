@@ -13,9 +13,13 @@ import type { Target } from "./rewrite.js";
 // the dialect ops it owns into core ops, leaving endpoint-only constructs
 // behind as residuals; lower is the inverse. Both pass through ops they
 // don't own. toWire is strict: it throws on any op it can't serialize.
+export interface ToWireOptions {
+    omitModel?: boolean;
+}
+
 export interface Codec {
     fromWire(wire: unknown): Program;
-    toWire(program: Program): unknown;
+    toWire(program: Program, opts?: ToWireOptions): unknown;
     raise(program: Program): Program;
     lower(program: Program, target?: Target): Program;
     // Run on this direction's lower IR after `lower`, before `toWire`. This is

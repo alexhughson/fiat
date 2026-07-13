@@ -28,6 +28,8 @@ export interface LowerOptions {
     afterLower?: Stage;
     strict?: boolean;
     variant?: TargetVariant;
+    stream?: boolean;
+    omitModel?: boolean;
 }
 
 // wire -> core: parse into the source dialect's lower IR, then raise.
@@ -79,7 +81,13 @@ export function lowerToWire(
         low = legalize(low, target);
     }
     low = dropForeignResiduals(low, dialect.name);
-    return codec.toWire(low);
+    if (opts.stream !== undefined) {
+        low = [
+            ...low.filter((op) => op.op !== "request.stream"),
+            { op: "request.stream", value: opts.stream },
+        ];
+    }
+    return codec.toWire(low, { omitModel: opts.omitModel });
 }
 
 export function raiseStreamResponseFromWire(

@@ -63,7 +63,7 @@ export function requestFromWire(wire: unknown): Program {
     return [...prefix, ...program];
 }
 
-export function requestToWire(program: Program): unknown {
+export function requestToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     const events: unknown[] = [];
     const response: Record<string, unknown> = {};
@@ -235,7 +235,7 @@ export function responseFromWire(wire: unknown): Program {
     return program;
 }
 
-export function responseToWire(program: Program): unknown {
+export function responseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     const body: Record<string, unknown> = {};
     const event: Record<string, unknown> = { type: "response.done" };
     const output: unknown[] = [];
@@ -336,7 +336,7 @@ export function streamResponseFromWire(wire: unknown): Program {
     }
 }
 
-export function streamResponseToWire(program: Program): unknown {
+export function streamResponseToWire(program: Program, _opts?: import("../../core/registry.js").ToWireOptions): unknown {
     let text = "";
     const toolDeltas: OpOf<"response.tool_call_delta">[] = [];
     let finishReason: string | undefined;
