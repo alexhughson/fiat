@@ -21,6 +21,7 @@ import {
     asRecord,
     asString,
     asStringArray,
+    asServiceTier,
     asThinkingEffort,
 } from "../../core/wire.js";
 import type { WireMessage } from "./ops.js";
@@ -89,6 +90,42 @@ export function requestFromWire(wire: unknown): Program {
                 program.push({
                     op: "llm.thinking",
                     effort: asThinkingEffort(value, "reasoning_effort"),
+                });
+                break;
+            case "reasoning": {
+                const reasoning = asRecord(value, "reasoning");
+                if (reasoning.exclude === true) {
+                    const effort = reasoning.effort;
+                    if (effort === "none") break;
+                    if (effort === "minimal") {
+                        program.push({
+                            op: "llm.thinking",
+                            effort: "minimal",
+                        });
+                        break;
+                    }
+                    if (typeof effort === "string") {
+                        program.push({
+                            op: "llm.thinking",
+                            effort: asThinkingEffort(
+                                effort,
+                                "reasoning.effort",
+                            ),
+                        });
+                        break;
+                    }
+                }
+                program.push({
+                    op: "openai_chat.body_field",
+                    key: "reasoning",
+                    value,
+                });
+                break;
+            }
+            case "service_tier":
+                program.push({
+                    op: "llm.service_tier",
+                    value: asServiceTier(value, "service_tier"),
                 });
                 break;
             case "messages":
@@ -542,6 +579,10 @@ function openAIReasoningEffort(effort: ThinkingEffort): string {
         case "high":
         case "xhigh":
             return effort;
+        case "minimal":
+            throw new LintError(
+                'openai_chat request toWire: reasoning_effort does not support llm.thinking effort "minimal"',
+            );
         case "max":
             throw new LintError(
                 'openai_chat request toWire: reasoning_effort does not support llm.thinking effort "max"',

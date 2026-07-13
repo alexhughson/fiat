@@ -1,7 +1,24 @@
 import { LintError } from "../../core/lint.js";
-import { opData, type OpOf, type Program } from "../../core/ops.js";
+import { opData, type OpOf, type Program, type ThinkingEffort } from "../../core/ops.js";
 import type { Target } from "../../core/rewrite.js";
 import type { WireMessage } from "./ops.js";
+
+const OPENROUTER_PRIORITY_MODEL_PREFIXES = [
+    "anthropic/",
+    "google/",
+    "openai/",
+] as const;
+const OPENROUTER_OPENAI_REASONING_MODEL_PREFIXES = [
+    "openai/gpt-5",
+    "openai/o",
+    "xai/grok",
+] as const;
+const OPENROUTER_GEMINI_REASONING_MODEL_PREFIX = "google/gemini-3";
+
+type OpenRouterReasoning = {
+    effort: string;
+    exclude: true;
+};
 
 export const omitReasoningEffortWithToolsForGPT55Chat = (
     program: Program,
@@ -110,9 +127,137 @@ function supportsOpenAIVision(model: string): boolean {
     return /^(?:gpt-5|gpt-4o|gpt-4\.1|o\d)(?:[.-]|$)/.test(model);
 }
 
+export const validateServiceTier = (
+    program: Program,
+    target: Target,
+): Program => {
+    if (!program.some((op) => op.op === "llm.service_tier")) return program;
+    if (!target.model) {
+        throw new LintError(
+            "openai_chat service_tier validation requires llm.model",
+        );
+    }
+    if (isOpenRouterPriorityModel(target.model)) return program;
+    throw new LintError(
+        `Priority service tier is only supported for OpenRouter ${OPENROUTER_PRIORITY_MODEL_PREFIXES.join(", ")} model IDs. ${target.model} cannot express service_tier.`,
+    );
+};
+
+export const openRouterRequestOptions = (
+    program: Program,
+    target: Target,
+): Program => {
+    if (!target.model) return program;
+
+    let result = program;
+
+    const serviceTierIndex = result.findIndex(
+        (op) => op.op === "llm.service_tier",
+    );
+    if (serviceTierIndex >= 0) {
+        const serviceTier = (
+            result[serviceTierIndex] as OpOf<"llm.service_tier">
+        ).value;
+        result = [
+            ...result.slice(0, serviceTierIndex),
+            {
+                op: "openai_chat.body_field",
+                key: "service_tier",
+                value: serviceTier,
+            },
+            ...result.slice(serviceTierIndex + 1),
+        ];
+    }
+
+    const reasoning = openRouterReasoningForModel(target.model, result);
+    if (reasoning === undefined) return result;
+
+    const withoutThinking = result.filter((op) => op.op !== "llm.thinking");
+    const withoutReasoningField = withoutThinking.filter(
+        (op) =>
+            !(
+                op.op === "openai_chat.body_field" &&
+                opData<{ key: string }>(op).key === "reasoning"
+            ),
+    );
+    return [
+        ...withoutReasoningField,
+        {
+            op: "openai_chat.body_field",
+            key: "reasoning",
+            value: reasoning,
+        },
+    ];
+};
+
+function isOpenRouterPriorityModel(model: string): boolean {
+    return OPENROUTER_PRIORITY_MODEL_PREFIXES.some((prefix) =>
+        model.startsWith(prefix),
+    );
+}
+
+function isOpenRouterGeminiReasoningModel(model: string): boolean {
+    return model
+        .toLowerCase()
+        .startsWith(OPENROUTER_GEMINI_REASONING_MODEL_PREFIX);
+}
+
+function isOpenRouterOpenAiReasoningModel(model: string): boolean {
+    const modelId = model.toLowerCase();
+    return OPENROUTER_OPENAI_REASONING_MODEL_PREFIXES.some((prefix) =>
+        modelId.startsWith(prefix),
+    );
+}
+
+function openRouterReasoningForModel(
+    model: string,
+    program: Program,
+): OpenRouterReasoning | undefined {
+    const thinking = program.find(
+        (op) => op.op === "llm.thinking",
+    ) as OpOf<"llm.thinking"> | undefined;
+
+    if (isOpenRouterGeminiReasoningModel(model)) {
+        return {
+            effort: thinking
+                ? openRouterReasoningEffort(thinking.effort, model)
+                : "minimal",
+            exclude: true,
+        };
+    }
+
+    if (!isOpenRouterOpenAiReasoningModel(model)) return undefined;
+
+    return {
+        effort: thinking
+            ? openRouterReasoningEffort(thinking.effort, model)
+            : "none",
+        exclude: true,
+    };
+}
+
+function openRouterReasoningEffort(
+    effort: ThinkingEffort,
+    model: string,
+): string {
+    if (effort === "minimal" && isOpenRouterOpenAiReasoningModel(model)) {
+        throw new LintError(
+            `OpenRouter model ${model} cannot use llm.thinking effort "minimal".`,
+        );
+    }
+    if (effort === "max") {
+        throw new LintError(
+            `OpenRouter model ${model} cannot use llm.thinking effort "max".`,
+        );
+    }
+    return effort;
+}
+
 export const legalizations: ((program: Program, target: Target) => Program)[] =
     [
         omitReasoningEffortWithToolsForGPT55Chat,
+        validateServiceTier,
+        openRouterRequestOptions,
         useMaxCompletionTokensForReasoningChatModels,
         useDeveloperMessagesForReasoningChatModels,
         validateModalities,
