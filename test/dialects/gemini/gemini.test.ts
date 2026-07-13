@@ -831,13 +831,34 @@ describe("gemini responses", () => {
                 },
                 appliesTo: "response",
             },
-            {
-                op: "gemini.body_field",
-                key: "responseId",
-                value: "resp_123",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "resp_123" },
         ]);
+    });
+
+    test("usage with cache read tokens and response id round-trip", () => {
+        const response = {
+            ...geminiTextResponseFixture,
+            usageMetadata: {
+                promptTokenCount: 1200,
+                candidatesTokenCount: 40,
+                totalTokenCount: 1240,
+                cachedContentTokenCount: 1152,
+            },
+            responseId: "resp_cache_1",
+        };
+
+        const program = GeminiTranslator.fromResponse(response);
+        expect(program).toContainEqual({
+            op: "response.usage",
+            inputTokens: 1200,
+            outputTokens: 40,
+            cacheReadTokens: 1152,
+        });
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "resp_cache_1",
+        });
+        expect(GeminiTranslator.toResponse(program)).toEqual(response);
     });
 
     test("responses round-trip without promoting thoughtSignature into core", () => {
@@ -1042,6 +1063,36 @@ describe("gemini stream responses", () => {
                 GeminiTranslator.fromStreamResponse(chunk),
             ),
         ).toEqual(chunk);
+    });
+
+    test("stream terminal chunk with model, response id, and cache usage round-trips", () => {
+        const chunk = {
+            model: geminiModelFixture,
+            responseId: "resp_stream_gemini",
+            usageMetadata: {
+                promptTokenCount: 1200,
+                candidatesTokenCount: 40,
+                totalTokenCount: 1240,
+                cachedContentTokenCount: 1152,
+            },
+        };
+
+        const program = GeminiTranslator.fromStreamResponse(chunk);
+        expect(program).toContainEqual({
+            op: "llm.model",
+            model: geminiModelFixture,
+        });
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "resp_stream_gemini",
+        });
+        expect(program).toContainEqual({
+            op: "response.usage",
+            inputTokens: 1200,
+            outputTokens: 40,
+            cacheReadTokens: 1152,
+        });
+        expect(GeminiTranslator.toStreamResponse(program)).toEqual(chunk);
     });
 
     test("Gemini text chunks translate through the generic stream response ops", () => {

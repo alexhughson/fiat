@@ -37,12 +37,7 @@ describe("stream response conversion", () => {
         };
 
         expect(OpenAIChatTranslator.fromStreamResponse(chunk)).toEqual([
-            {
-                op: "openai_chat.body_field",
-                key: "id",
-                value: "chatcmpl-1",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "chatcmpl-1" },
             {
                 op: "openai_chat.body_field",
                 key: "object",
@@ -118,6 +113,43 @@ describe("stream response conversion", () => {
         ).toEqual(chunk);
     });
 
+    test("openai chat stream terminal chunk with id, model, and cache usage round-trips", () => {
+        const chunk = {
+            id: "chatcmpl-terminal",
+            object: "chat.completion.chunk",
+            created: 1700000000,
+            model: "gpt-4o",
+            choices: [
+                {
+                    index: 0,
+                    delta: {},
+                    finish_reason: "stop",
+                    logprobs: null,
+                },
+            ],
+            usage: {
+                prompt_tokens: 1200,
+                completion_tokens: 40,
+                total_tokens: 1240,
+                prompt_tokens_details: { cached_tokens: 1152 },
+            },
+        };
+
+        const program = OpenAIChatTranslator.fromStreamResponse(chunk);
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "chatcmpl-terminal",
+        });
+        expect(program).toContainEqual({ op: "llm.model", model: "gpt-4o" });
+        expect(program).toContainEqual({
+            op: "response.usage",
+            inputTokens: 1200,
+            outputTokens: 40,
+            cacheReadTokens: 1152,
+        });
+        expect(OpenAIChatTranslator.toStreamResponse(program)).toEqual(chunk);
+    });
+
     test("openai responses text and terminal events round-trip", () => {
         const textEvent = {
             type: "response.output_text.delta",
@@ -172,6 +204,42 @@ describe("stream response conversion", () => {
             OpenAIResponsesTranslator.toStreamResponse(
                 OpenAIResponsesTranslator.fromStreamResponse(doneEvent),
             ),
+        ).toEqual(doneEvent);
+    });
+
+    test("openai responses completed stream with id, model, and cache usage round-trips", () => {
+        const doneEvent = {
+            type: "response.completed",
+            response: {
+                id: "resp_stream_1",
+                model: "gpt-4o-mini",
+                status: "completed",
+                usage: {
+                    input_tokens: 1200,
+                    output_tokens: 40,
+                    total_tokens: 1240,
+                    input_tokens_details: { cached_tokens: 1152 },
+                },
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(doneEvent);
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "resp_stream_1",
+        });
+        expect(program).toContainEqual({
+            op: "llm.model",
+            model: "gpt-4o-mini",
+        });
+        expect(program).toContainEqual({
+            op: "response.usage",
+            inputTokens: 1200,
+            outputTokens: 40,
+            cacheReadTokens: 1152,
+        });
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(program),
         ).toEqual(doneEvent);
     });
 

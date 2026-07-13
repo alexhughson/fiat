@@ -644,12 +644,7 @@ describe("openai_chat responses", () => {
     test("a response raises to the same op vocabulary as requests", () => {
         // Op order follows wire key order; envelope params are born droppable.
         expect(OpenAIChatTranslator.fromResponse(wireResponse)).toEqual([
-            {
-                op: "openai_chat.body_field",
-                key: "id",
-                value: "chatcmpl-123",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "chatcmpl-123" },
             {
                 op: "openai_chat.body_field",
                 key: "object",
@@ -683,6 +678,42 @@ describe("openai_chat responses", () => {
     test("responses round-trip", () => {
         const program = OpenAIChatTranslator.fromResponse(wireResponse);
         expect(OpenAIChatTranslator.toResponse(program)).toEqual(wireResponse);
+    });
+
+    test("usage with cache read tokens and response id round-trip", () => {
+        const response = {
+            id: "chatcmpl-cache",
+            object: "chat.completion",
+            created: 1700000000,
+            model: "gpt-4o",
+            choices: [
+                {
+                    index: 0,
+                    message: { role: "assistant", content: "cached" },
+                    finish_reason: "stop",
+                    logprobs: null,
+                },
+            ],
+            usage: {
+                prompt_tokens: 1200,
+                completion_tokens: 40,
+                total_tokens: 1240,
+                prompt_tokens_details: { cached_tokens: 1152 },
+            },
+        };
+
+        const program = OpenAIChatTranslator.fromResponse(response);
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "chatcmpl-cache",
+        });
+        expect(program).toContainEqual({
+            op: "response.usage",
+            inputTokens: 1200,
+            outputTokens: 40,
+            cacheReadTokens: 1152,
+        });
+        expect(OpenAIChatTranslator.toResponse(program)).toEqual(response);
     });
 
     test("response-only assistant metadata round-trips without leaking into requests", () => {

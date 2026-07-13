@@ -55,4 +55,39 @@ describe("openai_chat raise stages", () => {
             },
         ]);
     });
+
+    test("raiseUsage promotes prompt_tokens_details.cached_tokens to cacheReadTokens", () => {
+        const program = raiseUsage([
+            { op: "llm.model", model: "m" },
+            {
+                op: "openai_chat.usage",
+                usage: {
+                    prompt_tokens: 1200,
+                    completion_tokens: 40,
+                    total_tokens: 1240,
+                    prompt_tokens_details: {
+                        cached_tokens: 1152,
+                        audio_tokens: 0,
+                    },
+                },
+            },
+        ]);
+
+        expect(program).toEqual([
+            { op: "llm.model", model: "m" },
+            {
+                op: "response.usage",
+                inputTokens: 1200,
+                outputTokens: 40,
+                cacheReadTokens: 1152,
+            },
+            {
+                op: "openai_chat.usage",
+                usage: {
+                    total_tokens: 1240,
+                    prompt_tokens_details: { audio_tokens: 0 },
+                },
+            },
+        ]);
+    });
 });

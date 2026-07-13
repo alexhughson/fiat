@@ -731,12 +731,7 @@ describe("openai_responses responses", () => {
 
     test("text responses raise to assistant text, usage, stop, and response-only residuals", () => {
         expect(OpenAIResponsesTranslator.fromResponse(wireResponse)).toEqual([
-            {
-                op: "openai_responses.body_field",
-                key: "id",
-                value: "resp_123",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "resp_123" },
             {
                 op: "openai_responses.body_field",
                 key: "object",
@@ -775,11 +770,10 @@ describe("openai_responses responses", () => {
                 },
                 appliesTo: "response",
             },
-            { op: "response.usage", inputTokens: 12, outputTokens: 2 },
+            { op: "response.usage", inputTokens: 12, outputTokens: 2, cacheReadTokens: 0 },
             {
                 op: "openai_responses.usage",
                 usage: {
-                    input_tokens_details: { cached_tokens: 0 },
                     output_tokens_details: { reasoning_tokens: 0 },
                     total_tokens: 14,
                 },
@@ -801,6 +795,28 @@ describe("openai_responses responses", () => {
                 OpenAIResponsesTranslator.fromResponse(wireResponse),
             ),
         ).toEqual(wireResponse);
+    });
+
+    test("usage with cache read tokens round-trip", () => {
+        const response = {
+            ...wireResponse,
+            usage: {
+                input_tokens: 1200,
+                output_tokens: 40,
+                total_tokens: 1240,
+                input_tokens_details: { cached_tokens: 1152 },
+                output_tokens_details: { reasoning_tokens: 0 },
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromResponse(response);
+        expect(program).toContainEqual({
+            op: "response.usage",
+            inputTokens: 1200,
+            outputTokens: 40,
+            cacheReadTokens: 1152,
+        });
+        expect(OpenAIResponsesTranslator.toResponse(program)).toEqual(response);
     });
 
     test("completed responses without incomplete_details round-trip without adding it", () => {

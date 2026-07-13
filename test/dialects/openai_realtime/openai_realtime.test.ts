@@ -498,12 +498,7 @@ describe("openai_realtime responses", () => {
                 value: "event_1",
                 appliesTo: "response",
             },
-            {
-                op: "openai_realtime.body_field",
-                key: "id",
-                value: "resp_1",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "resp_1" },
             {
                 op: "openai_realtime.body_field",
                 key: "object",
