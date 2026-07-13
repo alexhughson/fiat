@@ -8,7 +8,7 @@ import {
 import { LintError } from "./lint.js";
 import { firstOp } from "./program.js";
 import type { Codec, Dialect } from "./registry.js";
-import type { Stage, Target } from "./rewrite.js";
+import type { Stage, Target, TargetVariant } from "./rewrite.js";
 
 export type Kind = "request" | "response";
 
@@ -27,6 +27,7 @@ export interface LowerOptions {
     beforeLower?: Stage;
     afterLower?: Stage;
     strict?: boolean;
+    variant?: TargetVariant;
 }
 
 // wire -> core: parse into the source dialect's lower IR, then raise.
@@ -64,6 +65,7 @@ export function lowerToWire(
         kind,
         model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
+        variant: opts.variant,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
@@ -71,6 +73,7 @@ export function lowerToWire(
         kind,
         model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
+        variant: opts.variant,
     };
     for (const legalize of codec.legalizations ?? []) {
         low = legalize(low, target);
@@ -136,6 +139,7 @@ function lowerStreamResponseProgram(
         kind: "response_stream",
         model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
+        variant: opts.variant,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
@@ -143,6 +147,7 @@ function lowerStreamResponseProgram(
         kind: "response_stream",
         model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
+        variant: opts.variant,
     };
     for (const legalize of codec.legalizations ?? []) {
         low = legalize(low, target);

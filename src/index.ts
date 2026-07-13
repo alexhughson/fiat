@@ -20,7 +20,7 @@ export { isCoreOp, namespaceOf } from "./core/ops.js";
 export { append, firstOp, opsOf } from "./core/program.js";
 export { LintError } from "./core/lint.js";
 export { stagePipeline } from "./core/rewrite.js";
-export type { Stage, Target } from "./core/rewrite.js";
+export type { Stage, Target, TargetVariant } from "./core/rewrite.js";
 export type { Codec, Dialect } from "./core/registry.js";
 export {
     dropForeignResiduals,

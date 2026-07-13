@@ -2,11 +2,14 @@ import type { Program } from "./ops.js";
 
 // Where a program is headed. Target-scoped stages use this to pick model
 // behavior and whether to clean up or lint unsupported controls.
+export type TargetVariant = "openrouter";
+
 export interface Target {
     dialect: string;
     kind: "request" | "response" | "response_stream";
     model?: string;
     strict?: boolean;
+    variant?: TargetVariant;
 }
 
 // raise and lower are pipelines of stages, not monolithic switches. A stage
