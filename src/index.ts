@@ -39,3 +39,20 @@ export { AnthropicTranslator } from "./dialects/anthropic_messages/index.js";
 export { OpenAIResponsesTranslator } from "./dialects/openai_responses/index.js";
 export { OpenAIRealtimeTranslator } from "./dialects/openai_realtime/index.js";
 export { GeminiTranslator } from "./dialects/gemini/index.js";
+
+export {
+    createAssistantAccumulator,
+    inferStopReason,
+    stopReasonFromFiat,
+} from "./accumulator/index.js";
+export type {
+    AccumulatorEvent,
+    AssistantAccumulator,
+    AssistantAccumulatorOptions,
+    AssistantContentBlock,
+    AssistantMessage,
+    AssistantTextBlock,
+    AssistantToolCall,
+    AssistantUsage,
+    NormalizedStopReason,
+} from "./accumulator/index.js";
