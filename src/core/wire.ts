@@ -62,6 +62,7 @@ export function asThinkingEffort(
     what: string,
 ): ThinkingEffort {
     if (
+        value === "off" ||
         value === "minimal" ||
         value === "low" ||
         value === "medium" ||
@@ -72,7 +73,7 @@ export function asThinkingEffort(
         return value;
     }
     throw new Error(
-        `${what}: expected minimal, low, medium, high, xhigh, or max, got ${JSON.stringify(value)}`,
+        `${what}: expected off, minimal, low, medium, high, xhigh, or max, got ${JSON.stringify(value)}`,
     );
 }
 

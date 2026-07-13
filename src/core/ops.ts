@@ -23,6 +23,7 @@ export type StopReason =
 export type ToolChoice = "auto" | "none" | "required" | { name: string };
 export type ServerToolKind = "web_search" | "code_execution";
 export type ThinkingEffort =
+    | "off"
     | "minimal"
     | "low"
     | "medium"

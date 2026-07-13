@@ -96,7 +96,13 @@ export function requestFromWire(wire: unknown): Program {
                 const reasoning = asRecord(value, "reasoning");
                 if (reasoning.exclude === true) {
                     const effort = reasoning.effort;
-                    if (effort === "none") break;
+                    if (effort === "none") {
+                        program.push({
+                            op: "llm.thinking",
+                            effort: "off",
+                        });
+                        break;
+                    }
                     if (effort === "minimal") {
                         program.push({
                             op: "llm.thinking",
@@ -579,6 +585,10 @@ function openAIReasoningEffort(effort: ThinkingEffort): string {
         case "high":
         case "xhigh":
             return effort;
+        case "off":
+            throw new LintError(
+                'openai_chat request toWire: reasoning_effort does not support llm.thinking effort "off"',
+            );
         case "minimal":
             throw new LintError(
                 'openai_chat request toWire: reasoning_effort does not support llm.thinking effort "minimal"',
