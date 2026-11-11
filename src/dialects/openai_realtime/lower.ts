@@ -6,6 +6,7 @@
 
 import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import { dropReasoning } from "../../core/reasoning.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import { lowerStopReason } from "./raise.js";
 import type {
@@ -16,6 +17,7 @@ import type {
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    dropReasoning,
     rejectSessionConfig,
     lintMidConversationSystem,
     lowerRequestTexts,
@@ -27,6 +29,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
     collectOutputItems,
@@ -35,6 +38,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
 ];

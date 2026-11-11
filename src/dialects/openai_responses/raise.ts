@@ -9,6 +9,7 @@ import {
 } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
 import { documentSourceFromUrl, imageSourceFromUrl } from "../../core/media.js";
+import * as reasoning from "../../core/reasoning.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
     WireContentPart,
@@ -16,9 +17,11 @@ import type {
     WireFunctionCallOutput,
     WireInputItem,
     WireOutputItem,
+    WireReasoningItem,
 } from "./ops.js";
 
 export const raiseStages: Stage[] = [
+    raiseReasoningItems,
     raiseInputs,
     raiseOutputs,
     raiseFinishReasons,
@@ -26,6 +29,47 @@ export const raiseStages: Stage[] = [
 ];
 
 export const raise: Stage = stagePipeline(raiseStages);
+
+export function raiseReasoningItems(program: Program): Program {
+    const nextId = reasoning.reasoningIds();
+    return program.flatMap((op): Op[] => {
+        if (
+            op.op !== "openai_responses.input" &&
+            op.op !== "openai_responses.output"
+        )
+            return [op];
+        const item = opData<{ item: WireInputItem | WireOutputItem }>(op).item;
+        if (item.type !== "reasoning") return [op];
+        const { type: _type, summary, ...rest } = item;
+        const content = summaryText(summary);
+        const id = nextId();
+        return [
+            { op: "llm.reasoning", id, content },
+            {
+                op: "openai_responses.reasoning_item",
+                of: id,
+                fields: sameSummary(summary, summaryFromText(content))
+                    ? rest
+                    : { ...rest, summary },
+            },
+        ];
+    });
+}
+
+export function summaryText(summary: WireReasoningItem["summary"]): string {
+    return summary.map((part) => part.text ?? "").join("\n\n");
+}
+
+export function summaryFromText(content: string): WireReasoningItem["summary"] {
+    return content === "" ? [] : [{ type: "summary_text", text: content }];
+}
+
+function sameSummary(
+    a: WireReasoningItem["summary"],
+    b: WireReasoningItem["summary"],
+): boolean {
+    return JSON.stringify(a) === JSON.stringify(b);
+}
 
 export function raiseInputs(program: Program): Program {
     return program.flatMap((op) =>

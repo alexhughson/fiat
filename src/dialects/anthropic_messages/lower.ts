@@ -18,7 +18,8 @@ import {
     assertDocumentSource,
     assertImageMediaType,
 } from "../../core/media.js";
-import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import * as reasoning from "../../core/reasoning.js";
+import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
 import type {
     WireAnthropicMessage,
     WireAnthropicStreamEvent,
@@ -26,6 +27,7 @@ import type {
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    lowerReasoning,
     lintMidConversationSystem,
     lowerThinking,
     lowerStructuredOutput,
@@ -44,6 +46,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    lowerReasoning,
     dropEmptyText,
     lowerStopReasons,
     lowerUsageCounts,
@@ -53,6 +56,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    lowerReasoning,
     lowerCompleteResponseToStreamEvents,
     lowerStreamTextDeltas,
     lowerStreamToolCallDeltas,
@@ -62,6 +66,57 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+const REASONING_SIDE_OPS = [
+    "anthropic_messages.thinking_signature",
+    "anthropic_messages.redacted_thinking",
+];
+
+// Anthropic verifies the signature of a thinking block and decrypts the data
+// of a redacted_thinking block, so a reasoning op that carries neither (one
+// raised from another provider) has no block Anthropic would accept.
+export function lowerReasoning(program: Program, target?: Target): Program {
+    const sideOps = reasoning.sideOpsOf(program, REASONING_SIDE_OPS);
+    return program.flatMap((op): Op[] => {
+        if (REASONING_SIDE_OPS.includes(op.op)) return [];
+        if (op.op !== "llm.reasoning") return [op];
+        const thought = op as reasoning.Reasoning;
+        const side = sideOps.get(thought)!;
+        const redacted = side.find(
+            (s) => s.op === "anthropic_messages.redacted_thinking",
+        );
+        const signed = side.find(
+            (s) => s.op === "anthropic_messages.thinking_signature",
+        );
+        if (redacted) {
+            return [
+                reasoningBlock({
+                    type: "redacted_thinking",
+                    data: opData<{ data: string }>(redacted).data,
+                }),
+            ];
+        }
+        if (signed) {
+            return [
+                reasoningBlock({
+                    type: "thinking",
+                    thinking: thought.content,
+                    signature: opData<{ signature: string }>(signed).signature,
+                }),
+            ];
+        }
+        reasoning.warnDropped(
+            thought,
+            target,
+            "accepts a thinking block only with the signature Anthropic issued for it",
+        );
+        return [];
+    });
+}
+
+function reasoningBlock(block: WireBlock): Op {
+    return { op: "anthropic_messages.content_block", role: "assistant", block };
+}
 
 export function lowerThinking(program: Program): Program {
     const hasRawThinking = program.some(

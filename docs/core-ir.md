@@ -6,6 +6,7 @@ Core IR is the provider-neutral op vocabulary. Types live in
 A program is `Op[]`. Conversation order matters for:
 
 - `llm.text`
+- `llm.reasoning`
 - `llm.image`
 - `llm.audio`
 - `llm.document`
@@ -27,6 +28,7 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 | `request.stop_sequences` | `value: string[]`                         | provider stop strings                      |
 | `llm.thinking`           | `effort`                                  | portable effort; dialects choose wire form |
 | `llm.text`               | `role`, `content`                         | one text unit                              |
+| `llm.reasoning`          | `id`, `content`                           | model reasoning; see Reasoning below       |
 | `llm.image`              | `role:"user"`, `source`                   | image URL or base64 image data             |
 | `llm.audio`              | `role:"user"`, `source`                   | base64 audio data                          |
 | `llm.document`           | `role:"user"`, `source`                   | PDF URL or base64 PDF data                 |
@@ -48,6 +50,28 @@ Provider-owned file ids, provider file URIs, image detail knobs, tool config,
 usage details, and message metadata stay in dialect residual ops. Residuals
 that preserve user content are marked so translating them to another backend
 throws instead of warning and dropping the content.
+
+## Reasoning
+
+`llm.reasoning` is reasoning that the model produced before its answer.
+`content` is the readable text, and is `""` when the provider returned none.
+
+Each provider adds data that only that provider can read. That data lives in a
+side op of the provider's dialect, placed after the `llm.reasoning` op. The side
+op's `of` field holds the `llm.reasoning` op's `id`, and resolves to the nearest
+earlier `llm.reasoning` op with that id.
+
+| dialect              | side op                            | lowering `llm.reasoning`                                   |
+| -------------------- | ---------------------------------- | ---------------------------------------------------------- |
+| `anthropic_messages` | `thinking_signature { signature }` | `thinking` block; dropped with a warning without a side op |
+| `anthropic_messages` | `redacted_thinking { data }`       | `redacted_thinking` block                                  |
+| `openai_responses`   | `reasoning_item { fields }`        | `reasoning` item; dropped with a warning without a side op |
+| `gemini`             | `thought_signature { signature }`  | `thought: true` part; dropped with a warning with no text  |
+| `openai_chat`        | none                               | dropped with a warning                                     |
+| `openai_realtime`    | none                               | dropped with a warning                                     |
+
+In strict mode each warning is a `LintError`. Stream events for reasoning are
+not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 
 ## Response ops
 

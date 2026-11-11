@@ -27,6 +27,7 @@ path. Code: `src/dialects/gemini/`.
 | -------------------------- | --------------------------------------------------------------------------- |
 | `gemini.content`           | one request content or response candidate content                           |
 | `gemini.part_meta`         | part metadata such as `thoughtSignature` and exact function response fields |
+| `gemini.thought_signature` | side op of `llm.reasoning`: `thoughtSignature` of a `thought: true` part    |
 | `gemini.tool`              | configured built-ins, URL context, and other raw tool objects               |
 | `gemini.generation_config` | Gemini-only `generationConfig` fields                                       |
 | `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                         |
@@ -49,8 +50,12 @@ path. Code: `src/dialects/gemini/`.
 
 ## Thinking and signatures
 
+A `thought: true` text part raises to `llm.reasoning`, with a
+`gemini.thought_signature` side op when the part has a `thoughtSignature`.
+
 Gemini thinking continuity is carried by encrypted `thoughtSignature` fields
-on parts, not by a core thinking content block.
+on parts. On a `functionCall` or answer text part, `thoughtSignature` stays in
+`gemini.part_meta`.
 
 When a Gemini response program is appended to the next Gemini request, lowering
 reattaches the exact `thoughtSignature` to the historical `functionCall` part.
@@ -111,4 +116,4 @@ when they are not portable core images.
 ## Out of scope
 
 Streaming, Interactions API, multiple candidates, cache/batch/countTokens,
-response media core ops, and provider-neutral thinking content.
+and response media core ops.

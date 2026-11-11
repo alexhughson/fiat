@@ -12,15 +12,19 @@ import {
     dataUrlFromBase64,
     mediaDataUrlFromBase64,
 } from "../../core/media.js";
-import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import * as reasoning from "../../core/reasoning.js";
+import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
+import { summaryFromText, summaryText } from "./raise.js";
 import type {
     WireContentPart,
     WireFunctionCall,
     WireOutputItem,
     WireOutputMessage,
+    WireReasoningItem,
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    lowerReasoning,
     rejectStructuredOutput,
     lowerRequestTexts,
     lowerRequestImages,
@@ -33,6 +37,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    lowerReasoning,
     lowerStopReasons,
     lowerUsageCounts,
     collectOutputItems,
@@ -41,6 +46,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    lowerReasoning,
     lowerStopReasons,
     lowerUsageCounts,
 ];
@@ -48,6 +54,58 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+const REASONING_ITEM = "openai_responses.reasoning_item";
+
+// A reasoning item is usable by OpenAI only with the id or encrypted_content
+// OpenAI issued, so a reasoning op without the side op (one raised from
+// another provider) is not written. The Responses stream events for reasoning
+// are not implemented, so a stream drops every reasoning op.
+export function lowerReasoning(program: Program, target?: Target): Program {
+    const sideOps = reasoning.sideOpsOf(program, [REASONING_ITEM]);
+    return program.flatMap((op): Op[] => {
+        if (op.op === REASONING_ITEM) return [];
+        if (op.op !== "llm.reasoning") return [op];
+        const thought = op as reasoning.Reasoning;
+        const side = sideOps.get(thought)![0];
+        if (target?.kind === "response_stream") {
+            reasoning.warnDropped(
+                thought,
+                target,
+                "stream lowering has no reasoning events yet",
+            );
+            return [];
+        }
+        if (!side) {
+            reasoning.warnDropped(
+                thought,
+                target,
+                "accepts a reasoning item only with the id or encrypted_content OpenAI issued for it",
+            );
+            return [];
+        }
+        const { summary, ...fields } = opData<{
+            fields: Record<string, unknown>;
+        }>(side).fields as { summary?: WireReasoningItem["summary"] };
+        const item: WireReasoningItem = {
+            type: "reasoning",
+            ...fields,
+            summary:
+                summary && summaryText(summary) === thought.content
+                    ? summary
+                    : summaryFromText(thought.content),
+        };
+        return [
+            {
+                op:
+                    target?.kind === "request"
+                        ? "openai_responses.input"
+                        : "openai_responses.output",
+                item,
+            },
+        ];
+    });
+}
 
 export function rejectStructuredOutput(program: Program): Program {
     for (const op of program) {
@@ -315,6 +373,9 @@ export function collectOutputItems(program: Program): Program {
                 throw new LintError(
                     "openai_responses response lower: llm.video cannot be sent in a response program",
                 );
+            case "openai_responses.output":
+                output.push(opData<{ item: WireOutputItem }>(op).item);
+                break;
             case "openai_responses.output_meta": {
                 const meta = opData<{ item: Partial<WireOutputItem> }>(op).item;
                 output.push(

@@ -12,6 +12,7 @@ import {
     assertImageMediaType,
     assertVideoSource,
 } from "../../core/media.js";
+import * as reasoning from "../../core/reasoning.js";
 import type { Target } from "../../core/rewrite.js";
 import { firstOp } from "../../core/program.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
@@ -24,6 +25,7 @@ interface ResponsePartMeta {
 }
 
 export const lowerRequestStages: Stage[] = [
+    lowerReasoning,
     lintMidConversationSystem,
     lowerThinking,
     lowerStructuredOutput,
@@ -41,6 +43,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    lowerReasoning,
     lowerStopReasons,
     lowerUsageCounts,
     collectModelContent,
@@ -49,6 +52,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    dropStreamReasoning,
     lowerStopReasons,
     lowerUsageCounts,
     collectStreamModelContent,
@@ -57,6 +61,75 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+const THOUGHT_SIGNATURE = "gemini.thought_signature";
+
+// Writes a reasoning op in the shape raiseContents produces for a
+// `thought: true` part: assistant llm.text followed by a gemini.part_meta.
+// The stages after this one turn that pair into the wire part. Gemini does
+// not require a signature on a thought part, so reasoning raised from another
+// provider is written when it has text.
+export function lowerReasoning(program: Program, target?: Target): Program {
+    const sideOps = reasoning.sideOpsOf(program, [THOUGHT_SIGNATURE]);
+    const out: Program = [];
+    // collectResponsePartMeta finds a response part's meta by the part's
+    // position among the assistant text and tool call ops.
+    let partIndex = 0;
+    for (const op of program) {
+        if (op.op === THOUGHT_SIGNATURE) continue;
+        if (op.op !== "llm.reasoning") {
+            if (op.op === "llm.text" || op.op === "llm.tool_call") partIndex++;
+            out.push(op);
+            continue;
+        }
+        const thought = op as reasoning.Reasoning;
+        const side = sideOps.get(thought)![0];
+        if (thought.content === "" && !side) {
+            reasoning.warnDropped(
+                thought,
+                target,
+                "has nothing to write for reasoning without text or a thoughtSignature",
+            );
+            continue;
+        }
+        out.push(
+            { op: "llm.text", role: "assistant", content: thought.content },
+            {
+                op: "gemini.part_meta",
+                part: {
+                    kind: "text",
+                    ...(target?.kind === "response"
+                        ? { index: partIndex }
+                        : {}),
+                    meta: {
+                        thought: true,
+                        ...(side
+                            ? {
+                                  thoughtSignature: opData<{
+                                      signature: string;
+                                  }>(side).signature,
+                              }
+                            : {}),
+                    },
+                } satisfies GeminiPartMeta,
+            },
+        );
+        partIndex++;
+    }
+    return out;
+}
+
+export function dropStreamReasoning(program: Program, target?: Target): Program {
+    return program.filter((op) => {
+        if (op.op !== "llm.reasoning") return true;
+        reasoning.warnDropped(
+            op as reasoning.Reasoning,
+            target,
+            "stream lowering does not write reasoning yet",
+        );
+        return false;
+    });
+}
 
 // System text lowers into systemInstruction, which would silently reorder it
 // ahead of the conversation — so a system op after the conversation has

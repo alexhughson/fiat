@@ -9,12 +9,14 @@ import {
 } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
 import { base64Source, mediaKindForType } from "../../core/media.js";
+import * as reasoning from "../../core/reasoning.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import { asNumber, asRecord, asString } from "../../core/wire.js";
 import type { GeminiPartMeta, WireContent, WirePart } from "./ops.js";
 
 export const raiseStages: Stage[] = [
     raiseContents,
+    raiseThoughts,
     raiseFinishReasons,
     raiseUsage,
 ];
@@ -40,6 +42,47 @@ export function raiseContents(program: Program): Program {
         }>(op);
         return raiseContent(contentOp.content, contentOp.appliesTo);
     });
+}
+
+// raiseContents writes a `thought: true` part as assistant llm.text followed
+// by a gemini.part_meta that holds `thought`. A thought part with fields other
+// than thought and thoughtSignature keeps that shape.
+export function raiseThoughts(program: Program): Program {
+    const nextId = reasoning.reasoningIds();
+    const out: Program = [];
+    for (let i = 0; i < program.length; i++) {
+        const op = program[i]!;
+        const next = program[i + 1];
+        const meta =
+            op.op === "llm.text" && next?.op === "gemini.part_meta"
+                ? opData<{ part: GeminiPartMeta }>(next).part
+                : undefined;
+        const { thought, thoughtSignature, ...rest } = meta?.meta ?? {};
+        if (
+            meta?.kind !== "text" ||
+            thought !== true ||
+            Object.keys(rest).length > 0 ||
+            (thoughtSignature != null && typeof thoughtSignature !== "string")
+        ) {
+            out.push(op);
+            continue;
+        }
+        const id = nextId();
+        out.push({
+            op: "llm.reasoning",
+            id,
+            content: (op as { content: string }).content,
+        });
+        if (typeof thoughtSignature === "string") {
+            out.push({
+                op: "gemini.thought_signature",
+                of: id,
+                signature: thoughtSignature,
+            });
+        }
+        i++;
+    }
+    return out;
 }
 
 export function raiseStreamContents(program: Program): Program {

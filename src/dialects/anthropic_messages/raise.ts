@@ -8,6 +8,7 @@ import {
     type StopReason,
 } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import * as reasoning from "../../core/reasoning.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import {
     asBoolean,
@@ -24,6 +25,7 @@ import type {
 
 export const raiseStages: Stage[] = [
     raiseMessages,
+    raiseReasoning,
     raiseOutputConfig,
     raiseRequestParams,
     raiseStopReasons,
@@ -46,6 +48,49 @@ export function raiseMessages(program: Program): Program {
               )
             : [op],
     );
+}
+
+// A thinking or redacted_thinking block with fields this function does not
+// know stays an anthropic_messages.content_block.
+export function raiseReasoning(program: Program): Program {
+    const nextId = reasoning.reasoningIds();
+    return program.flatMap((op): Op[] => {
+        if (op.op !== "anthropic_messages.content_block") return [op];
+        const { block, role } = opData<{ block: WireBlock; role?: string }>(op);
+        if (role !== "assistant") return [op];
+        if (
+            block.type === "thinking" &&
+            typeof block.thinking === "string" &&
+            typeof block.signature === "string" &&
+            hasOnlyKeys(block, ["type", "thinking", "signature"])
+        ) {
+            const id = nextId();
+            return [
+                { op: "llm.reasoning", id, content: block.thinking },
+                {
+                    op: "anthropic_messages.thinking_signature",
+                    of: id,
+                    signature: block.signature,
+                },
+            ];
+        }
+        if (
+            block.type === "redacted_thinking" &&
+            typeof block.data === "string" &&
+            hasOnlyKeys(block, ["type", "data"])
+        ) {
+            const id = nextId();
+            return [
+                { op: "llm.reasoning", id, content: "" },
+                {
+                    op: "anthropic_messages.redacted_thinking",
+                    of: id,
+                    data: block.data,
+                },
+            ];
+        }
+        return [op];
+    });
 }
 
 export function raiseOutputConfig(program: Program): Program {
