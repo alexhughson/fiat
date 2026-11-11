@@ -978,6 +978,47 @@ describe("anthropic_messages requests", () => {
             ),
         ).toThrow("budget_tokens must be less than max_tokens");
     });
+
+    test("an Anthropic thinking block is sent back in the next Anthropic request", () => {
+        const assistant = {
+            role: "assistant",
+            content: [
+                {
+                    type: "thinking",
+                    thinking: "I need the weather tool.",
+                    signature: "EqQB",
+                },
+                {
+                    type: "tool_use",
+                    id: "toolu_1",
+                    name: "get_weather",
+                    input: { city: "Halifax" },
+                },
+            ],
+        };
+        const body = AnthropicTranslator.toBody(
+            AnthropicTranslator.fromBody({
+                model: "claude-sonnet-4-5",
+                max_tokens: 2000,
+                messages: [
+                    { role: "user", content: "Weather in Halifax?" },
+                    assistant,
+                    {
+                        role: "user",
+                        content: [
+                            {
+                                type: "tool_result",
+                                tool_use_id: "toolu_1",
+                                content: "4 C",
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ) as { messages: unknown[] };
+
+        expect(body.messages[1]).toEqual(assistant);
+    });
 });
 
 describe("anthropic_messages responses", () => {
@@ -1058,7 +1099,6 @@ describe("anthropic_messages responses", () => {
                 signature: "sig_1",
             },
             role: "assistant",
-            appliesTo: "response",
         });
         expect(program).toContainEqual({
             op: "llm.text",
@@ -1133,19 +1173,16 @@ describe("anthropic_messages responses", () => {
             op: "anthropic_messages.content_block",
             block: response.content[0],
             role: "assistant",
-            appliesTo: "response",
         });
         expect(program).toContainEqual({
             op: "anthropic_messages.content_block",
             block: response.content[1],
             role: "assistant",
-            appliesTo: "response",
         });
         expect(program).toContainEqual({
             op: "anthropic_messages.content_block",
             block: response.content[2],
             role: "assistant",
-            appliesTo: "response",
         });
         expect(AnthropicTranslator.toResponse(program)).toEqual(response);
     });

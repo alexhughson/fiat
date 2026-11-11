@@ -59,7 +59,6 @@ export type AnthropicMessagesOp =
           op: "anthropic_messages.content_block";
           block: WireBlock;
           role?: "user" | "assistant";
-          appliesTo?: "response";
       }
     | {
           op: "anthropic_messages.system_block";

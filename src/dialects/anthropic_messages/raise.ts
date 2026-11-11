@@ -403,14 +403,6 @@ function raiseBlock(role: "user" | "assistant", block: WireBlock): Op[] {
             const document = documentBlock(role, block);
             return document ? [document] : [contentBlock(role, block)];
         }
-        case "thinking":
-        case "redacted_thinking":
-            return [
-                {
-                    ...contentBlock(role, block),
-                    appliesTo: "response",
-                },
-            ];
         default:
             return [contentBlock(role, block)];
     }
@@ -505,7 +497,6 @@ function contentBlock(role: "user" | "assistant", block: WireBlock): Op {
         ...(role === "user" && isMediaBlock(block)
             ? { preservesContent: true }
             : {}),
-        ...(role === "assistant" ? { appliesTo: "response" as const } : {}),
     };
 }
 

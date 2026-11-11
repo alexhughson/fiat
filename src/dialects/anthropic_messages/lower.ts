@@ -119,9 +119,8 @@ export function lintMidConversationSystem(program: Program): Program {
             case "anthropic_messages.content_block": {
                 const residual = opData<{
                     role?: "user" | "assistant";
-                    appliesTo?: "response";
                 }>(op);
-                if (residual.appliesTo !== "response" && residual.role) {
+                if (residual.role) {
                     sawConversation = true;
                 }
                 break;
@@ -412,9 +411,7 @@ export function lowerRequestContentBlocks(program: Program): Program {
         const residual = opData<{
             block: WireBlock;
             role?: "user" | "assistant";
-            appliesTo?: "response";
         }>(op);
-        if (residual.appliesTo === "response") return [op];
         if (!residual.role) {
             throw new LintError(
                 "anthropic_messages request lower: content block residual requires a role",
