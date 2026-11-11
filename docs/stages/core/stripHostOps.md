@@ -6,7 +6,9 @@ lower stages.
 
 ## Example
 
-Input program, lowered with kind `"request"`:
+`stripHostOps` called with kind `"request"`:
+
+**In**
 
 ```json
 [
@@ -41,7 +43,7 @@ Input program, lowered with kind `"request"`:
 ]
 ```
 
-Output program:
+**Out**
 
 ```json
 [
