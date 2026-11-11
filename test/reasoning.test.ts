@@ -140,6 +140,7 @@ describe("llm.reasoning returns to the provider it came from", () => {
             op: "llm.reasoning",
             id: "reasoning_1",
             content: "I need the weather tool.",
+            signature: { dialect: "anthropic_messages", value: "EqQB" },
         });
         expect(AnthropicTranslator.toBody(core)).toEqual(body);
     });
@@ -161,7 +162,12 @@ describe("llm.reasoning returns to the provider it came from", () => {
         const core = AnthropicTranslator.fromResponse(response);
 
         expect(core.filter((op) => op.op === "llm.reasoning")).toEqual([
-            { op: "llm.reasoning", id: "reasoning_1", content: "Add them." },
+            {
+                op: "llm.reasoning",
+                id: "reasoning_1",
+                content: "Add them.",
+                signature: { dialect: "anthropic_messages", value: "EqQB" },
+            },
             { op: "llm.reasoning", id: "reasoning_2", content: "" },
         ]);
         expect(AnthropicTranslator.toResponse(core)).toEqual(response);
@@ -222,6 +228,7 @@ describe("llm.reasoning returns to the provider it came from", () => {
             op: "llm.reasoning",
             id: "reasoning_1",
             content: "I need the weather tool.",
+            signature: { dialect: "gemini", value: "sig_thought" },
         });
         expect(GeminiTranslator.toBody(core)).toEqual(geminiRequest);
     });
@@ -249,17 +256,18 @@ describe("llm.reasoning returns to the provider it came from", () => {
 });
 
 describe("llm.reasoning lowered to another provider", () => {
-    test("Gemini writes Anthropic reasoning text as a thought part", () => {
+    test("Gemini writes Anthropic reasoning text as a thought part without the Anthropic signature", () => {
         const core = AnthropicTranslator.fromBody(
             anthropicRequest('{"temp":"4 C"}'),
         );
         const { result } = withWarnings(() => GeminiTranslator.toBody(core));
         const contents = (result as { contents: unknown[] }).contents;
 
-        expect(contents[1]).toEqual({
-            role: "model",
-            parts: [{ text: "I need the weather tool.", thought: true }],
-        });
+        // The Anthropic signature "EqQB" is not written: only the dialect
+        // that issued a signature writes it.
+        expect(
+            (contents[1] as { role: string; parts: unknown[] }).parts[0],
+        ).toEqual({ text: "I need the weather tool.", thought: true });
     });
 
     test("Gemini drops reasoning that has no text, with a warning", () => {
@@ -285,6 +293,38 @@ describe("llm.reasoning lowered to another provider", () => {
         ).toEqual({ role: "model", parts: [{ text: "378" }] });
         expect(reasoningWarnings(warnings)).toEqual([
             'metamodel: dropped llm.reasoning "reasoning_1": gemini has nothing to write for reasoning without text or a thoughtSignature',
+        ]);
+    });
+
+    test("Anthropic drops reasoning that Gemini signed, with a warning", () => {
+        const core = GeminiTranslator.fromResponse({
+            modelVersion: "gemini-2.5-pro",
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            {
+                                text: "Add them.",
+                                thought: true,
+                                thoughtSignature: "sig_thought",
+                            },
+                            { text: "378" },
+                        ],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+        });
+        const { result, warnings } = withWarnings(() =>
+            AnthropicTranslator.toResponse(core),
+        );
+
+        expect((result as { content: unknown }).content).toEqual([
+            { type: "text", text: "378" },
+        ]);
+        expect(reasoningWarnings(warnings)).toEqual([
+            'metamodel: dropped llm.reasoning "reasoning_1": anthropic_messages accepts a thinking block only with the signature Anthropic issued for it',
         ]);
     });
 

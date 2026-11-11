@@ -33,6 +33,17 @@ export function sideOpsOf(
     return sideOps;
 }
 
+// A signature is valid only for the provider that issued it, so a dialect
+// reads the signature only when the op records that dialect as the issuer.
+export function signatureFor(
+    reasoning: Reasoning,
+    dialect: string,
+): string | undefined {
+    return reasoning.signature?.dialect === dialect
+        ? reasoning.signature.value
+        : undefined;
+}
+
 // Ids restart on every raise call; see sideOpsOf for how a reference resolves.
 export function reasoningIds(): () => string {
     let count = 0;

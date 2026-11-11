@@ -27,7 +27,6 @@ path. Code: `src/dialects/gemini/`.
 | -------------------------- | --------------------------------------------------------------------------- |
 | `gemini.content`           | one request content or response candidate content                           |
 | `gemini.part_meta`         | part metadata such as `thoughtSignature` and exact function response fields |
-| `gemini.thought_signature` | side op of `llm.reasoning`: `thoughtSignature` of a `thought: true` part    |
 | `gemini.tool`              | configured built-ins, URL context, and other raw tool objects               |
 | `gemini.generation_config` | Gemini-only `generationConfig` fields                                       |
 | `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                         |
@@ -50,8 +49,9 @@ path. Code: `src/dialects/gemini/`.
 
 ## Thinking and signatures
 
-A `thought: true` text part raises to `llm.reasoning`, with a
-`gemini.thought_signature` side op when the part has a `thoughtSignature`.
+A `thought: true` text part raises to `llm.reasoning`. When the part has a
+`thoughtSignature`, the op holds it as
+`signature: { dialect: "gemini", value }`.
 
 Gemini thinking continuity is carried by encrypted `thoughtSignature` fields
 on parts. On a `functionCall` or answer text part, `thoughtSignature` stays in

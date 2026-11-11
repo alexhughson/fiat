@@ -62,29 +62,25 @@ export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
 
-const THOUGHT_SIGNATURE = "gemini.thought_signature";
-
 // Writes a reasoning op in the shape raiseContents produces for a
 // `thought: true` part: assistant llm.text followed by a gemini.part_meta.
 // The stages after this one turn that pair into the wire part. Gemini does
 // not require a signature on a thought part, so reasoning raised from another
 // provider is written when it has text.
 export function lowerReasoning(program: Program, target?: Target): Program {
-    const sideOps = reasoning.sideOpsOf(program, [THOUGHT_SIGNATURE]);
     const out: Program = [];
     // collectResponsePartMeta finds a response part's meta by the part's
     // position among the assistant text and tool call ops.
     let partIndex = 0;
     for (const op of program) {
-        if (op.op === THOUGHT_SIGNATURE) continue;
         if (op.op !== "llm.reasoning") {
             if (op.op === "llm.text" || op.op === "llm.tool_call") partIndex++;
             out.push(op);
             continue;
         }
         const thought = op as reasoning.Reasoning;
-        const side = sideOps.get(thought)![0];
-        if (thought.content === "" && !side) {
+        const signature = reasoning.signatureFor(thought, "gemini");
+        if (thought.content === "" && signature === undefined) {
             reasoning.warnDropped(
                 thought,
                 target,
@@ -103,12 +99,8 @@ export function lowerReasoning(program: Program, target?: Target): Program {
                         : {}),
                     meta: {
                         thought: true,
-                        ...(side
-                            ? {
-                                  thoughtSignature: opData<{
-                                      signature: string;
-                                  }>(side).signature,
-                              }
+                        ...(signature !== undefined
+                            ? { thoughtSignature: signature }
                             : {}),
                     },
                 } satisfies GeminiPartMeta,

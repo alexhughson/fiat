@@ -67,19 +67,14 @@ export function raiseThoughts(program: Program): Program {
             out.push(op);
             continue;
         }
-        const id = nextId();
         out.push({
             op: "llm.reasoning",
-            id,
+            id: nextId(),
             content: (op as { content: string }).content,
+            ...(typeof thoughtSignature === "string"
+                ? { signature: { dialect: "gemini", value: thoughtSignature } }
+                : {}),
         });
-        if (typeof thoughtSignature === "string") {
-            out.push({
-                op: "gemini.thought_signature",
-                of: id,
-                signature: thoughtSignature,
-            });
-        }
         i++;
     }
     return out;

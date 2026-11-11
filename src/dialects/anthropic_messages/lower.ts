@@ -67,27 +67,19 @@ export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
 
-const REASONING_SIDE_OPS = [
-    "anthropic_messages.thinking_signature",
-    "anthropic_messages.redacted_thinking",
-];
+const REDACTED_THINKING = "anthropic_messages.redacted_thinking";
 
 // Anthropic verifies the signature of a thinking block and decrypts the data
 // of a redacted_thinking block, so a reasoning op that carries neither (one
 // raised from another provider) has no block Anthropic would accept.
 export function lowerReasoning(program: Program, target?: Target): Program {
-    const sideOps = reasoning.sideOpsOf(program, REASONING_SIDE_OPS);
+    const sideOps = reasoning.sideOpsOf(program, [REDACTED_THINKING]);
     return program.flatMap((op): Op[] => {
-        if (REASONING_SIDE_OPS.includes(op.op)) return [];
+        if (op.op === REDACTED_THINKING) return [];
         if (op.op !== "llm.reasoning") return [op];
         const thought = op as reasoning.Reasoning;
-        const side = sideOps.get(thought)!;
-        const redacted = side.find(
-            (s) => s.op === "anthropic_messages.redacted_thinking",
-        );
-        const signed = side.find(
-            (s) => s.op === "anthropic_messages.thinking_signature",
-        );
+        const redacted = sideOps.get(thought)![0];
+        const signature = reasoning.signatureFor(thought, "anthropic_messages");
         if (redacted) {
             return [
                 reasoningBlock({
@@ -96,12 +88,12 @@ export function lowerReasoning(program: Program, target?: Target): Program {
                 }),
             ];
         }
-        if (signed) {
+        if (signature !== undefined) {
             return [
                 reasoningBlock({
                     type: "thinking",
                     thinking: thought.content,
-                    signature: opData<{ signature: string }>(signed).signature,
+                    signature,
                 }),
             ];
         }

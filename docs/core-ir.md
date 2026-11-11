@@ -56,19 +56,26 @@ throws instead of warning and dropping the content.
 `llm.reasoning` is reasoning that the model produced before its answer.
 `content` is the readable text, and is `""` when the provider returned none.
 
-Each provider adds data that only that provider can read. That data lives in a
-side op of the provider's dialect, placed after the `llm.reasoning` op. The side
-op's `of` field holds the `llm.reasoning` op's `id`, and resolves to the nearest
-earlier `llm.reasoning` op with that id.
+`signature` is optional: `{ dialect, value }`. `value` is the signature the
+provider attached to the reasoning (Anthropic `signature`, Gemini
+`thoughtSignature`), and `dialect` names the dialect that raised it. A
+signature is valid only for the provider that issued it, so a dialect writes
+`value` only when `dialect` is its own name, and otherwise treats the op as
+unsigned.
 
-| dialect              | side op                            | lowering `llm.reasoning`                                   |
-| -------------------- | ---------------------------------- | ---------------------------------------------------------- |
-| `anthropic_messages` | `thinking_signature { signature }` | `thinking` block; dropped with a warning without a side op |
-| `anthropic_messages` | `redacted_thinking { data }`       | `redacted_thinking` block                                  |
-| `openai_responses`   | `reasoning_item { fields }`        | `reasoning` item; dropped with a warning without a side op |
-| `gemini`             | `thought_signature { signature }`  | `thought: true` part; dropped with a warning with no text  |
-| `openai_chat`        | none                               | dropped with a warning                                     |
-| `openai_realtime`    | none                               | dropped with a warning                                     |
+Other data that only one provider can read lives in a side op of that
+provider's dialect, placed after the `llm.reasoning` op. The side op's `of`
+field holds the `llm.reasoning` op's `id`, and resolves to the nearest earlier
+`llm.reasoning` op with that id.
+
+| dialect              | reads                        | lowering `llm.reasoning`                                       |
+| -------------------- | ---------------------------- | -------------------------------------------------------------- |
+| `anthropic_messages` | its own `signature`          | `thinking` block; dropped with a warning without its signature |
+| `anthropic_messages` | `redacted_thinking { data }` | `redacted_thinking` block                                      |
+| `openai_responses`   | `reasoning_item { fields }`  | `reasoning` item; dropped with a warning without the side op   |
+| `gemini`             | its own `signature`          | `thought: true` part; dropped with a warning with no text      |
+| `openai_chat`        | nothing                      | dropped with a warning                                         |
+| `openai_realtime`    | nothing                      | dropped with a warning                                         |
 
 In strict mode each warning is a `LintError`. Stream events for reasoning are
 not mapped: only Anthropic writes `llm.reasoning` into a stream response.

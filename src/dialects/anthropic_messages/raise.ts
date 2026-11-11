@@ -64,13 +64,15 @@ export function raiseReasoning(program: Program): Program {
             typeof block.signature === "string" &&
             hasOnlyKeys(block, ["type", "thinking", "signature"])
         ) {
-            const id = nextId();
             return [
-                { op: "llm.reasoning", id, content: block.thinking },
                 {
-                    op: "anthropic_messages.thinking_signature",
-                    of: id,
-                    signature: block.signature,
+                    op: "llm.reasoning",
+                    id: nextId(),
+                    content: block.thinking,
+                    signature: {
+                        dialect: "anthropic_messages",
+                        value: block.signature,
+                    },
                 },
             ];
         }

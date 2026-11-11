@@ -1050,12 +1050,12 @@ describe("anthropic_messages responses", () => {
         };
 
         const program = AnthropicTranslator.fromResponse(response);
-        expect(program.slice(0, 3)).toEqual([
-            { op: "llm.reasoning", id: "reasoning_1", content: "" },
+        expect(program.slice(0, 2)).toEqual([
             {
-                op: "anthropic_messages.thinking_signature",
-                of: "reasoning_1",
-                signature: "sig_1",
+                op: "llm.reasoning",
+                id: "reasoning_1",
+                content: "",
+                signature: { dialect: "anthropic_messages", value: "sig_1" },
             },
             {
                 op: "llm.text",

@@ -67,13 +67,6 @@ export type GeminiOp =
           op: "gemini.part_meta";
           part: GeminiPartMeta;
       }
-    // Side op of llm.reasoning: `of` names the reasoning op's id. Holds the
-    // thoughtSignature of the `thought: true` part the reasoning came from.
-    | {
-          op: "gemini.thought_signature";
-          of: string;
-          signature: string;
-      }
     | {
           op: "gemini.tool";
           tool: WireTool;

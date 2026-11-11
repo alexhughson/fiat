@@ -61,14 +61,8 @@ export type AnthropicMessagesOp =
           role?: "user" | "assistant";
           appliesTo?: "response";
       }
-    // Side ops of llm.reasoning: `of` names the reasoning op's id. A thinking
-    // block is the reasoning's content plus its signature; a
+    // Side op of llm.reasoning: `of` names the reasoning op's id. A
     // redacted_thinking block is a reasoning with empty content plus its data.
-    | {
-          op: "anthropic_messages.thinking_signature";
-          of: string;
-          signature: string;
-      }
     | {
           op: "anthropic_messages.redacted_thinking";
           of: string;

@@ -26,7 +26,6 @@ field.
 | --------------------------------------- | --------------------------------------------------------------- |
 | `anthropic_messages.message`            | one wire message; raises text, tool use, and tool result blocks |
 | `anthropic_messages.content_block`      | provider-only content blocks such as documents or image extras  |
-| `anthropic_messages.thinking_signature` | side op of `llm.reasoning`: signature of a `thinking` block     |
 | `anthropic_messages.redacted_thinking`  | side op of `llm.reasoning`: data of a `redacted_thinking` block |
 | `anthropic_messages.tool_result_meta`   | Anthropic-only tool-result fields                               |
 | `anthropic_messages.tool`               | provider-specific tool config                                   |
