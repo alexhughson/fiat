@@ -408,3 +408,81 @@ describe("residual semantics", () => {
         expect(roundTripped).toEqual(original);
     });
 });
+
+describe("assistant turns survive replay", () => {
+    test("text after a tool call stays in the same Chat assistant message", () => {
+        const program = AnthropicTranslator.fromBody({
+            model: "claude-sonnet-4-5",
+            max_tokens: 100,
+            messages: [
+                { role: "user", content: "Weather in Halifax?" },
+                {
+                    role: "assistant",
+                    content: [
+                        { type: "text", text: "Checking." },
+                        {
+                            type: "tool_use",
+                            id: "call_1",
+                            name: "get_weather",
+                            input: { city: "Halifax" },
+                        },
+                        { type: "text", text: "One moment." },
+                    ],
+                },
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "tool_result",
+                            tool_use_id: "call_1",
+                            content: "4 C",
+                        },
+                    ],
+                },
+            ],
+        });
+
+        const body = withWarnSpy((warn) => {
+            const lowered = OpenAIChatTranslator.toBody(program);
+            expect(warn).toHaveBeenCalledTimes(1);
+            return lowered;
+        }) as { messages: unknown };
+        expect(body.messages).toEqual([
+            { role: "user", content: "Weather in Halifax?" },
+            {
+                role: "assistant",
+                content: [
+                    { type: "text", text: "Checking." },
+                    { type: "text", text: "One moment." },
+                ],
+                tool_calls: [
+                    {
+                        id: "call_1",
+                        type: "function",
+                        function: {
+                            name: "get_weather",
+                            arguments: '{"city":"Halifax"}',
+                        },
+                    },
+                ],
+            },
+            { role: "tool", tool_call_id: "call_1", content: "4 C" },
+        ]);
+    });
+
+    test("two consecutive Chat assistant messages stay two messages", () => {
+        const original = {
+            model: "gpt-5",
+            messages: [
+                { role: "user", content: "Hi" },
+                { role: "assistant", content: "Part one." },
+                { role: "assistant", content: "Part two." },
+            ],
+        };
+        expect(
+            OpenAIChatTranslator.toBody(
+                OpenAIChatTranslator.fromBody(original),
+            ),
+        ).toEqual(original);
+    });
+});

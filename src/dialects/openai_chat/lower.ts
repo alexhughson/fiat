@@ -30,6 +30,7 @@ export const lowerRequestStages: Stage[] = [
     applyRequestMessageMeta,
     mergeAdjacentContentPartMessages,
     mergeToolCallMessages,
+    mergeAssistantTurnMessages,
 ];
 
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
@@ -308,6 +309,60 @@ export function mergeToolCallMessages(program: Program): Program {
         out.push(op);
     }
     return out;
+}
+
+// Chat rejects an assistant message placed between an assistant message with
+// tool_calls and the tool messages that answer them, and one message has no
+// slot for text after a call. So an assistant message that directly follows
+// an assistant message with tool_calls joins it, and its text ends up ahead
+// of the calls. Two assistant messages without tool_calls are valid Chat and
+// stay as they are.
+export function mergeAssistantTurnMessages(program: Program): Program {
+    const out: Program = [];
+    for (const op of program) {
+        const message = plainAssistantMessage(op);
+        const previous = out[out.length - 1];
+        const previousMessage = plainAssistantMessage(previous);
+        if (!message || !previousMessage?.tool_calls) {
+            out.push(op);
+            continue;
+        }
+        const movedParts = messageContentParts(message);
+        if (movedParts.length > 0) {
+            console.warn(
+                "metamodel: openai_chat cannot place assistant text after a tool call; moved the text ahead of the call",
+            );
+        }
+        const parts = [...messageContentParts(previousMessage), ...movedParts];
+        out[out.length - 1] = {
+            ...previous,
+            message: {
+                role: "assistant",
+                content:
+                    parts.length === 0
+                        ? null
+                        : previousMessage.content == null &&
+                            typeof message.content === "string"
+                          ? message.content
+                          : parts,
+                tool_calls: [
+                    ...previousMessage.tool_calls,
+                    ...(message.tool_calls ?? []),
+                ],
+            },
+        } as Op;
+    }
+    return out;
+}
+
+function plainAssistantMessage(op: Op | undefined): WireMessage | undefined {
+    if (op?.op !== "openai_chat.message") return undefined;
+    const message = opData<{ message: WireMessage }>(op).message;
+    if (message.role !== "assistant") return undefined;
+    const known = new Set(["role", "content", "tool_calls"]);
+    return Object.keys(message).every((key) => known.has(key))
+        ? message
+        : undefined;
 }
 
 export function mergeAdjacentContentPartMessages(program: Program): Program {
