@@ -58,6 +58,12 @@ export function requestFromWire(wire: unknown): Program {
             case "toolConfig":
                 program.push(...toolConfigFromWire(value));
                 break;
+            case "cachedContent":
+                program.push({
+                    op: "gemini.cached_content",
+                    name: asString(value, "cachedContent"),
+                });
+                break;
             default:
                 program.push({ op: "gemini.body_field", key, value });
         }
@@ -140,6 +146,9 @@ export function requestToWire(program: Program): unknown {
                     "toolConfig",
                     opData<{ value: Record<string, unknown> }>(op).value,
                 );
+                break;
+            case "gemini.cached_content":
+                body.cachedContent = opData<{ name: string }>(op).name;
                 break;
             case "gemini.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);

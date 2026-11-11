@@ -299,6 +299,34 @@ describe("request translation", () => {
         );
     });
 
+    test("every other request pipeline rejects a gemini cache name", () => {
+        const body = {
+            model: "gemini-2.5-flash",
+            cachedContent: "cachedContents/abc123",
+            contents: [
+                {
+                    role: "user",
+                    parts: [{ text: "Which clause covers termination?" }],
+                },
+            ],
+        };
+        const core = GeminiTranslator.fromBody(body);
+
+        expect(() => OpenAIChatTranslator.toBody(core)).toThrow(
+            'openai_chat cannot read the gemini cache "cachedContents/abc123"',
+        );
+        expect(() => AnthropicTranslator.toBody(core)).toThrow(
+            'anthropic_messages cannot read the gemini cache "cachedContents/abc123"',
+        );
+        expect(() => OpenAIResponsesTranslator.toBody(core)).toThrow(
+            'openai_responses cannot read the gemini cache "cachedContents/abc123"',
+        );
+        expect(() => OpenAIRealtimeTranslator.toBody(core)).toThrow(
+            'openai_realtime cannot read the gemini cache "cachedContents/abc123"',
+        );
+        expect(GeminiTranslator.toBody(core)).toEqual(body);
+    });
+
     test("content-bearing provider file handles cannot be dropped cross-provider", () => {
         const core = OpenAIResponsesTranslator.fromBody({
             model: "gpt-4o",

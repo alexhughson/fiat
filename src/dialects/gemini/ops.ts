@@ -88,6 +88,12 @@ export type GeminiOp =
           appliesTo?: "request";
       }
     | {
+          // Names a cache that holds prompt content on Google's servers.
+          // Each other dialect's request pipeline decides what to do with it.
+          op: "gemini.cached_content";
+          name: string;
+      }
+    | {
           op: "gemini.body_field";
           key: string;
           value: unknown;

@@ -21,6 +21,7 @@ import type {
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    rejectGeminiCachedContent,
     lowerRequestTexts,
     lowerRequestImages,
     lowerRequestAudio,
@@ -50,6 +51,19 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+// A gemini cache holds prompt content on Google's servers. This endpoint
+// cannot read it, so a body written without the op would lack its prompt.
+export function rejectGeminiCachedContent(program: Program): Program {
+    for (const op of program) {
+        if (op.op === "gemini.cached_content") {
+            throw new LintError(
+                `openai_chat cannot read the gemini cache "${opData<{ name: string }>(op).name}"; remove gemini.cached_content and add the cached prompt as ops before lowering`,
+            );
+        }
+    }
+    return program;
+}
 
 export function lowerRequestTexts(program: Program): Program {
     return program.flatMap((op) => {

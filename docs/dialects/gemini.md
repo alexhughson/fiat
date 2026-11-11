@@ -33,6 +33,7 @@ path. Code: `src/dialects/gemini/`.
 | `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                  |
 | `gemini.usage`             | shared usage plus `usageMetadata` extras                                    |
 | `gemini.candidate_meta`    | response candidate fields outside content/finish reason                     |
+| `gemini.cached_content`    | `cachedContent`, the name of a server-side prompt cache                     |
 | `gemini.body_field`        | unknown top-level field                                                     |
 
 ## Lints
