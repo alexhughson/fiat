@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
     collectAssistantMessage,
-    applyRequestTextMeta,
+    applyTextMeta,
     applyRequestToolResultMeta,
     dropEmptyText,
     lintMidConversationSystem,
@@ -71,9 +71,9 @@ describe("anthropic_messages lower request stages", () => {
         ]);
     });
 
-    test("applyRequestTextMeta reattaches adjacent Anthropic cache metadata to text blocks", () => {
+    test("applyTextMeta reattaches adjacent Anthropic cache metadata to text blocks", () => {
         expect(
-            applyRequestTextMeta([
+            applyTextMeta([
                 { op: "llm.model", model: "m" },
                 { op: "llm.text", role: "user", content: "hi" },
                 {

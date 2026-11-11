@@ -31,7 +31,7 @@ export const lowerRequestStages: Stage[] = [
     lintMidConversationSystem,
     lowerThinking,
     lowerStructuredOutput,
-    applyRequestTextMeta,
+    applyTextMeta,
     dropEmptyText,
     lowerRequestTexts,
     lowerRequestImages,
@@ -47,6 +47,7 @@ export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
     lowerReasoning,
+    applyTextMeta,
     dropEmptyText,
     lowerStopReasons,
     lowerUsageCounts,
@@ -57,6 +58,7 @@ export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
     lowerReasoning,
+    applyTextMeta,
     lowerCompleteResponseToStreamEvents,
     lowerStreamTextDeltas,
     lowerStreamToolCallDeltas,
@@ -244,7 +246,7 @@ export function lowerStructuredOutput(program: Program): Program {
     return out;
 }
 
-export function applyRequestTextMeta(program: Program): Program {
+export function applyTextMeta(program: Program): Program {
     const out: Program = [];
     for (const op of program) {
         if (op.op !== "anthropic_messages.text_meta") {
@@ -255,7 +257,7 @@ export function applyRequestTextMeta(program: Program): Program {
         const previous = out[out.length - 1];
         if (previous?.op !== "llm.text") {
             throw new LintError(
-                "anthropic_messages request lower: text_meta must immediately follow the llm.text it annotates",
+                "anthropic_messages lower: text_meta must immediately follow the llm.text it annotates",
             );
         }
 

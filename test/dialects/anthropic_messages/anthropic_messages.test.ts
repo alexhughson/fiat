@@ -1140,10 +1140,13 @@ describe("anthropic_messages responses", () => {
             appliesTo: "response",
         });
         expect(program).toContainEqual({
-            op: "anthropic_messages.content_block",
-            block: response.content[2],
+            op: "llm.text",
             role: "assistant",
-            appliesTo: "response",
+            content: "I found the tool reference.",
+        });
+        expect(program).toContainEqual({
+            op: "anthropic_messages.text_meta",
+            fields: { citations: response.content[2]!.citations },
         });
         expect(AnthropicTranslator.toResponse(program)).toEqual(response);
     });

@@ -378,6 +378,53 @@ describe("residual semantics", () => {
         ...(required === undefined ? {} : {}),
     });
 
+    test("an Anthropic text block with citations keeps its text for OpenAI Chat", () => {
+        const program = AnthropicTranslator.fromResponse({
+            id: "msg_1",
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-5",
+            content: [
+                {
+                    type: "text",
+                    text: "Rider X won the 2026 Giro.",
+                    citations: [
+                        {
+                            type: "web_search_result_location",
+                            url: "https://example.com/giro",
+                            encrypted_index: "Eo8B",
+                        },
+                    ],
+                },
+            ],
+            stop_reason: "end_turn",
+        });
+
+        const response = withWarnSpy((warn) => {
+            const lowered = OpenAIChatTranslator.toResponse(program);
+            expect(warn).toHaveBeenCalledWith(
+                "metamodel: openai_chat dropped citations from an anthropic text block",
+            );
+            return lowered;
+        }) as { choices: { message: unknown }[] };
+        expect(response.choices[0]!.message).toEqual({
+            role: "assistant",
+            content: "Rider X won the 2026 Giro.",
+        });
+
+        const gemini = withWarnSpy((warn) => {
+            const lowered = GeminiTranslator.toResponse(program);
+            expect(warn).toHaveBeenCalledWith(
+                "metamodel: gemini dropped citations from an anthropic text block",
+            );
+            return lowered;
+        }) as { candidates: { content: unknown }[] };
+        expect(gemini.candidates[0]!.content).toEqual({
+            role: "model",
+            parts: [{ text: "Rider X won the 2026 Giro." }],
+        });
+    });
+
     test("an endpoint-only param that nothing consumed warns and drops", () => {
         withWarnSpy((warn) => {
             const body = AnthropicTranslator.toBody(

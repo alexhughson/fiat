@@ -378,7 +378,7 @@ function raiseMessage(message: WireAnthropicMessage): Op[] {
 function raiseBlock(role: "user" | "assistant", block: WireBlock): Op[] {
     switch (block.type) {
         case "text": {
-            const text = textBlockWithOnlyCacheMeta(block);
+            const text = textBlockWithMeta(block);
             if (!text) {
                 return [contentBlock(role, block)];
             }
@@ -597,14 +597,13 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
     return Object.keys(value).every((key) => allowed.has(key));
 }
 
-function textBlockWithOnlyCacheMeta(
+function textBlockWithMeta(
     block: WireBlock,
 ): { content: string; fields?: Record<string, unknown> } | undefined {
-    const { type, text, cache_control, ...rest } = block;
+    const { type, text, ...fields } = block;
     if (type !== "text" || typeof text !== "string") return undefined;
-    if (Object.keys(rest).length > 0) return undefined;
-    if (cache_control == null) return { content: text };
-    return { content: text, fields: { cache_control } };
+    if (Object.keys(fields).length === 0) return { content: text };
+    return { content: text, fields };
 }
 
 const WIRE_STOP_REASONS: Record<string, StopReason> = {
