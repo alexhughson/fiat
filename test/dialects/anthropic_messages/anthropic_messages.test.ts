@@ -1509,6 +1509,18 @@ describe("anthropic_messages response streams", () => {
         });
     });
 
+    test("text block starts raise to response.text_start and lower back to the same event", () => {
+        const event = {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+        };
+
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toEqual([{ op: "response.text_start", index: 0 }]);
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
+    });
+
     test("message_start raises model and input usage and lowers back to the same event", () => {
         const event = {
             type: "message_start",
@@ -1625,6 +1637,20 @@ describe("anthropic_messages response streams", () => {
             AnthropicTranslator.fromStreamResponse({
                 type: "error",
                 error: { type: "overloaded_error", message: "Overloaded" },
+            }),
+        ).toThrow(LintError);
+    });
+
+    test("thinking content_block_start still throws", () => {
+        expect(() =>
+            AnthropicTranslator.fromStreamResponse({
+                type: "content_block_start",
+                index: 0,
+                content_block: {
+                    type: "thinking",
+                    thinking: "",
+                    signature: "",
+                },
             }),
         ).toThrow(LintError);
     });

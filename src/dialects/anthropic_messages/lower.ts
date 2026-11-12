@@ -63,6 +63,7 @@ export const lowerStreamResponseStages: Stage[] = [
     lowerCompleteResponseToStreamEvents,
     lowerStreamTextDeltas,
     lowerStreamToolCallDeltas,
+    lowerStreamTextStarts,
     lowerStreamMessageStart,
     lowerStreamStopAndUsage,
 ];
@@ -760,6 +761,20 @@ export function lowerStreamToolCallDeltas(program: Program): Program {
         throw new LintError(
             "anthropic_messages stream lower: tool call delta requires start metadata or arguments",
         );
+    });
+}
+
+export function lowerStreamTextStarts(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "response.text_start") return [op];
+        const start = op as OpOf<"response.text_start">;
+        return [
+            streamEvent({
+                type: "content_block_start",
+                index: start.index,
+                content_block: { type: "text", text: "" },
+            }),
+        ];
     });
 }
 
