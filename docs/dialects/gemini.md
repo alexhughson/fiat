@@ -66,8 +66,8 @@ value: a string as text, anything else as JSON. A response with `output` among
 other keys raises as the whole object.
 
 `gemini.part_meta` for a `functionResponse` part holds the function `name`
-only; the dialect op's type allows nothing else for that
-kind. Lowering writes `response` from
+and any provider part extras under `meta`; the type allows no `id`, no
+`response`, and no `index` for that kind. Lowering writes `response` from
 `llm.tool_result.content`, so a transform that edits that op changes the
 gemini body. The result's position is the `llm.tool_result` op's position, so
 the part_meta stores no `index`.

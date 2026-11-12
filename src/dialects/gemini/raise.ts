@@ -262,11 +262,11 @@ function raiseContent(
                             ? "{}"
                             : toolResultContent(responseBody),
                 });
-                // Only the function name stays in the dialect op; the call
-                // id and the response object are the llm.tool_result's own
-                // data, and the part's position is the tool_result op's
-                // position, so no index is stored. Lowering writes the
-                // response from the tool_result's content.
+                // Only the function name stays in the dialect op. The call
+                // id lives in the llm.tool_result, lowering rebuilds the
+                // response object from its content, and the part's
+                // position is the tool_result op's position, so no index
+                // is stored.
                 pushPartMeta(out, part, { kind, name }, appliesTo);
                 break;
             }
