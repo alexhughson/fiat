@@ -481,6 +481,57 @@ describe("stream response conversion", () => {
         );
     });
 
+    test("lowering a raised response.created leaves the program unchanged", () => {
+        const event = {
+            type: "response.created",
+            sequence_number: 2,
+            response: {
+                id: "resp_123",
+                object: "response",
+                created_at: 1700000000,
+                status: "in_progress",
+                model: "gpt-4o",
+                output: [],
+                usage: null,
+                error: null,
+                incomplete_details: null,
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        const before = structuredClone(program);
+        OpenAIResponsesTranslator.toStreamResponse(program);
+        expect(program).toEqual(before);
+
+        const withoutModel = program.filter(
+            (op) => !("model" in (op as Record<string, unknown>)),
+        );
+        const lowered = OpenAIResponsesTranslator.toStreamResponse(
+            withoutModel,
+        ) as Record<string, unknown>;
+        const response = lowered.response as Record<string, unknown>;
+        expect(response.model).toBeUndefined();
+    });
+
+    test("lowering a raised terminal event leaves the program unchanged", () => {
+        const event = {
+            type: "response.completed",
+            sequence_number: 11,
+            response: {
+                id: "resp_123",
+                object: "response",
+                status: "completed",
+                usage: { input_tokens: 3, output_tokens: 2 },
+                output: [],
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        const before = structuredClone(program);
+        OpenAIResponsesTranslator.toStreamResponse(program);
+        expect(program).toEqual(before);
+    });
+
     test("response.in_progress raises to one meta op and round-trips", () => {
         const event = {
             type: "response.in_progress",

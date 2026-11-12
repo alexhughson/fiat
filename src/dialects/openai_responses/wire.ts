@@ -646,6 +646,14 @@ export function streamResponseToWire(program: Program): unknown {
     // A finish reason closes the response; the model raised from
     // response.created folds back into the envelope the same way.
     event.type ??= terminalEventType(finishReason);
+    // Lowering never writes into an object an input op holds. The meta op
+    // and a body_field value share their response record with the event,
+    // so the constants and envelope writes below copy it first.
+    if (event.response != null) {
+        event.response = {
+            ...asRecord(event.response, "stream event.response"),
+        };
+    }
     // The created event's constant envelope fields were dropped on raise
     // when they held the expected value; lowering writes them back. A field
     // the meta op kept (its value differed) is already present, so the
