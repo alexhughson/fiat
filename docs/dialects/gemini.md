@@ -50,9 +50,9 @@ path. Code: `src/dialects/gemini/`.
 
 Gemini requires `functionResponse.response` to be a JSON object. A tool result
 whose content parses to a JSON object lowers into `response` as that object; a
-tool result that is anything else — a string, number, array, or text that is
-not JSON — lowers wrapped under the `output` key, which Gemini's docs name for
-function output:
+tool result that is anything else — a string, number, boolean, array, `null`,
+or text that is not JSON — lowers wrapped under the `output` key, which
+Gemini's docs name for function output:
 
 ```json
 {
@@ -60,8 +60,8 @@ function output:
 }
 ```
 
-Raising turns a `response` that is exactly `{ "output": <string> }` back into
-the string as text.
+Raising turns a `response` whose only key is `output` back into the wrapped
+value: a string as text, anything else as JSON.
 
 ## Thinking and signatures
 
