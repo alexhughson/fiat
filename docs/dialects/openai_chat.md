@@ -50,7 +50,9 @@ models lower them as `max_tokens`.
 - A Chat stream has no event that states the stream's end: the last chunk
   carries the finish_reason. Stream lowering accepts `response.done` and
   writes no field and no event for it, so a program raised from another
-  dialect's end event lowers to the same chunk as before the op existed.
+  dialect's end event lowers to the same chunk as before the op existed. The
+  drop emits no warning: the Chat stream has no end event, so no data is
+  lost.
 - Request image URL parts lower as ordered message content parts. Data URLs
   raise to portable base64 image sources and lower back to data URLs.
 - `input_audio` raises to base64 `llm.audio` for `wav` and `mp3`; other
@@ -70,6 +72,7 @@ The Responses API is modeled separately as `openai_responses`.
 Chat Completions chunks translate as streams. A text delta chunk raises
 `llm.model` and `response.text_delta`, keeping the chunk's `id`, `object`, and
 `created` as `openai_chat.body_field` residuals, and lowers back to the same
-chunk. A tool-call delta chunk raises `response.tool_call_delta`. The final
-chunk raises `response.stop` and `response.usage`. The `[DONE]` sentinel is not
-a chunk and does not translate.
+chunk. A tool-call delta chunk raises `response.tool_call_delta`. A chunk whose
+choice holds `finish_reason` raises `response.stop`; a chunk that holds `usage`
+raises `response.usage`; one chunk can hold either or both. The `[DONE]`
+sentinel is not a chunk and does not translate.

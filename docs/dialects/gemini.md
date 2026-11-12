@@ -113,7 +113,8 @@ omits the synthetic id again.
   carries `finishReason` inside the candidate. Stream lowering accepts
   `response.done` and writes no field and no event for it, so a program
   raised from another dialect's end event lowers to the same chunk as before
-  the op existed.
+  the op existed. The drop emits no warning: the Gemini stream has no end
+  event, so no data is lost.
 - Image/audio/TTS/video response parts throw today; core has no response media
   op.
 
@@ -148,5 +149,6 @@ media core ops.
 
 Generate Content stream chunks translate as streams. A text chunk raises
 `response.text_delta`; a chunk holding a `functionCall` part raises
-`response.tool_call_delta`. The last chunk raises `response.stop` from the
-candidate's `finishReason` and `response.usage` from `usageMetadata`.
+`response.tool_call_delta`. A chunk whose candidate holds `finishReason` raises
+`response.stop`; a chunk that holds `usageMetadata` raises `response.usage`;
+one chunk can hold either or both.
