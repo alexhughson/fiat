@@ -737,7 +737,9 @@ describe("gemini translation", () => {
 
         // The part_meta names its llm.tool_result by id under `of`, so a
         // transform that moves an op between the two, or reorders them,
-        // does not change the lowered part.
+        // does not change the lowered part — unless a second result
+        // reuses the id, in which case each part_meta must sit after its
+        // own result and before the next result with that id.
         const program = GeminiTranslator.fromBody(body);
         const modelOp = program.find((op) => op.op === "llm.model")!;
         const resultOp = program.find((op) => op.op === "llm.tool_result")!;
