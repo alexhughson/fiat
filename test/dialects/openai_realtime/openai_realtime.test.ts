@@ -519,7 +519,7 @@ describe("openai_realtime responses", () => {
                 value: null,
                 appliesTo: "response",
             },
-            { op: "llm.model", model: "gpt-realtime" },
+            { op: "response.model", model: "gpt-realtime" },
             { op: "llm.text", role: "assistant", content: "pong" },
             {
                 op: "openai_realtime.output_meta",

@@ -657,7 +657,7 @@ describe("openai_chat responses", () => {
                 value: 1700000000,
                 appliesTo: "response",
             },
-            { op: "llm.model", model: "gpt-4o" },
+            { op: "response.model", model: "gpt-4o" },
             {
                 op: "llm.text",
                 role: "assistant",

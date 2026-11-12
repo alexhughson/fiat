@@ -8,7 +8,8 @@ path. Code: `src/dialects/gemini/`.
 
 | wire                                         | core                    |
 | -------------------------------------------- | ----------------------- |
-| `model`                                      | `llm.model`             |
+| request `model`                              | `llm.model`             |
+| response and stream chunk `modelVersion`     | `response.model`        |
 | `responseId`                                 | `response.id`           |
 | `systemInstruction.parts[].text`             | system `llm.text`       |
 | `generationConfig.maxOutputTokens`           | `llm.max_output_tokens` |

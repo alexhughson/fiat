@@ -793,7 +793,7 @@ describe("gemini responses", () => {
 
     test("text responses raise to assistant text, usage, stop, and response-only residuals", () => {
         expect(GeminiTranslator.fromResponse(wireResponse)).toEqual([
-            { op: "llm.model", model },
+            { op: "response.model", model },
             { op: "llm.text", role: "assistant", content: "pong" },
             {
                 op: "gemini.part_meta",

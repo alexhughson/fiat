@@ -7,7 +7,8 @@ OpenAI Chat Completions (`POST /v1/chat/completions`). Code:
 
 | wire                                  | core                    |
 | ------------------------------------- | ----------------------- |
-| `model`                               | `llm.model`             |
+| request `model`                       | `llm.model`             |
+| response and stream chunk `model`     | `response.model`        |
 | response `id`                         | `response.id`           |
 | `temperature`                         | `llm.temperature`       |
 | `max_tokens`, `max_completion_tokens` | `llm.max_output_tokens` |

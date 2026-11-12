@@ -63,11 +63,8 @@ async function messages(request: Request): Promise<Response> {
         ) as Record<string, unknown>;
         const geminiResponse = await callGemini(geminiRequest);
         const anthropicResponse = AnthropicTranslator.toResponse(
-            setModel(requestedModel)(
-                GeminiTranslator.fromResponse({
-                    model: geminiModel,
-                    ...geminiResponse,
-                }),
+            setResponseModel(requestedModel)(
+                GeminiTranslator.fromResponse(geminiResponse),
             ),
         );
 
@@ -111,6 +108,15 @@ function hasEvilPromptText(program: Program): boolean {
 function setModel(model: string) {
     return (program: Program): Program =>
         program.map((op) => (op.op === "llm.model" ? { ...op, model } : op));
+}
+
+// The Anthropic response names the model the client requested, not the Gemini
+// model that answered.
+function setResponseModel(model: string) {
+    return (program: Program): Program => [
+        { op: "response.model", model },
+        ...program.filter((op) => op.op !== "response.model"),
+    ];
 }
 
 async function callAnthropic(body: Record<string, unknown>): Promise<Response> {

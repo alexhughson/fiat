@@ -7,7 +7,8 @@ OpenAI Responses (`POST /v1/responses`). Code:
 
 | wire                                        | core                                |
 | ------------------------------------------- | ----------------------------------- |
-| `model`                                     | `llm.model`                         |
+| request `model`                             | `llm.model`                         |
+| response `model`, terminal stream events    | `response.model`                    |
 | response `id`                               | `response.id`                       |
 | `instructions`                              | system `llm.text`                   |
 | `temperature`                               | `llm.temperature`                   |

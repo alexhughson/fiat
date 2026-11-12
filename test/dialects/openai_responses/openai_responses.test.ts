@@ -623,7 +623,7 @@ describe("openai_responses responses", () => {
                 value: "completed",
                 appliesTo: "response",
             },
-            { op: "llm.model", model: "gpt-4o-mini" },
+            { op: "response.model", model: "gpt-4o-mini" },
             { op: "llm.text", role: "assistant", content: "pong" },
             {
                 op: "openai_responses.output_meta",

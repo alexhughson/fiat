@@ -15,7 +15,7 @@ events, optionally with top-level call/session fields such as `model`.
 | `response.create.response.tool_choice`  | `llm.tool_choice`       |
 | numeric `max_output_tokens`             | `llm.max_output_tokens` |
 | top-level request `model`               | `llm.model`             |
-| `response.done.response.model`          | `llm.model`             |
+| `response.done.response.model`          | `response.model`        |
 | `response.done.response.id`             | `response.id`           |
 
 ## Dialect ops

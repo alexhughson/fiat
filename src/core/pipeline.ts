@@ -3,10 +3,11 @@ import {
     namespaceOf,
     opData,
     type DialectOp,
+    type Op,
     type Program,
 } from "./ops.js";
 import { LintError } from "./lint.js";
-import { firstOp } from "./program.js";
+import { firstOp, opsOf } from "./program.js";
 import type { Codec, Dialect } from "./registry.js";
 import type { Stage, Target } from "./rewrite.js";
 
@@ -59,19 +60,22 @@ export function lowerToWire(
     const dialect = dialectFor(dialectRef);
     const codec = dialect[kind];
     let low = dropMetaOps(program);
-    low = kind === "request" ? dropResponseOps(low) : dropRequestOps(low);
+    low =
+        kind === "request"
+            ? dropResponseOps(low)
+            : dropRequestOps(useRequestedModelWhenNoResponseModel(low));
     low = runHookStages(low, opts.beforeLower);
     low = codec.lower(low, {
         dialect: dialect.name,
         kind,
-        model: firstOp(low, "llm.model")?.model,
+        model: targetModel(kind, low),
         strict: opts.strict,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
         dialect: dialect.name,
         kind,
-        model: firstOp(low, "llm.model")?.model,
+        model: targetModel(kind, low),
         strict: opts.strict,
     };
     for (const legalize of codec.legalizations ?? []) {
@@ -132,19 +136,19 @@ function lowerStreamResponseProgram(
     const dialect = dialectFor(dialectRef);
     const codec = streamCodecFor(dialect);
     let low = dropMetaOps(program);
-    low = dropRequestOps(low);
+    low = dropRequestOps(useRequestedModelWhenNoResponseModel(low));
     low = runHookStages(low, opts.beforeLower);
     low = codec.lower(low, {
         dialect: dialect.name,
         kind: "response_stream",
-        model: firstOp(low, "llm.model")?.model,
+        model: targetModel("response_stream", low),
         strict: opts.strict,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
         dialect: dialect.name,
         kind: "response_stream",
-        model: firstOp(low, "llm.model")?.model,
+        model: targetModel("response_stream", low),
         strict: opts.strict,
     };
     for (const legalize of codec.legalizations ?? []) {
@@ -175,13 +179,55 @@ function dropResponseOps(program: Program): Program {
     });
 }
 
-// request.* ops such as request.stream are invalid in a response body and in a
-// stream event.
+// The llm.* ops that hold a setting of the request. The other llm.* ops hold
+// conversation content (text, tool calls, tool results), which a response
+// also has.
+const REQUEST_SETTING_OPS: ReadonlySet<Op["op"]> = new Set([
+    "llm.model",
+    "llm.temperature",
+    "llm.max_output_tokens",
+    "llm.thinking",
+    "llm.tool",
+    "llm.server_tool",
+    "llm.tool_choice",
+    "llm.output",
+]);
+
+// If a response is lowered from a program that also holds the request, the
+// program contains request.* ops such as request.stream and request settings
+// such as llm.model and llm.temperature, which are invalid in a response body
+// and in a stream event.
 function dropRequestOps(program: Program): Program {
     return program.filter((op) => {
         if (namespaceOf(op) === "request") return false;
+        if (REQUEST_SETTING_OPS.has(op.op)) return false;
         return isCoreOp(op) || opData<DialectOp>(op).appliesTo !== "request";
     });
+}
+
+// A response program without a response.model (built by hand, or raised from
+// a body that names no model) still lowers with a model when it holds
+// llm.model: the last llm.model, the one request lowering would write, takes
+// the place of the missing response.model. dropRequestOps runs after this and
+// removes every llm.model.
+function useRequestedModelWhenNoResponseModel(program: Program): Program {
+    if (program.some((op) => op.op === "response.model")) return program;
+    const last = opsOf(program, "llm.model").at(-1);
+    if (!last) return program;
+    return program.map((op) =>
+        op === last ? { op: "response.model", model: last.model } : op,
+    );
+}
+
+// The model that legalizations judge: the requested model of a request, the
+// model that answered of a response.
+function targetModel(
+    kind: Target["kind"],
+    program: Program,
+): string | undefined {
+    return kind === "request"
+        ? firstOp(program, "llm.model")?.model
+        : firstOp(program, "response.model")?.model;
 }
 
 // Foreign dialect ops are transcript remnants for endpoints that know how to

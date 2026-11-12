@@ -1010,7 +1010,7 @@ describe("anthropic_messages responses", () => {
                 value: "message",
                 appliesTo: "response",
             },
-            { op: "llm.model", model: "claude-sonnet-4-6" },
+            { op: "response.model", model: "claude-sonnet-4-6" },
             { op: "response.stop", reason: "end_turn" },
             { op: "response.usage", inputTokens: 20, outputTokens: 9 },
             {

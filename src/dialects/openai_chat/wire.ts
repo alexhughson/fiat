@@ -235,7 +235,7 @@ export function responseFromWire(wire: unknown): Program {
         switch (key) {
             case "model":
                 program.push({
-                    op: "llm.model",
+                    op: "response.model",
                     model: asString(value, "model"),
                 });
                 break;
@@ -294,8 +294,8 @@ export function responseToWire(program: Program): unknown {
     let usage: Record<string, unknown> | undefined;
     for (const op of program) {
         switch (op.op) {
-            case "llm.model":
-                body.model = op.model;
+            case "response.model":
+                body.model = (op as OpOf<"response.model">).model;
                 break;
             case "response.id":
                 body.id = (op as OpOf<"response.id">).id;
@@ -355,7 +355,7 @@ export function streamResponseFromWire(wire: unknown): Program {
         switch (key) {
             case "model":
                 program.push({
-                    op: "llm.model",
+                    op: "response.model",
                     model: asString(value, "model"),
                 });
                 break;
@@ -393,8 +393,8 @@ export function streamResponseToWire(program: Program): unknown {
 
     for (const op of program) {
         switch (op.op) {
-            case "llm.model":
-                body.model = op.model;
+            case "response.model":
+                body.model = (op as OpOf<"response.model">).model;
                 break;
             case "response.text_delta": {
                 const text = op as OpOf<"response.text_delta">;

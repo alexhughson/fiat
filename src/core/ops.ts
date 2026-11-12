@@ -95,6 +95,10 @@ export type CoreOp =
       }
     | { op: "meta.trace"; traceId: string }
     | { op: "response.id"; id: string }
+    // The model that the provider reports produced the response. llm.model is
+    // the model a request asks for; the two can differ (an alias answered by a
+    // dated snapshot).
+    | { op: "response.model"; model: string }
     // Only the cross-provider counts live here. Provider-specific usage fields
     // (cache hits, reasoning tokens, totals) stay in the op stream as a
     // residual on the source dialect's usage op.

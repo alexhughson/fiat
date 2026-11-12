@@ -391,7 +391,7 @@ describe("anthropic_messages lower response stages", () => {
 describe("anthropic_messages lower stream response stages", () => {
     test("lowerCompleteResponseToStreamEvents turns a complete assistant response into Anthropic stream events", () => {
         const program = lowerCompleteResponseToStreamEvents([
-            { op: "llm.model", model: "claude-sonnet-4-5" },
+            { op: "response.model", model: "claude-sonnet-4-5" },
             { op: "llm.text", role: "assistant", content: "hi" },
             { op: "response.stop", reason: "end_turn" },
             { op: "response.usage", inputTokens: 3, outputTokens: 1 },

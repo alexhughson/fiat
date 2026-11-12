@@ -46,6 +46,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    keepResponseModelForTerminalEvent,
     lowerReasoning,
     lowerStopReasons,
     lowerUsageCounts,
@@ -56,6 +57,33 @@ export const lowerStreamResponse: Stage = stagePipeline(
 );
 
 const REASONING_ITEM = "openai_responses.reasoning_item";
+
+// Among the stream events this codec writes, only a terminal event
+// (response.completed, response.incomplete, response.failed) holds the
+// response object, which names the model. A delta event or an output item
+// event has no model field, so response.model is removed from a program that
+// builds one of those.
+export function keepResponseModelForTerminalEvent(program: Program): Program {
+    const buildsDeltaEvent = program.some(
+        (op) =>
+            op.op === "response.text_delta" ||
+            op.op === "response.tool_call_delta",
+    );
+    const buildsTerminalEvent =
+        !buildsDeltaEvent &&
+        program.some(
+            (op) =>
+                op.op === "response.stop" ||
+                op.op === "response.usage" ||
+                op.op === "openai_responses.finish_reason" ||
+                op.op === "openai_responses.usage" ||
+                (op.op === "openai_responses.body_field" &&
+                    opData<{ key: string }>(op).key === "response"),
+        );
+    return buildsTerminalEvent
+        ? program
+        : program.filter((op) => op.op !== "response.model");
+}
 
 // A reasoning item is usable by OpenAI only with the id or encrypted_content
 // OpenAI issued, so a reasoning op without the side op (one raised from

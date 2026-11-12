@@ -55,7 +55,7 @@ describe("stream response conversion", () => {
                 value: 1700000000,
                 appliesTo: "response",
             },
-            { op: "llm.model", model: "gpt-4o" },
+            { op: "response.model", model: "gpt-4o" },
             {
                 op: "openai_chat.stream_choice_param",
                 key: "index",

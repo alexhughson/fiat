@@ -169,10 +169,10 @@ export function responseFromWire(wire: unknown): Program {
     const program: Program = [];
     for (const [key, value] of Object.entries(body)) {
         switch (key) {
-            case "model":
+            case "modelVersion":
                 program.push({
-                    op: "llm.model",
-                    model: asString(value, "model"),
+                    op: "response.model",
+                    model: asString(value, "modelVersion"),
                 });
                 break;
             case "responseId":
@@ -212,8 +212,8 @@ export function responseToWire(program: Program): unknown {
 
     for (const op of program) {
         switch (op.op) {
-            case "llm.model":
-                body.model = op.model;
+            case "response.model":
+                body.modelVersion = (op as OpOf<"response.model">).model;
                 break;
             case "response.id":
                 body.responseId = (op as OpOf<"response.id">).id;
@@ -273,10 +273,10 @@ export function streamResponseFromWire(wire: unknown): Program {
     const program: Program = [];
     for (const [key, value] of Object.entries(body)) {
         switch (key) {
-            case "model":
+            case "modelVersion":
                 program.push({
-                    op: "llm.model",
-                    model: asString(value, "model"),
+                    op: "response.model",
+                    model: asString(value, "modelVersion"),
                 });
                 break;
             case "candidates":
@@ -310,8 +310,8 @@ export function streamResponseToWire(program: Program): unknown {
 
     for (const op of program) {
         switch (op.op) {
-            case "llm.model":
-                body.model = op.model;
+            case "response.model":
+                body.modelVersion = (op as OpOf<"response.model">).model;
                 break;
             case "gemini.content":
                 if (content)
@@ -362,7 +362,7 @@ export function streamResponseToWire(program: Program): unknown {
         );
     }
     if (usage) body.usageMetadata = usage;
-    if (!body.candidates && !body.usageMetadata && !body.model) {
+    if (!body.candidates && !body.usageMetadata && !body.modelVersion) {
         throw new Error("gemini stream response toWire: empty stream chunk");
     }
     return body;
