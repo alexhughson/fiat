@@ -288,6 +288,60 @@ describe("stream response conversion", () => {
         ).toEqual(event);
     });
 
+    test("openai responses content_part.done raises to response.block_stop and round-trips", () => {
+        const event = {
+            type: "response.content_part.done",
+            sequence_number: 6,
+            item_id: "msg_123",
+            output_index: 0,
+            content_index: 0,
+            part: {
+                type: "output_text",
+                text: "Hello",
+                annotations: [],
+                logprobs: [],
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event: {
+                    type: "response.content_part.done",
+                    sequence_number: 6,
+                    item_id: "msg_123",
+                    content_index: 0,
+                    part: {
+                        type: "output_text",
+                        text: "Hello",
+                        annotations: [],
+                        logprobs: [],
+                    },
+                },
+                appliesTo: "response",
+            },
+            { op: "response.block_stop", index: 0 },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("an anthropic content_block_stop translates to an openai responses content_part.done event", () => {
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(
+                AnthropicTranslator.fromStreamResponse({
+                    type: "content_block_stop",
+                    index: 0,
+                }),
+            ),
+        ).toEqual({
+            type: "response.content_part.done",
+            output_index: 0,
+        });
+    });
+
     test("openai responses failed terminal events warn and drop cross-provider metadata", () => {
         withWarnSpy((warn) => {
             const chunk = OpenAIChatTranslator.toStreamResponse(

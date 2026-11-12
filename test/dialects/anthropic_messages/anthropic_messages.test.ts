@@ -1514,6 +1514,98 @@ describe("anthropic_messages response streams", () => {
         expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
     });
 
+    test("content_block_stop raises to response.block_stop and lowers back to the same event", () => {
+        const event = { type: "content_block_stop", index: 0 };
+
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toEqual([{ op: "response.block_stop", index: 0 }]);
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
+    });
+
+    test("a full text stream raises to core ops", () => {
+        const events = [
+            {
+                type: "message_start",
+                message: {
+                    id: "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY",
+                    type: "message",
+                    role: "assistant",
+                    content: [],
+                    model: "claude-opus-5-5",
+                    stop_reason: null,
+                    stop_sequence: null,
+                    usage: { input_tokens: 25, output_tokens: 1 },
+                },
+            },
+            {
+                type: "content_block_start",
+                index: 0,
+                content_block: { type: "text", text: "" },
+            },
+            { type: "ping" },
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "text_delta", text: "Hello" },
+            },
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "text_delta", text: "!" },
+            },
+            { type: "content_block_stop", index: 0 },
+            {
+                type: "message_delta",
+                delta: { stop_reason: "end_turn", stop_sequence: null },
+                usage: { output_tokens: 15 },
+            },
+            { type: "message_stop" },
+        ];
+
+        const program = events.flatMap((event) =>
+            AnthropicTranslator.fromStreamResponse(event),
+        );
+        expect(program).toEqual([
+            { op: "llm.model", model: "claude-opus-5-5" },
+            { op: "response.usage", inputTokens: 25, outputTokens: 1 },
+            {
+                op: "anthropic_messages.stream_event",
+                event: {
+                    type: "message_start",
+                    message: {
+                        id: "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY",
+                        type: "message",
+                        role: "assistant",
+                        content: [],
+                        stop_reason: null,
+                        stop_sequence: null,
+                    },
+                },
+                appliesTo: "response",
+            },
+            { op: "response.text_start", index: 0 },
+            {
+                op: "anthropic_messages.stream_event",
+                event: { type: "ping" },
+                appliesTo: "response",
+            },
+            { op: "response.text_delta", index: 0, content: "Hello" },
+            { op: "response.text_delta", index: 0, content: "!" },
+            { op: "response.block_stop", index: 0 },
+            { op: "response.stop", reason: "end_turn" },
+            { op: "response.usage", outputTokens: 15 },
+            {
+                op: "anthropic_messages.stream_event",
+                event: { type: "message_stop" },
+                appliesTo: "response",
+            },
+        ]);
+        // Whole-stream lowering is not asserted: lowerStreamStopAndUsage
+        // emits message_delta after message_stop and drops stop_sequence,
+        // a pre-existing main behavior a later row changes. Each event
+        // round-trips on its own in the tests above.
+    });
+
     test("message_start raises model and input usage and lowers back to the same event", () => {
         const event = {
             type: "message_start",

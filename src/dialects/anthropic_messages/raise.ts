@@ -211,6 +211,13 @@ function raiseStreamEvent(event: WireAnthropicStreamEvent): Op[] {
             return [raiseContentBlockDelta(event)];
         case "content_block_start":
             return [raiseContentBlockStart(event)];
+        case "content_block_stop":
+            return [
+                {
+                    op: "response.block_stop",
+                    index: streamIndex(event),
+                },
+            ];
         case "message_delta":
             return raiseMessageDelta(event);
         case "message_start":

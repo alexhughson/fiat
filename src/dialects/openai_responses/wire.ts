@@ -457,6 +457,20 @@ export function streamResponseFromWire(wire: unknown): Program {
                 },
             ];
         }
+        // The part's text has already raised as output_text.delta events, so
+        // content_part.done only ends the block. The event fields only
+        // openai_responses has stay in one stream_event_meta op.
+        case "response.content_part.done":
+            return [
+                streamEventMeta(event, ["output_index"]),
+                {
+                    op: "response.block_stop",
+                    index: asNumber(
+                        event.output_index,
+                        "stream event.output_index",
+                    ),
+                },
+            ];
         case "response.completed":
         case "response.incomplete":
         case "response.failed":
@@ -492,6 +506,10 @@ export function streamResponseToWire(program: Program): unknown {
                     annotations: [],
                     logprobs: [],
                 };
+                break;
+            case "response.block_stop":
+                event.type ??= "response.content_part.done";
+                event.output_index = (op as OpOf<"response.block_stop">).index;
                 break;
             case "response.tool_call_delta":
                 toolDeltas.push(op as OpOf<"response.tool_call_delta">);

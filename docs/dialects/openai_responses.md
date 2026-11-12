@@ -73,6 +73,7 @@ event in, one event out:
 | `response.output_text.delta`                     | one `body_field` op per event field + `response.text_delta`      |
 | `response.function_call_arguments.delta`         | one `body_field` op per event field + `response.tool_call_delta` |
 | `response.content_part.added` (`output_text`)    | `openai_responses.stream_event_meta` + `response.text_start`     |
+| `response.content_part.done`                     | `openai_responses.stream_event_meta` + `response.block_stop`     |
 | `response.output_item.added` / `.done`           | one `body_field` op per event field, plus the item               |
 | `response.completed` / `.incomplete` / `.failed` | one `body_field` op per event field, plus usage                  |
 
@@ -127,10 +128,11 @@ text the `response.text_delta` ops already carry) stay together in one
 `openai_responses.stream_event_meta` op, and lowering folds the two ops back
 into the same wire event. A part other than `output_text` is not raised yet
 and keeps the whole event in the meta op, so it round-trips.
+`response.content_part.done` raises the same way, to `response.block_stop`,
+which ends a text block or a tool call block and carries no text.
 
 Other stream events (`response.created`, `response.in_progress`,
-`response.output_text.done`, `response.content_part.done`) are not raised
-yet and still throw.
+`response.output_text.done`) are not raised yet and still throw.
 
 ## Out of scope
 

@@ -64,6 +64,7 @@ export const lowerStreamResponseStages: Stage[] = [
     lowerStreamTextDeltas,
     lowerStreamToolCallDeltas,
     lowerStreamTextStarts,
+    lowerStreamBlockStops,
     lowerStreamMessageStart,
     lowerStreamStopAndUsage,
 ];
@@ -766,6 +767,14 @@ export function lowerStreamTextStarts(program: Program): Program {
                 content_block: { type: "text", text: "" },
             }),
         ];
+    });
+}
+
+export function lowerStreamBlockStops(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "response.block_stop") return [op];
+        const stop = op as OpOf<"response.block_stop">;
+        return [streamEvent({ type: "content_block_stop", index: stop.index })];
     });
 }
 

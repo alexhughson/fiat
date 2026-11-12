@@ -108,7 +108,9 @@ export type CoreOp =
     // Stream ops name their block with one `index`: anthropic writes its
     // `index`, openai_responses writes its `output_index`. The block opens
     // empty (text arrives as text_delta ops), so text_start carries no text.
+    // block_stop ends a text block or a tool call block and carries no text.
     | { op: "response.text_start"; index: number }
+    | { op: "response.block_stop"; index: number }
     | {
           op: "response.tool_call_delta";
           index?: number;
