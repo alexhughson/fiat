@@ -520,10 +520,11 @@ describe("gemini translation", () => {
         const lowered = GeminiTranslator.toBody(program) as {
             contents: { role: string; parts: unknown[] }[];
         };
-        // The string under the output key is the tool result's text, so the
-        // round trip returns the same body. The thoughtSignature Gemini
-        // lowering injects on the functionCall part is pre-existing behavior
-        // for core tool history without a Gemini response.
+        // The string under the output key holds text that is not a JSON
+        // object, so the round trip returns the same body. The
+        // thoughtSignature Gemini lowering injects on the functionCall
+        // part is pre-existing behavior for core tool history without a
+        // Gemini response.
         expect(lowered.contents[2]!.parts).toEqual([
             {
                 functionResponse: {
@@ -606,8 +607,9 @@ describe("gemini translation", () => {
             return lowered.contents[0]!.parts[0]!.functionResponse;
         };
 
-        // A string under the output key is the tool result's text, so it
-        // returns unchanged.
+        // A string under the output key whose text is not a JSON object
+        // returns unchanged; one whose text is a JSON object returns as
+        // that object, like the last case below.
         expect(roundTrip({ output: "378" })).toEqual({
             name: "calc",
             response: { output: "378" },
@@ -630,10 +632,26 @@ describe("gemini translation", () => {
         });
         // A number under the output key raises to the text "378", and
         // lowering writes text back as a string, so the type changes. This
-        // is the accepted cost of keeping every other kind of text intact.
+        // is the accepted cost of keeping every other kind of text intact;
+        // a boolean, array, or null under output changes the same way.
         expect(roundTrip({ output: 378 })).toEqual({
             name: "calc",
             response: { output: "378" },
+            id: "call_math",
+        });
+        // A string under the output key whose text is a JSON object also
+        // raises to that text, and lowering parses the text as the response
+        // object, so the wrapper is removed here too.
+        expect(roundTrip({ output: '{"a":1}' })).toEqual({
+            name: "calc",
+            response: { a: 1 },
+            id: "call_math",
+        });
+        // Whitespace around an object does not change this: JSON.parse reads
+        // the object the same way, and main wrote the same response.
+        expect(roundTrip({ output: ' {"a":1} ' })).toEqual({
+            name: "calc",
+            response: { a: 1 },
             id: "call_math",
         });
     });
@@ -643,6 +661,9 @@ describe("gemini translation", () => {
             "361",
             "12345678901234567890",
             "1.10",
+            "-0",
+            "1e400",
+            "",
             "true",
             "null",
             "[1,2]",
@@ -693,6 +714,77 @@ describe("gemini translation", () => {
                 },
             })),
         );
+    });
+
+    test("a functionResponse part_meta lowers to the same part when another op sits between it and its tool result", () => {
+        const body = {
+            model: "models/gemini-3.5-flash",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "calc",
+                                response: { output: "361" },
+                                id: "call_math",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        // The part_meta names its llm.tool_result by id under `of`, so a
+        // transform that moves an op between the two, or reorders them,
+        // does not change the lowered part.
+        const program = GeminiTranslator.fromBody(body);
+        const modelOp = program.find((op) => op.op === "llm.model")!;
+        const resultOp = program.find((op) => op.op === "llm.tool_result")!;
+        const metaOp = program.find((op) => op.op === "gemini.part_meta")!;
+        const textOp = {
+            op: "llm.text",
+            role: "user",
+            content: "thanks",
+        };
+        const withTextBetween = [modelOp, resultOp, textOp, metaOp];
+        const loweredBetween = GeminiTranslator.toBody(withTextBetween) as {
+            contents: { role: string; parts: unknown[] }[];
+        };
+        expect(loweredBetween.contents).toEqual([
+            {
+                role: "user",
+                parts: [
+                    {
+                        functionResponse: {
+                            name: "calc",
+                            response: { output: "361" },
+                            id: "call_math",
+                        },
+                    },
+                    { text: "thanks" },
+                ],
+            },
+        ]);
+
+        const metaBeforeResult = [modelOp, metaOp, resultOp];
+        const loweredBefore = GeminiTranslator.toBody(metaBeforeResult) as {
+            contents: { role: string; parts: unknown[] }[];
+        };
+        expect(loweredBefore.contents).toEqual([
+            {
+                role: "user",
+                parts: [
+                    {
+                        functionResponse: {
+                            name: "calc",
+                            response: { output: "361" },
+                            id: "call_math",
+                        },
+                    },
+                ],
+            },
+        ]);
     });
 
     test("an anthropic response id lowers into the gemini responseId", () => {

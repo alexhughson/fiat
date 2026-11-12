@@ -49,6 +49,7 @@ export type GeminiPartMeta =
       }
     | {
           kind: "functionResponse";
+          of: string;
           name: string;
           meta?: Record<string, unknown>;
       };

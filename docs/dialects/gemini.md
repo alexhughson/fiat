@@ -24,28 +24,31 @@ path. Code: `src/dialects/gemini/`.
 
 ## Dialect ops
 
-| op                         | purpose                                                                                                                  |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `gemini.content`           | one request content or response candidate content                                                                        |
-| `gemini.part_meta`         | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name` and any extras under `meta` |
-| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                            |
-| `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                    |
-| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                      |
-| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                               |
-| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                                 |
-| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                  |
-| `gemini.body_field`        | unknown top-level field                                                                                                  |
+| op                         | purpose                                                                                                                                                        |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gemini.content`           | one request content or response candidate content                                                                                                              |
+| `gemini.part_meta`         | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta` |
+| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                                                                  |
+| `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                          |
+| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                            |
+| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                     |
+| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                                                                       |
+| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
+| `gemini.body_field`        | unknown top-level field                                                                                                                                        |
 
 ## Lints
 
-- A bare `llm.tool_result` needs a known function name from a prior
-  `llm.tool_call` or `gemini.part_meta`.
+- A bare `llm.tool_result` needs a known function name from an
+  `llm.tool_call` or the `gemini.part_meta` that names the result.
 - Multiple response candidates are rejected.
 - `toolConfig` with several `allowedFunctionNames` has no core equivalent.
 - Forced server-tool choices throw; Gemini can force function tools only.
 - `llm.output` conflicts with existing native `responseMimeType` or
   `responseSchema`.
-- `gemini.part_meta` must stay adjacent to the lowered part it annotates.
+- A `gemini.part_meta` for a text or functionCall part must stay adjacent
+  to the lowered part it annotates. A functionResponse `gemini.part_meta`
+  names its `llm.tool_result` by id under `of`, so its position is free,
+  and one whose `of` matches no `llm.tool_result` in the program throws.
 
 ## Tool results
 
@@ -62,8 +65,8 @@ This section's examples use a proxy which exposes the Gemini API to its
 clients: the proxy raises each request body a client sends into a fiat
 program, edits ops in that program, and lowers the program back into a
 request body to send on to Gemini's API. For text content, the proxy sends
-Gemini's API this `functionResponse.response` object, a part nested inside
-the request body's content:
+Gemini's API this `functionResponse.response` object, nested inside the
+`functionResponse` of a part nested inside the request body's content:
 
 ```json
 {
@@ -72,12 +75,14 @@ the request body's content:
 ```
 
 `GeminiTranslator.fromBody` raises a `response` whose only key is `output`
-back into the wrapped value: a string as text, anything else as JSON. A
+into the wrapped value: a string as text, anything else as JSON. A
 `response` with `output` among other keys raises as the whole object. When
 the proxy's client sends a request whose `response` holds the number 378,
 `GeminiTranslator.fromBody` raises the part to the text `"378"`, and
 `GeminiTranslator.toBody` writes text as a string under `output`, so the
-proxy sends the part on to Gemini's API with the type changed:
+proxy sends the part on to Gemini's API with the type changed. The diff shows
+the `functionResponse` object, nested inside the part the proxy sends to
+Gemini's API:
 
 ```diff
  {
@@ -90,20 +95,29 @@ proxy sends the part on to Gemini's API with the type changed:
  }
 ```
 
-This is the accepted cost of keeping every other kind of text intact.
+This is the accepted cost of keeping every other kind of text intact. Every
+non-string value under `output` changes the same way when the proxy's client
+sends the body and the proxy sends it on: a number, boolean, array, or
+`null` under `output` returns as that value's JSON text in a string, so the
+array with the entries 1 and 2 returns as the string `[1,2]` and the boolean
+`true` as the string `true`. A `response` holding an object under `output`
+returns with the wrapper removed, and the same holds for a string under
+`output` whose text is a JSON object: such a string returns as the object it
+holds. A string under `output` whose text is not a JSON object returns
+unchanged.
 
 `gemini.part_meta` with `kind: "functionResponse"` carries the function
 `name`, which Gemini requires on every `functionResponse` part and which
-`llm.tool_result` does not hold, plus any other keys of the wire part under
-`meta`. `GeminiTranslator.fromBody` returns it directly after the
-`llm.tool_result` raised from the same part; the op holds no `id`, no
-`response`, and no `index`, because `llm.tool_result` holds the id, lowering
-writes the `response` from `llm.tool_result.content`, and the result's
-position is the `llm.tool_result` op's position. The op's `part` field holds:
+`llm.tool_result` does not hold, and it names the `llm.tool_result` the part
+answers by that op's id under `of`, plus any other keys of the wire part under
+`meta`. `GeminiTranslator.fromBody` returns the op directly after the
+`llm.tool_result` raised from the same part. The op's `part` field holds, with
+`meta` present only when the wire part had other keys:
 
 ```json
 {
     "kind": "functionResponse",
+    "of": "<the id of the llm.tool_result the part answers>",
     "name": "<the function the tool result answers>",
     "meta": {
         "<any other wire part key>": "<its value>"
@@ -111,9 +125,14 @@ position is the `llm.tool_result` op's position. The op's `part` field holds:
 }
 ```
 
+Lowering finds the result by `of`, so the op's position in the program is free
+and a transform may move either op. Request lowering reads only `of` and
+`name`; the keys under `meta` are not written back to the request body.
+
 When the proxy's client sends a request body whose `functionResponse.response`
 holds an object under `output`, the proxy sends the part on to Gemini's API
-with the wrapper removed:
+with the wrapper removed. The diff shows the `functionResponse` object, nested
+inside the part the proxy sends to Gemini's API:
 
 ```diff
  {
@@ -136,8 +155,8 @@ produces from any dialect.
 When the proxy's client sends a request body whose `functionResponse` part has
 no `response` field, `GeminiTranslator.fromBody` raises the part to content
 `"{}"` and `GeminiTranslator.toBody` writes an empty `response` object, so
-the proxy sends the part back with an empty `response` object written and the
-body differs from the request.
+the proxy sends the part on with an empty `response` object and the body
+differs from the request.
 
 ## Thinking and signatures
 
@@ -151,8 +170,8 @@ on parts. On a `functionCall` or answer text part, `thoughtSignature` stays in
 
 When a Gemini response program is appended to the next Gemini request, lowering
 reattaches the exact `thoughtSignature` to the historical `functionCall` part.
-If a transform separates the core part from its `gemini.part_meta`, lowering
-throws instead of guessing.
+If a transform separates a text or functionCall part from its
+`gemini.part_meta`, lowering throws instead of guessing.
 
 Some Gemini models omit `functionCall.id`. Raising synthesizes a core id such
 as `gemini_call_0`; `gemini.part_meta` marks it so lowering back to Gemini
