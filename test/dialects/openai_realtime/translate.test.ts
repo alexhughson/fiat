@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+    AnthropicTranslator,
     OpenAIChatTranslator,
     OpenAIRealtimeTranslator,
 } from "../../../src/index";
@@ -545,13 +546,54 @@ describe("openai_realtime translation", () => {
         });
     });
 
-    test("a raised response id backs the realtime response.done id", () => {
-        const realtimeResponse = OpenAIRealtimeTranslator.toResponse([
-            { op: "llm.model", model: "gpt-realtime" },
-            { op: "llm.text", role: "assistant", content: "pong" },
-            { op: "response.id", id: "resp_789" },
-        ]) as { events: { response: Record<string, unknown> }[] };
+    test("a realtime response.done id raises to response.id and lowers into the openai chat id", () => {
+        const program = OpenAIRealtimeTranslator.fromResponse({
+            events: [
+                {
+                    type: "response.done",
+                    response: {
+                        id: "resp_789",
+                        status: "completed",
+                        model: "gpt-realtime",
+                        output: [
+                            {
+                                type: "message",
+                                role: "assistant",
+                                status: "completed",
+                                content: [
+                                    { type: "output_text", text: "pong" },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            ],
+        });
 
-        expect(realtimeResponse.events[0]!.response.id).toBe("resp_789");
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "resp_789",
+        });
+        const chatResponse = OpenAIChatTranslator.toResponse(program) as Record<
+            string,
+            unknown
+        >;
+        expect(chatResponse.id).toBe("resp_789");
+    });
+
+    test("an anthropic response id lowers into the realtime response.done id", () => {
+        const realtimeResponse = OpenAIRealtimeTranslator.toResponse(
+            AnthropicTranslator.fromResponse({
+                id: "msg_01ABC",
+                type: "message",
+                role: "assistant",
+                model: "claude-sonnet-4-6",
+                content: [{ type: "text", text: "It is correct." }],
+                stop_reason: "end_turn",
+                usage: { input_tokens: 20, output_tokens: 9 },
+            }),
+        ) as { events: { response: Record<string, unknown> }[] };
+
+        expect(realtimeResponse.events[0]!.response.id).toBe("msg_01ABC");
     });
 });

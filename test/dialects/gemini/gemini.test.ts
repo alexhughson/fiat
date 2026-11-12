@@ -828,12 +828,7 @@ describe("gemini responses", () => {
                 },
                 appliesTo: "response",
             },
-            {
-                op: "gemini.body_field",
-                key: "responseId",
-                value: "resp_123",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "resp_123" },
         ]);
     });
 

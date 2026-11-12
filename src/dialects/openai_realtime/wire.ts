@@ -683,6 +683,12 @@ function parseResponseDone(
                     model: asString(value, "response.model"),
                 });
                 break;
+            case "id":
+                program.push({
+                    op: "response.id",
+                    id: asString(value, "response.id"),
+                });
+                break;
             case "output":
                 for (const item of asArray(value, "response.output")) {
                     const output = asRecord(

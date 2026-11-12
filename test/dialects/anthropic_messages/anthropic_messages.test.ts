@@ -1306,7 +1306,7 @@ describe("anthropic_messages response streams", () => {
     });
 
     test("OpenAI chat response IR lowers directly to Anthropic stream events", () => {
-        const core = OpenAIChatTranslator.fromResponse({
+        const raised = OpenAIChatTranslator.fromResponse({
             id: "chatcmpl_1",
             object: "chat.completion",
             created: 0,
@@ -1326,6 +1326,14 @@ describe("anthropic_messages response streams", () => {
         }).map((op) =>
             op.op === "llm.model" ? { ...op, model: "claude-sonnet-4-6" } : op,
         );
+
+        // The stream lowerer has no complete-response mapping for the id op
+        // yet; the stream rows own adding it.
+        expect(() => AnthropicTranslator.toStreamResponses(raised)).toThrow(
+            'no complete response stream mapping for op "response.id"',
+        );
+
+        const core = raised.filter((op) => op.op !== "response.id");
 
         const events = AnthropicTranslator.toStreamResponses(core) as Record<
             string,

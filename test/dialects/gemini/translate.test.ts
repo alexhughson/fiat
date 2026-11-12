@@ -540,4 +540,31 @@ describe("gemini translation", () => {
 
         expect(response.responseId).toBe("msg_01ABC");
     });
+
+    test("a gemini responseId raises to response.id and lowers into the anthropic id", () => {
+        const program = GeminiTranslator.fromResponse({
+            responseId: "resp_123",
+            model: "models/gemini-3.5-flash",
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [{ text: "It is correct." }],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+            usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 9 },
+        });
+
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "resp_123",
+        });
+        const response = AnthropicTranslator.toResponse(program) as Record<
+            string,
+            unknown
+        >;
+        expect(response.id).toBe("resp_123");
+    });
 });

@@ -175,6 +175,12 @@ export function responseFromWire(wire: unknown): Program {
                     model: asString(value, "model"),
                 });
                 break;
+            case "responseId":
+                program.push({
+                    op: "response.id",
+                    id: asString(value, "responseId"),
+                });
+                break;
             case "candidates":
                 program.push(...candidateFromWire(value));
                 break;

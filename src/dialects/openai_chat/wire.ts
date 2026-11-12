@@ -239,6 +239,12 @@ export function responseFromWire(wire: unknown): Program {
                     model: asString(value, "model"),
                 });
                 break;
+            case "id":
+                program.push({
+                    op: "response.id",
+                    id: asString(value, "id"),
+                });
+                break;
             case "choices": {
                 const choices = asArray(value, "choices");
                 if (choices.length !== 1) {
