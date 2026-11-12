@@ -70,6 +70,7 @@ op; `raiseStreamEvents` maps each event type. One event in, one event out:
 | `content_block_start` (tool_use)         | `response.tool_call_delta` with `id` and `name`                         |
 | `content_block_delta` (text_delta)       | `response.text_delta`                                                   |
 | `content_block_delta` (input_json_delta) | `response.tool_call_delta`                                              |
+| `content_block_stop`                     | `response.block_stop`                                                   |
 | `ping`, `message_stop`                   | `stream_event` residual                                                 |
 | `message_delta`                          | `response.stop` + `response.usage`                                      |
 
@@ -133,7 +134,10 @@ lowering to another dialect drops them with a warning.
 `ping` keeps the connection open and carries no other meaning; only Anthropic
 sends it, so it stays an `anthropic_messages.stream_event` op.
 
-`content_block_stop` and `error` are not raised yet and still throw. Reasoning
+`content_block_stop` ends a text block or a tool call block and raises to
+`response.block_stop` with the block's index, carrying no text.
+
+`error` is not raised yet and still throws. Reasoning
 stream events (`thinking` / `redacted_thinking` block starts, `thinking_delta`,
 `signature_delta`) are not raised yet and still throw.
 
