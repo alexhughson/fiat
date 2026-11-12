@@ -578,14 +578,12 @@ export function streamResponseToWire(program: Program): unknown {
                 break;
             case "openai_responses.finish_reason":
                 finishReason = opData<{ reason: string }>(op).reason;
-                event.type ??= terminalEventType(finishReason);
                 break;
             case "openai_responses.usage":
                 usage = {
                     ...usage,
                     ...opData<{ usage: Record<string, unknown> }>(op).usage,
                 };
-                event.type ??= "response.completed";
                 break;
             case "openai_responses.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
@@ -643,9 +641,18 @@ export function streamResponseToWire(program: Program): unknown {
         return event;
     }
 
-    // A finish reason closes the response; the model raised from
-    // response.created folds back into the envelope the same way.
-    event.type ??= terminalEventType(finishReason);
+    // The envelope ops (model, usage, finish reason) pick the lifecycle type
+    // together, after the whole program is scanned: a finish reason closes
+    // the response, and model or usage without one opens it, because the
+    // anthropic message_start and a bare openai_chat chunk carry no finish
+    // reason. A meta op that carries its own "type" key keeps that type.
+    const hasEnvelope = usage || finishReason != null || model != null;
+    if (hasEnvelope && event.type == null) {
+        event.type =
+            finishReason != null
+                ? terminalEventType(finishReason)
+                : "response.created";
+    }
     // Lowering never writes into an object an input op holds. The meta op
     // and a body_field value share their response record with the event,
     // so the constants and envelope writes below copy it first.
@@ -665,7 +672,7 @@ export function streamResponseToWire(program: Program): unknown {
         }
         event.response = created;
     }
-    if (usage || finishReason != null || model != null) {
+    if (hasEnvelope) {
         const response = asRecord(
             event.response ?? {},
             "stream event.response",
@@ -674,7 +681,9 @@ export function streamResponseToWire(program: Program): unknown {
         response.status ??=
             finishReason === "max_tokens" || finishReason === "content_filter"
                 ? "incomplete"
-                : "completed";
+                : finishReason != null
+                  ? "completed"
+                  : "in_progress";
         if (
             finishReason === "max_tokens" &&
             response.incomplete_details === undefined

@@ -1139,6 +1139,87 @@ describe("stream response conversion", () => {
         });
     });
 
+    test("a raised anthropic text stream lowers to openai responses events in order", () => {
+        const anthropicStream = [
+            {
+                type: "message_start",
+                message: {
+                    id: "msg_1",
+                    model: "claude-3-5",
+                    role: "assistant",
+                    usage: { input_tokens: 3, output_tokens: 0 },
+                },
+            },
+            {
+                type: "content_block_start",
+                index: 0,
+                content_block: { type: "text", text: "" },
+            },
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "text_delta", text: "He" },
+            },
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "text_delta", text: "llo" },
+            },
+            { type: "content_block_stop", index: 0 },
+            {
+                type: "message_delta",
+                delta: { stop_reason: "end_turn" },
+                usage: { output_tokens: 2 },
+            },
+            { type: "message_stop" },
+        ];
+
+        const lowered = anthropicStream.flatMap((event) =>
+            OpenAIResponsesTranslator.toStreamResponses(
+                AnthropicTranslator.fromStreamResponse(event),
+            ),
+        ) as Record<string, unknown>[];
+
+        // The stream opens with response.created before any text, the text
+        // arrives as deltas, and only the events with a stop reason close
+        // the response.
+        expect(lowered.map((event) => event.type)).toEqual([
+            "response.created",
+            "response.content_part.added",
+            "response.output_text.delta",
+            "response.output_text.delta",
+            "response.content_part.done",
+            "response.completed",
+        ]);
+        expect((lowered[0]!.response as Record<string, unknown>).model).toEqual(
+            "claude-3-5",
+        );
+    });
+
+    test("a raised openai chat chunk with a model name lowers to a text delta", () => {
+        const chunk = {
+            id: "chatcmpl-1",
+            object: "chat.completion.chunk",
+            created: 1700000000,
+            model: "gpt-4o",
+            choices: [
+                {
+                    index: 0,
+                    delta: { role: "assistant", content: "hi" },
+                    finish_reason: null,
+                    logprobs: null,
+                },
+            ],
+        };
+
+        const event = OpenAIResponsesTranslator.toStreamResponse(
+            OpenAIChatTranslator.fromStreamResponse(chunk),
+        ) as Record<string, unknown>;
+
+        expect(event.type).toEqual("response.output_text.delta");
+        expect(event.delta).toEqual("hi");
+    });
+
     test("anthropic tool fragments stay partial across raise and lower", () => {
         const start = {
             type: "content_block_start",

@@ -234,9 +234,14 @@ folds the ops back into the same wire event.
 
 The `error` stream event still throws; a core error op does not exist yet.
 
-Stream lowering accepts `llm.model`, so the created event that raised it
-lowers back to the same wire event: the model returns into the response
-envelope.
+Stream lowering accepts `llm.model`: the model raises from
+`response.created` and from another dialect's first event, and lowering
+writes it back into the response envelope. The envelope ops (model, usage,
+finish reason) pick the event type together: a finish reason closes the
+response, and a model or usage count without one opens it, because the
+anthropic `message_start` and a bare openai_chat chunk carry no finish
+reason. A raised anthropic text stream therefore lowers to
+`response.created`, the text deltas, and `response.completed` last.
 
 ## Out of scope
 
