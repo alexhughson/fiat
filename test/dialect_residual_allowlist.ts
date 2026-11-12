@@ -32,7 +32,7 @@ export const dialectResidualAllowlist: Record<string, string> = {
     "anthropic_messages.sampling:top_p":
         "shared with openai_chat (top_p), openai_responses (top_p), gemini (generationConfig.topP): not provider-only (top_p sampling param)",
     "anthropic_messages.stream_event:message_stop.type":
-        "shared with openai_chat (finish_reason on the last chunk), openai_responses (response.completed), openai_realtime (response.done): not provider-only (stream end marker)",
+        "shared with openai_chat ([DONE] after the last chunk), openai_responses (response.completed), openai_realtime (response.done): not provider-only (stream end marker)",
 
     // openai_chat
     "openai_chat.body_field:created":
@@ -90,7 +90,7 @@ export const dialectResidualAllowlist: Record<string, string> = {
     "openai_responses.body_field:output_index":
         "shared with openai_realtime (output_index): not provider-only (output item position)",
     "openai_responses.body_field:parallel_tool_calls":
-        "shared with anthropic_messages (parallel_tool_calls): not provider-only (parallel tool call setting echoed on the response)",
+        "shared with anthropic_messages (tool_choice.disable_parallel_tool_use), openai_chat (parallel_tool_calls): not provider-only (whether the model may call tools in parallel, echoed on the response)",
     "openai_responses.body_field:previous_response_id":
         "openai_responses only: chains this response to a previous one server-side; the other four dialects are stateless request/response APIs with no response chaining field (checked anthropic_messages, openai_chat, gemini, openai_realtime response schemas)",
     "openai_responses.body_field:reasoning:effort":
@@ -110,7 +110,7 @@ export const dialectResidualAllowlist: Record<string, string> = {
     "openai_responses.body_field:response:max_output_tokens":
         "shared with anthropic_messages (max_tokens), openai_chat (max_tokens), openai_realtime (max_output_tokens), gemini (generationConfig.maxOutputTokens): not provider-only (token limit on the terminal event)",
     "openai_responses.body_field:response:metadata":
-        "openai_responses only: free-form key-value metadata attached to a stored response; no other dialect's response schema has such a field (checked anthropic_messages, openai_chat, gemini, openai_realtime response schemas)",
+        "shared with openai_realtime (response.metadata): not provider-only (free-form key-value metadata on the response)",
     "openai_responses.body_field:response:model":
         "shared with anthropic_messages (model), openai_chat (model), gemini (modelVersion): not provider-only (model name on the terminal event)",
     "openai_responses.body_field:response:object":
@@ -118,7 +118,7 @@ export const dialectResidualAllowlist: Record<string, string> = {
     "openai_responses.body_field:response:output":
         "shared with openai_realtime (response.output): not provider-only (output items on the terminal event)",
     "openai_responses.body_field:response:parallel_tool_calls":
-        "shared with anthropic_messages (parallel_tool_calls): not provider-only (parallel tool call setting on the terminal event)",
+        "shared with anthropic_messages (tool_choice.disable_parallel_tool_use), openai_chat (parallel_tool_calls): not provider-only (whether the model may call tools in parallel, on the terminal event)",
     "openai_responses.body_field:response:previous_response_id":
         "openai_responses only: chains this response to a previous one server-side; the other four dialects are stateless request/response APIs with no response chaining field (checked anthropic_messages, openai_chat, gemini, openai_realtime response schemas)",
     "openai_responses.body_field:response:reasoning":
