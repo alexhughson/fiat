@@ -693,6 +693,15 @@ describe("response.done across dialects", () => {
                 usage: { input_tokens: 3, output_tokens: 2 },
             },
         };
+        const incomplete = {
+            type: "response.incomplete",
+            response: {
+                id: "resp_1",
+                status: "incomplete",
+                incomplete_details: { reason: "max_output_tokens" },
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+        };
         expect(OpenAIResponsesTranslator.fromStreamResponse(completed)).toEqual(
             [
                 {
@@ -717,6 +726,34 @@ describe("response.done across dialects", () => {
                 OpenAIResponsesTranslator.fromStreamResponse(completed),
             ),
         ).toEqual(completed);
+        expect(
+            OpenAIResponsesTranslator.fromStreamResponse(incomplete),
+        ).toEqual([
+            {
+                op: "openai_responses.body_field",
+                key: "type",
+                value: "response.incomplete",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "response",
+                value: {
+                    id: "resp_1",
+                    status: "incomplete",
+                    incomplete_details: { reason: "max_output_tokens" },
+                },
+                appliesTo: "response",
+            },
+            { op: "response.stop", reason: "max_tokens" },
+            { op: "response.usage", inputTokens: 3, outputTokens: 2 },
+            { op: "response.done" },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(
+                OpenAIResponsesTranslator.fromStreamResponse(incomplete),
+            ),
+        ).toEqual(incomplete);
     });
 
     test("an openai responses response.failed raises response.done beside usage only", () => {

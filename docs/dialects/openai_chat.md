@@ -62,5 +62,14 @@ models lower them as `max_tokens`.
 
 ## Out of scope
 
-Streaming chunks, image `detail` metadata, file-backed images, video inputs,
-and `logprobs`. The Responses API is modeled separately as `openai_responses`.
+Image `detail` metadata, file-backed images, video inputs, and `logprobs`.
+The Responses API is modeled separately as `openai_responses`.
+
+## Streaming
+
+Chat Completions chunks translate as streams. A text delta chunk raises
+`llm.model` and `response.text_delta`, keeping the chunk's `id`, `object`, and
+`created` as `openai_chat.body_field` residuals, and lowers back to the same
+chunk. A tool-call delta chunk raises `response.tool_call_delta`. The final
+chunk raises `response.stop` and `response.usage`. The `[DONE]` sentinel is not
+a chunk and does not translate.

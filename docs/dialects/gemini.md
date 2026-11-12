@@ -141,5 +141,12 @@ when they are not portable core images.
 
 ## Out of scope
 
-Streaming, Interactions API, multiple candidates, cache/batch/countTokens,
-and response media core ops.
+Interactions API, multiple candidates, cache/batch/countTokens, and response
+media core ops.
+
+## Streaming
+
+Generate Content stream chunks translate as streams. A text chunk raises
+`response.text_delta`; a chunk holding a `functionCall` part raises
+`response.tool_call_delta`. The last chunk raises `response.stop` from the
+candidate's `finishReason` and `response.usage` from `usageMetadata`.
