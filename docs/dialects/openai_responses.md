@@ -8,6 +8,7 @@ OpenAI Responses (`POST /v1/responses`). Code:
 | wire                                        | core                                |
 | ------------------------------------------- | ----------------------------------- |
 | `model`                                     | `llm.model`                         |
+| response `id`                               | `response.id`                       |
 | `instructions`                              | system `llm.text`                   |
 | `temperature`                               | `llm.temperature`                   |
 | `max_output_tokens`                         | `llm.max_output_tokens`             |

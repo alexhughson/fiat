@@ -82,12 +82,13 @@ not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 
 ## Response ops
 
-| op                         | fields                                 | notes                         |
-| -------------------------- | -------------------------------------- | ----------------------------- |
-| `response.stop`            | normalized stop reason                 | provider enum values map here |
-| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only            |
-| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta             |
-| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta        |
+| op                         | fields                                 | notes                                     |
+| -------------------------- | -------------------------------------- | ----------------------------------------- |
+| `response.id`              | `id`                                   | the provider's id for a complete response |
+| `response.stop`            | normalized stop reason                 | provider enum values map here             |
+| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                        |
+| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                         |
+| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                    |
 
 Assistant responses raise to `llm.text` and `llm.tool_call`. That is why a
 response program can be appended to the next request program.
