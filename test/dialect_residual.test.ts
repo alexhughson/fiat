@@ -1394,8 +1394,6 @@ const stopPaths: Record<string, string> = {
     // A free-form key-value map the caller set on the request, echoed back
     // by the provider.
     metadata: "caller's free-form metadata",
-    // Extra part fields the gemini raise could not classify.
-    meta: "unclassified part extras",
     // The gemini functionResponse payload, kept raw for round-trip. Every
     // other `response` field (openai_realtime event_param, openai_responses
     // body_field) holds a provider response object and is walked.
