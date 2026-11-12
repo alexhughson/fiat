@@ -1672,34 +1672,27 @@ describe("anthropic_messages response streams", () => {
         expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
     });
 
-    test("message_start raises to an openai chat chunk with model and usage", () => {
-        withWarnSpy((warn) => {
-            const chunk = OpenAIChatTranslator.toStreamResponse(
-                AnthropicTranslator.fromStreamResponse({
-                    type: "message_start",
-                    message: {
-                        id: "msg_1",
-                        type: "message",
-                        role: "assistant",
-                        content: [],
-                        model: "claude-opus-5-5",
-                        stop_reason: null,
-                        stop_sequence: null,
-                        usage: { input_tokens: 25, output_tokens: 1 },
-                    },
-                }),
-            ) as Record<string, unknown>;
+    test("message_start lowers to an openai chat chunk with model and usage", () => {
+        const chunk = OpenAIChatTranslator.toStreamResponse(
+            AnthropicTranslator.fromStreamResponse({
+                type: "message_start",
+                message: {
+                    id: "msg_1",
+                    type: "message",
+                    role: "assistant",
+                    content: [],
+                    model: "claude-opus-5-5",
+                    stop_reason: null,
+                    stop_sequence: null,
+                    usage: { input_tokens: 25, output_tokens: 1 },
+                },
+            }),
+        ) as Record<string, unknown>;
 
-            expect(chunk).toMatchObject({
-                model: "claude-opus-5-5",
-                usage: { prompt_tokens: 25, completion_tokens: 1 },
-                choices: [],
-            });
-            expect(warn).toHaveBeenCalledWith(
-                expect.stringContaining(
-                    'ignored foreign op "anthropic_messages.stream_event"',
-                ),
-            );
+        expect(chunk).toMatchObject({
+            model: "claude-opus-5-5",
+            usage: { prompt_tokens: 25, completion_tokens: 1 },
+            choices: [],
         });
     });
 

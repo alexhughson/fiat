@@ -327,8 +327,41 @@ export function streamResponseFromWire(wire: unknown): Program {
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
         case "response.output_text.done":
-        case "response.content_part.done":
             return streamEventParams(event, []);
+        // A text part opens here and its text arrives as output_text.delta
+        // events, so the event also raises response.text_start. A part other
+        // than text is not raised; it keeps main's behavior for this event.
+        case "response.content_part.added": {
+            const part = asRecord(event.part, "stream event.part");
+            if (part.type !== "text") {
+                throwUnsupportedStreamResponseEvent(type);
+            }
+            return [
+                ...streamEventParams(event, []),
+                {
+                    op: "response.text_start",
+                    index: asNumber(
+                        event.output_index,
+                        "stream event.output_index",
+                    ),
+                },
+            ];
+        }
+        // A text part ends here, so the event also raises response.block_stop.
+        // A part other than text keeps main's behavior: dialect params only.
+        case "response.content_part.done": {
+            const part = asRecord(event.part, "stream event.part");
+            const program = streamEventParams(event, []);
+            if (part.type !== "text") return program;
+            program.push({
+                op: "response.block_stop",
+                index: asNumber(
+                    event.output_index,
+                    "stream event.output_index",
+                ),
+            });
+            return program;
+        }
         case "response.done":
             return streamDoneEvent(event);
         default:

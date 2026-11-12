@@ -37,6 +37,7 @@ field.
 | `anthropic_messages.output_config`      | raw `output_config` object                                      |
 | `anthropic_messages.context_management` | raw `context_management` object                                 |
 | `anthropic_messages.body_field`         | unknown top-level field                                         |
+| `anthropic_messages.stream_event`       | one wire stream event that no core op names (see below)         |
 
 ## Legalizations
 
@@ -60,7 +61,8 @@ field.
 ## Response streams
 
 `fromStreamResponse` wraps one SSE event as an `anthropic_messages.stream_event`
-op; `raiseStreamEvents` maps each event type. One event in, one event out:
+op; `raiseStreamEvents` maps each event type. One wire event can raise several
+ops:
 
 | wire event                               | raised ops                                                              |
 | ---------------------------------------- | ----------------------------------------------------------------------- |
@@ -126,9 +128,13 @@ raised:
 ```
 
 On lowering, `lowerStreamMessageStart` folds the `llm.model` and usage ops
-back into the `message_start` residual, so each event lowers back to the same
-wire event. Residual events pass through `toStreamResponse` untouched;
-lowering to another dialect drops them with a warning.
+raised from a `message_start` event back into that event's `stream_event`
+residual, so each event lowers back to the same wire event, with one loss: a
+`message_delta` event loses `stop_sequence: null`, on `main` and here.
+Residual events pass through `toStreamResponse` untouched; lowering to another
+dialect drops them with a warning. Lowering a whole stream at once moves the
+rebuilt `message_delta` event after `message_stop`, also a `main` behavior;
+each event lowered on its own keeps its order.
 
 `ping` keeps the connection open and carries no other meaning; only Anthropic
 sends it, so it stays an `anthropic_messages.stream_event` op.
