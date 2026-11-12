@@ -47,8 +47,9 @@ path. Code: `src/dialects/gemini/`.
   `responseSchema`.
 - A `gemini.part_meta` for a text or functionCall part must stay adjacent
   to the lowered part it annotates. A functionResponse `gemini.part_meta`
-  names its `llm.tool_result` by id under `of`, so its position is free,
-  and one whose `of` matches no `llm.tool_result` in the program throws.
+  names its `llm.tool_result` by id under `of`, so its position is free;
+  lowering binds it to the nearest earlier result with that id, or the
+  nearest later one, and removes it when no result has that id.
 
 ## Tool results
 
@@ -125,9 +126,16 @@ answers by that op's id under `of`, plus any other keys of the wire part under
 }
 ```
 
-Lowering finds the result by `of`, so the op's position in the program is free
-and a transform may move either op. Request lowering reads only `of` and
-`name`; the keys under `meta` are not written back to the request body.
+Lowering finds the result by `of` — the nearest earlier `llm.tool_result`
+with that id, or the nearest later one when no earlier result exists, so the
+op's position in the program is free and a transform may move either op.
+Two results that reuse one id each keep their own name, because each
+part_meta binds to the nearest earlier result. Request lowering reads only
+`of` and `name`; the keys under `meta` are not written back to the request
+body. A part_meta whose `of` names no `llm.tool_result` in the program —
+for example after a transform cuts the answered turn out of a history —
+holds only the name of a part that no longer exists, so lowering removes
+the op and writes the rest of the body.
 
 When the proxy's client sends a request body whose `functionResponse.response`
 holds an object under `output`, the proxy sends the part on to Gemini's API

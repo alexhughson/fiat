@@ -787,6 +787,86 @@ describe("gemini translation", () => {
         ]);
     });
 
+    test("two calls that reuse one id each keep their own functionResponse name and response", () => {
+        const body = {
+            model: "models/gemini-3.5-flash",
+            contents: [
+                { role: "user", parts: [{ text: "run both" }] },
+                {
+                    role: "model",
+                    parts: [
+                        { functionCall: { name: "f", args: {}, id: "c1" } },
+                        { functionCall: { name: "g", args: {}, id: "c1" } },
+                    ],
+                },
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "f",
+                                response: { a: 1 },
+                                id: "c1",
+                            },
+                        },
+                        {
+                            functionResponse: {
+                                name: "g",
+                                response: { b: 2 },
+                                id: "c1",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        // Each functionResponse part_meta names the nearest earlier result
+        // with its id, so one shared id cannot make the last call's name
+        // serve both parts.
+        const program = GeminiTranslator.fromBody(body);
+        const lowered = GeminiTranslator.toBody(program) as typeof body;
+        expect(lowered.contents[2]!.parts).toEqual([
+            {
+                functionResponse: { name: "f", response: { a: 1 }, id: "c1" },
+            },
+            {
+                functionResponse: { name: "g", response: { b: 2 }, id: "c1" },
+            },
+        ]);
+    });
+
+    test("a functionResponse part_meta whose `of` names no tool result is removed, and the body still lowers", () => {
+        const body = {
+            model: "models/gemini-3.5-flash",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        { text: "cut history" },
+                        {
+                            functionResponse: {
+                                name: "calc",
+                                response: { output: "361" },
+                                id: "call_math",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        // A transform that cuts old turns out of a history leaves the op
+        // with no result; it holds only the name of a part that no longer
+        // exists, so lowering removes it instead of throwing.
+        const program = GeminiTranslator.fromBody(body);
+        const kept = program.filter((op) => op.op !== "llm.tool_result");
+        const lowered = GeminiTranslator.toBody(kept) as typeof body;
+        expect(lowered.contents).toEqual([
+            { role: "user", parts: [{ text: "cut history" }] },
+        ]);
+    });
+
     test("an anthropic response id lowers into the gemini responseId", () => {
         const response = GeminiTranslator.toResponse(
             AnthropicTranslator.fromResponse({
