@@ -604,12 +604,7 @@ describe("openai_responses responses", () => {
 
     test("text responses raise to assistant text, usage, stop, and response-only residuals", () => {
         expect(OpenAIResponsesTranslator.fromResponse(wireResponse)).toEqual([
-            {
-                op: "openai_responses.body_field",
-                key: "id",
-                value: "resp_123",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "resp_123" },
             {
                 op: "openai_responses.body_field",
                 key: "object",

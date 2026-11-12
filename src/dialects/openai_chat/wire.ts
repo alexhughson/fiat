@@ -291,6 +291,9 @@ export function responseToWire(program: Program): unknown {
             case "llm.model":
                 body.model = op.model;
                 break;
+            case "response.id":
+                body.id = (op as OpOf<"response.id">).id;
+                break;
             case "openai_chat.message":
                 if (message)
                     throw new Error(

@@ -596,6 +596,7 @@ describe("openai_chat translation", () => {
         ) as Record<string, unknown>;
 
         expect(openaiResponse.model).toBe("claude-sonnet-4-6");
+        expect(openaiResponse.id).toBe("msg_01ABC");
         expect(openaiResponse.choices).toEqual([
             {
                 index: 0,

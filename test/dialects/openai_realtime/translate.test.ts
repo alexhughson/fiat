@@ -544,4 +544,14 @@ describe("openai_realtime translation", () => {
             usage: { input_tokens: 10, output_tokens: 2 },
         });
     });
+
+    test("a raised response id backs the realtime response.done id", () => {
+        const realtimeResponse = OpenAIRealtimeTranslator.toResponse([
+            { op: "llm.model", model: "gpt-realtime" },
+            { op: "llm.text", role: "assistant", content: "pong" },
+            { op: "response.id", id: "resp_789" },
+        ]) as { events: { response: Record<string, unknown> }[] };
+
+        expect(realtimeResponse.events[0]!.response.id).toBe("resp_789");
+    });
 });

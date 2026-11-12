@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { GeminiTranslator, OpenAIChatTranslator } from "../../../src/index";
+import {
+    AnthropicTranslator,
+    GeminiTranslator,
+    OpenAIChatTranslator,
+} from "../../../src/index";
 import {
     geminiPlannerProgram,
     mixedHistoryProgram,
@@ -519,5 +523,21 @@ describe("gemini translation", () => {
         // Gemini lowering injects on the functionCall part is pre-existing
         // behavior for core tool history without a Gemini response.
         expect(lowered.contents[2]!.parts).toEqual(body.contents[2]!.parts);
+    });
+
+    test("an anthropic response id lowers into the gemini responseId", () => {
+        const response = GeminiTranslator.toResponse(
+            AnthropicTranslator.fromResponse({
+                id: "msg_01ABC",
+                type: "message",
+                role: "assistant",
+                model: "claude-sonnet-4-6",
+                content: [{ type: "text", text: "It is correct." }],
+                stop_reason: "end_turn",
+                usage: { input_tokens: 20, output_tokens: 9 },
+            }),
+        ) as Record<string, unknown>;
+
+        expect(response.responseId).toBe("msg_01ABC");
     });
 });

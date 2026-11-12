@@ -209,6 +209,9 @@ export function responseToWire(program: Program): unknown {
             case "llm.model":
                 body.model = op.model;
                 break;
+            case "response.id":
+                body.responseId = (op as OpOf<"response.id">).id;
+                break;
             case "gemini.content":
                 if (content)
                     throw new Error(

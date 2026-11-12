@@ -94,6 +94,7 @@ export type CoreOp =
           schema: JsonSchema;
       }
     | { op: "meta.trace"; traceId: string }
+    | { op: "response.id"; id: string }
     // Only the cross-provider counts live here. Provider-specific usage fields
     // (cache hits, reasoning tokens, totals) stay in the op stream as a
     // residual on the source dialect's usage op.

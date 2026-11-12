@@ -386,6 +386,22 @@ describe("openai_responses translation", () => {
         });
     });
 
+    test("an anthropic response id lowers into the openai responses id", () => {
+        const response = OpenAIResponsesTranslator.toResponse(
+            AnthropicTranslator.fromResponse({
+                id: "msg_01ABC",
+                type: "message",
+                role: "assistant",
+                model: "claude-sonnet-4-6",
+                content: [{ type: "text", text: "It is correct." }],
+                stop_reason: "end_turn",
+                usage: { input_tokens: 20, output_tokens: 9 },
+            }),
+        ) as Record<string, unknown>;
+
+        expect(response.id).toBe("msg_01ABC");
+    });
+
     test("pause_turn does not become max_output_tokens when targeting openai responses", () => {
         expect(() =>
             OpenAIResponsesTranslator.toResponse(

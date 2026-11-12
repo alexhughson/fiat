@@ -1003,12 +1003,7 @@ describe("anthropic_messages responses", () => {
                 role: "assistant",
                 content: "No, it is correct.",
             },
-            {
-                op: "anthropic_messages.body_field",
-                key: "id",
-                value: "msg_01ABC",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "msg_01ABC" },
             {
                 op: "anthropic_messages.body_field",
                 key: "type",
