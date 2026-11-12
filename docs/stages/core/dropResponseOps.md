@@ -4,6 +4,12 @@ If responses are appended to a prompt, the prompt will contain response specific
 ops like `response.stop` and `response.usage`, which are invalid.
 `dropResponseOps` is used to remove those ops when compiling a request body.
 
+```ts
+function dropResponseOps(program: Program): Program;
+```
+
+`Program` is the type `Op[]`, declared in `src/core/ops.ts`.
+
 The prompt is the request program shown below.
 
 `dropResponseOps(program)` is in `src/core/pipeline.ts`. For kind `"request"`,

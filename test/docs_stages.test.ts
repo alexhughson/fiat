@@ -51,3 +51,19 @@ test("docs/stages/core/dropResponseOps.md shows what dropResponseOps returns", (
     });
     expect(afterDrop).toEqual(output);
 });
+
+test("docs/stages/core/dropResponseOps.md shows the signature of dropResponseOps", () => {
+    const read = (path: string) =>
+        readFileSync(new URL(path, import.meta.url), "utf8");
+    // dropResponseOps is not exported, so the test reads its declaration from
+    // the source file as text, up to the opening brace of the body.
+    const declared = /^function dropResponseOps\(.*?(?= \{$)/ms.exec(
+        read("../src/core/pipeline.ts"),
+    )?.[0];
+    // The page's first ts block is the signature. Prettier ends it with ";".
+    const shown = /```ts\n(.*?)\n```/s.exec(
+        read("../docs/stages/core/dropResponseOps.md"),
+    )?.[1];
+    expect(declared).toBeDefined();
+    expect(shown).toBe(`${declared};`);
+});
