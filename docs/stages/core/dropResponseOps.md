@@ -132,6 +132,8 @@ body.
 `dropResponseOps` keeps every other op, in the same order, and does not warn
 about the ops that `dropResponseOps` removes. A dialect op without `appliesTo`
 is kept, including an op from a dialect other than the target dialect. A later
-step, `dropForeignResiduals`, removes that op from another dialect with a
-warning, or throws when the op has `preservesContent: true`, so the op does not
-reach the body.
+step, `dropForeignResiduals`, removes an op that belongs to another dialect and
+warns. When that op holds message content, such as an Anthropic image block that
+names a file by its id, the op has the param `preservesContent: true`, and
+`dropForeignResiduals` throws instead. In both cases the op does not reach the
+body.
