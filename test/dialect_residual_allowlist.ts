@@ -41,13 +41,13 @@ export const providerOnly: Record<string, string> = {
 
     // openai_responses
     "response:openai_responses.body_field:previous_response_id":
-        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; openai_realtime groups turns by conversation_id on the response instead)",
+        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; anthropic_messages has the request field diagnostics.previous_message_id, which the proxy's client fills with the msg_... id of an earlier response so the server can report why the prompt cache missed, not to continue a response; openai_realtime groups turns by conversation_id on the response instead)",
     "stream:response.completed:openai_responses.body_field:response:previous_response_id":
-        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; openai_realtime groups turns by conversation_id on the response instead)",
+        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; anthropic_messages has the request field diagnostics.previous_message_id, which the proxy's client fills with the msg_... id of an earlier response so the server can report why the prompt cache missed, not to continue a response; openai_realtime groups turns by conversation_id on the response instead)",
     "stream:response.failed:openai_responses.body_field:response:previous_response_id":
-        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; openai_realtime groups turns by conversation_id on the response instead)",
+        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; anthropic_messages has the request field diagnostics.previous_message_id, which the proxy's client fills with the msg_... id of an earlier response so the server can report why the prompt cache missed, not to continue a response; openai_realtime groups turns by conversation_id on the response instead)",
     "stream:response.incomplete:openai_responses.body_field:response:previous_response_id":
-        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; openai_realtime groups turns by conversation_id on the response instead)",
+        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; anthropic_messages has the request field diagnostics.previous_message_id, which the proxy's client fills with the msg_... id of an earlier response so the server can report why the prompt cache missed, not to continue a response; openai_realtime groups turns by conversation_id on the response instead)",
 };
 
 // Residuals main produces today, unclassified. Unit string only.
@@ -88,13 +88,11 @@ export const baseline: string[] = [
     "request:openai_responses.body_field:top_p",
 
     // anthropic_messages
-    "response:anthropic_messages.body_field:id",
     "response:anthropic_messages.body_field:stop_sequence",
     "response:anthropic_messages.body_field:type",
 
     // gemini
     "response:gemini.body_field:modelVersion",
-    "response:gemini.body_field:responseId",
     "response:gemini.part_meta:functionCall:id",
     "response:gemini.part_meta:functionCall:index",
     "response:gemini.part_meta:functionCall:kind",
@@ -108,14 +106,12 @@ export const baseline: string[] = [
 
     // openai_chat
     "response:openai_chat.body_field:created",
-    "response:openai_chat.body_field:id",
     "response:openai_chat.body_field:object",
     "response:openai_chat.body_field:service_tier",
     "response:openai_chat.usage:total_tokens",
 
     // openai_realtime
     "response:openai_realtime.body_field:created_at",
-    "response:openai_realtime.body_field:id",
     "response:openai_realtime.body_field:model",
     "response:openai_realtime.body_field:object",
     "response:openai_realtime.body_field:status",
@@ -135,7 +131,6 @@ export const baseline: string[] = [
     // openai_responses
     "response:openai_responses.body_field:created_at",
     "response:openai_responses.body_field:error",
-    "response:openai_responses.body_field:id",
     "response:openai_responses.body_field:incomplete_details",
     "response:openai_responses.body_field:instructions",
     "response:openai_responses.body_field:max_output_tokens",
