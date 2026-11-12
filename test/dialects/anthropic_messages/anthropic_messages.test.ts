@@ -1502,9 +1502,123 @@ describe("anthropic_messages response streams", () => {
         });
     });
 
-    test("unsupported stream events throw", () => {
+    test("message_start raises model and input usage and lowers back to the same event", () => {
+        const event = {
+            type: "message_start",
+            message: {
+                id: "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY",
+                type: "message",
+                role: "assistant",
+                content: [],
+                model: "claude-opus-5-5",
+                stop_reason: null,
+                stop_sequence: null,
+                usage: { input_tokens: 25, output_tokens: 1 },
+            },
+        };
+
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            { op: "llm.model", model: "claude-opus-5-5" },
+            { op: "response.usage", inputTokens: 25, outputTokens: 1 },
+            {
+                op: "anthropic_messages.stream_event",
+                event: {
+                    type: "message_start",
+                    message: {
+                        id: "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY",
+                        type: "message",
+                        role: "assistant",
+                        content: [],
+                        stop_reason: null,
+                        stop_sequence: null,
+                    },
+                },
+                appliesTo: "response",
+            },
+        ]);
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
+    });
+
+    test("message_start usage extras stay in the anthropic usage residual and fold back", () => {
+        const event = {
+            type: "message_start",
+            message: {
+                id: "msg_cache",
+                type: "message",
+                role: "assistant",
+                content: [],
+                model: "claude-sonnet-4-6",
+                stop_reason: null,
+                stop_sequence: null,
+                usage: {
+                    input_tokens: 25,
+                    output_tokens: 1,
+                    cache_read_input_tokens: 20,
+                },
+            },
+        };
+
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toContainEqual({
+            op: "anthropic_messages.usage",
+            usage: { cache_read_input_tokens: 20 },
+            appliesTo: "response",
+        });
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
+    });
+
+    test("message_start raises to an openai chat chunk with model and usage", () => {
+        withWarnSpy((warn) => {
+            const chunk = OpenAIChatTranslator.toStreamResponse(
+                AnthropicTranslator.fromStreamResponse({
+                    type: "message_start",
+                    message: {
+                        id: "msg_1",
+                        type: "message",
+                        role: "assistant",
+                        content: [],
+                        model: "claude-opus-5-5",
+                        stop_reason: null,
+                        stop_sequence: null,
+                        usage: { input_tokens: 25, output_tokens: 1 },
+                    },
+                }),
+            ) as Record<string, unknown>;
+
+            expect(chunk).toMatchObject({
+                model: "claude-opus-5-5",
+                usage: { prompt_tokens: 25, completion_tokens: 1 },
+                choices: [],
+            });
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(
+                    'ignored foreign op "anthropic_messages.stream_event"',
+                ),
+            );
+        });
+    });
+
+    test("ping stays an anthropic op and round-trips", () => {
+        const event = { type: "ping" };
+
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "anthropic_messages.stream_event",
+                event,
+                appliesTo: "response",
+            },
+        ]);
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
+    });
+
+    test("error events still throw", () => {
         expect(() =>
-            AnthropicTranslator.fromStreamResponse({ type: "ping" }),
+            AnthropicTranslator.fromStreamResponse({
+                type: "error",
+                error: { type: "overloaded_error", message: "Overloaded" },
+            }),
         ).toThrow(LintError);
     });
 });

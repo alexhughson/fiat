@@ -14,6 +14,7 @@ import {
     type Program,
 } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import { asRecord } from "../../core/wire.js";
 import {
     assertDocumentSource,
     assertImageMediaType,
@@ -62,6 +63,7 @@ export const lowerStreamResponseStages: Stage[] = [
     lowerCompleteResponseToStreamEvents,
     lowerStreamTextDeltas,
     lowerStreamToolCallDeltas,
+    lowerStreamMessageStart,
     lowerStreamStopAndUsage,
 ];
 
@@ -750,6 +752,72 @@ export function lowerStreamToolCallDeltas(program: Program): Program {
             "anthropic_messages stream lower: tool call delta requires start metadata or arguments",
         );
     });
+}
+
+// Folds the ops raised from a message_start event (llm.model, usage) back
+// into that event, so a raised stream lowers back to the same wire event.
+// The raised ops sit immediately before the message_start residual, in both
+// a per-event and a whole-stream program. Without a message_start residual,
+// the held ops pass through to the stages that use them.
+export function lowerStreamMessageStart(program: Program): Program {
+    const out: Program = [];
+    const held: Program = [];
+    for (const op of program) {
+        if (
+            op.op === "llm.model" ||
+            op.op === "response.usage" ||
+            op.op === "anthropic_messages.usage"
+        ) {
+            held.push(op);
+            continue;
+        }
+        if (
+            op.op === "anthropic_messages.stream_event" &&
+            opData<{ event: WireAnthropicStreamEvent }>(op).event.type ===
+                "message_start"
+        ) {
+            out.push(foldMessageStart(op, held));
+            held.length = 0;
+            continue;
+        }
+        out.push(...held, op);
+        held.length = 0;
+    }
+    out.push(...held);
+    return out;
+}
+
+function foldMessageStart(residual: Op, held: Program): Op {
+    const event = opData<{ event: WireAnthropicStreamEvent }>(residual).event;
+    const source = asRecord(
+        event.message,
+        "anthropic_messages message_start.message",
+    );
+    const message = { ...source };
+    let usage: Record<string, unknown> | undefined;
+    for (const op of held) {
+        if (op.op === "llm.model") {
+            message.model = (op as OpOf<"llm.model">).model;
+        } else if (op.op === "response.usage") {
+            const counts = op as OpOf<"response.usage">;
+            usage = {
+                ...usage,
+                ...(counts.inputTokens != null
+                    ? { input_tokens: counts.inputTokens }
+                    : {}),
+                ...(counts.outputTokens != null
+                    ? { output_tokens: counts.outputTokens }
+                    : {}),
+            };
+        } else {
+            usage = {
+                ...usage,
+                ...opData<{ usage: Record<string, unknown> }>(op).usage,
+            };
+        }
+    }
+    if (usage != null) message.usage = usage;
+    return streamEvent({ ...event, message });
 }
 
 export function lowerStreamStopAndUsage(program: Program): Program {
