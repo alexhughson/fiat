@@ -1,13 +1,14 @@
-// Guards the rule Alex set after PR #11: a concept that several providers
-// share must live in a core op, not survive a raise as a dialect op. The test
-// raises ordinary requests, complete responses, and single stream events from
-// every dialect through the dialect's public translators, collects every
-// dialect-op unit the raise leaves behind, and checks each unit against
-// test/dialect_residual_allowlist.ts: providerOnly rows say why only that
-// provider has the data; baseline rows are main's unclassified residuals,
-// which a pull request may delete and may not extend. A raise that throws is
-// recorded as a skip, not a failure; the skips seeded from main live in
-// expectedSkips, so a raiser that starts or stops throwing shows up here too.
+// Guards the rule Alex set after PR #11: data that several providers have
+// must be raised to a core op, not left in a dialect-specific op. The test
+// raises ordinary request bodies, complete response bodies, and single stream
+// events of every dialect through the dialect's public translators, splits
+// every op outside the core namespaces into units (see "A unit" below), and
+// checks each unit against test/dialect_residual_allowlist.ts. A providerOnly
+// row names the public API references that show no other provider has the
+// data. A baseline row is a residual that main has today: backlog to raise to
+// a core op or to move to providerOnly with a reason. A raise that throws is
+// recorded as a skip, not a failure; the skips that main has are listed in
+// expectedSkips, so a raise that starts or stops throwing fails the test too.
 
 import { describe, expect, test } from "bun:test";
 import {
@@ -16,6 +17,7 @@ import {
     OpenAIChatTranslator,
     OpenAIRealtimeTranslator,
     OpenAIResponsesTranslator,
+    isCoreOp,
     type Op,
     type Program,
     type Translator,
@@ -31,6 +33,7 @@ const translators: Record<string, Translator> = {
 };
 
 const allowlistFile = "test/dialect_residual_allowlist.ts";
+const testFile = "test/dialect_residual.test.ts";
 
 type TranslatorFn = "fromBody" | "fromResponse" | "fromStreamResponse";
 
@@ -41,18 +44,24 @@ interface Case {
     input: unknown;
 }
 
-// Raises on main that throw; these are ordinary inputs a fix must cover.
+// Ordinary inputs whose raise throws on main. The test cannot check what
+// such a raise would leave, so each row is backlog for a fix under src.
 const expectedSkips = [
     "anthropic_messages stream message_start",
     "anthropic_messages stream content_block_start text",
+    "anthropic_messages stream content_block_start thinking",
+    "anthropic_messages stream thinking_delta",
+    "anthropic_messages stream signature_delta",
     "anthropic_messages stream content_block_stop",
     "anthropic_messages stream ping",
+    "anthropic_messages stream error",
     "openai_responses stream response.created",
     "openai_responses stream response.in_progress",
     "openai_responses stream response.content_part.added",
     "openai_responses stream response.content_part.done",
     "openai_responses stream response.output_text.done",
     "openai_responses stream response.function_call_arguments.done",
+    "openai_responses stream response.reasoning_summary_text.delta",
     "openai_realtime stream response.created",
     "openai_realtime stream response.content_part.added",
 ];
@@ -254,6 +263,68 @@ const cases: Case[] = [
         input: { type: "ping" },
     },
 
+    {
+        label: "anthropic_messages request diagnostics previous_message_id",
+        fn: "fromBody",
+        input: {
+            model: "claude-sonnet-4-6",
+            max_tokens: 100,
+            diagnostics: { previous_message_id: "msg_0" },
+            messages: [{ role: "user", content: "hi" }],
+        },
+    },
+    {
+        label: "anthropic_messages response thinking block",
+        fn: "fromResponse",
+        input: {
+            id: "msg_1",
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            content: [
+                { type: "thinking", thinking: "hmm", signature: "EqQBCg==" },
+                { type: "text", text: "hi" },
+            ],
+            stop_reason: "end_turn",
+            stop_sequence: null,
+            usage: { input_tokens: 10, output_tokens: 5 },
+        },
+    },
+    {
+        label: "anthropic_messages stream content_block_start thinking",
+        fn: "fromStreamResponse",
+        input: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "thinking", thinking: "", signature: "" },
+        },
+    },
+    {
+        label: "anthropic_messages stream thinking_delta",
+        fn: "fromStreamResponse",
+        input: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "thinking_delta", thinking: "hmm" },
+        },
+    },
+    {
+        label: "anthropic_messages stream signature_delta",
+        fn: "fromStreamResponse",
+        input: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "signature_delta", signature: "EqQBCg==" },
+        },
+    },
+    {
+        label: "anthropic_messages stream error",
+        fn: "fromStreamResponse",
+        input: {
+            type: "error",
+            error: { type: "overloaded_error", message: "Overloaded" },
+        },
+    },
     // openai_chat
     {
         label: "openai_chat request text, image, system prompt",
@@ -464,6 +535,56 @@ const cases: Case[] = [
         },
     },
 
+    {
+        label: "openai_chat request store and metadata",
+        fn: "fromBody",
+        input: {
+            model: "gpt-4o",
+            store: true,
+            metadata: { trace: "abc" },
+            messages: [{ role: "user", content: "hi" }],
+        },
+    },
+    {
+        label: "openai_chat response metadata",
+        fn: "fromResponse",
+        input: {
+            id: "chatcmpl-1",
+            object: "chat.completion",
+            created: 123,
+            model: "gpt-4o",
+            metadata: { trace: "abc" },
+            choices: [
+                {
+                    index: 0,
+                    message: { role: "assistant", content: "hi" },
+                    finish_reason: "stop",
+                },
+            ],
+            usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+        },
+    },
+    {
+        label: "openai_chat stream chunk with service_tier, system_fingerprint, logprobs, obfuscation",
+        fn: "fromStreamResponse",
+        input: {
+            id: "chatcmpl-1",
+            object: "chat.completion.chunk",
+            created: 123,
+            model: "gpt-4o",
+            service_tier: "default",
+            system_fingerprint: "fp_1",
+            choices: [
+                {
+                    index: 0,
+                    delta: { content: "hi" },
+                    logprobs: null,
+                    finish_reason: null,
+                },
+            ],
+            obfuscation: "abc",
+        },
+    },
     // openai_responses
     {
         label: "openai_responses request text, image, system prompt",
@@ -860,6 +981,136 @@ const cases: Case[] = [
         },
     },
 
+    {
+        label: "openai_responses request previous_response_id and metadata",
+        fn: "fromBody",
+        input: {
+            model: "gpt-5",
+            input: "hi",
+            previous_response_id: "resp_0",
+            metadata: { trace: "abc" },
+        },
+    },
+    {
+        label: "openai_responses response metadata, conversation, moderation",
+        fn: "fromResponse",
+        input: {
+            id: "resp_1",
+            object: "response",
+            created_at: 1741386163,
+            status: "completed",
+            model: "gpt-5",
+            previous_response_id: "resp_0",
+            conversation: { id: "conv_1" },
+            metadata: { trace: "abc" },
+            moderation: {
+                input: {
+                    type: "moderation_result",
+                    model: "omni-moderation-latest",
+                    flagged: false,
+                    categories: { hate: false },
+                    category_scores: { hate: 0.01 },
+                    category_applied_input_types: { hate: ["text"] },
+                },
+                output: {
+                    type: "moderation_result",
+                    model: "omni-moderation-latest",
+                    flagged: false,
+                    categories: { hate: false },
+                    category_scores: { hate: 0.02 },
+                    category_applied_input_types: { hate: ["text"] },
+                },
+            },
+            output: [
+                {
+                    type: "message",
+                    id: "msg_1",
+                    status: "completed",
+                    role: "assistant",
+                    content: [
+                        { type: "output_text", text: "hi", annotations: [] },
+                    ],
+                },
+            ],
+            usage: { input_tokens: 3, output_tokens: 1, total_tokens: 4 },
+        },
+    },
+    {
+        label: "openai_responses response reasoning item",
+        fn: "fromResponse",
+        input: {
+            id: "resp_1",
+            object: "response",
+            created_at: 1741386163,
+            status: "completed",
+            model: "o3",
+            output: [
+                {
+                    type: "reasoning",
+                    id: "rs_1",
+                    summary: [{ type: "summary_text", text: "hmm" }],
+                    encrypted_content: "enc",
+                },
+                {
+                    type: "message",
+                    id: "msg_1",
+                    status: "completed",
+                    role: "assistant",
+                    content: [
+                        { type: "output_text", text: "hi", annotations: [] },
+                    ],
+                },
+            ],
+            usage: { input_tokens: 3, output_tokens: 1, total_tokens: 4 },
+        },
+    },
+    {
+        label: "openai_responses stream output item added, function call",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.output_item.added",
+            sequence_number: 3,
+            output_index: 1,
+            item: {
+                type: "function_call",
+                id: "fc_1",
+                call_id: "call_1",
+                name: "get_weather",
+                arguments: "",
+                status: "in_progress",
+            },
+        },
+    },
+    {
+        label: "openai_responses stream output item done, message",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.output_item.done",
+            sequence_number: 9,
+            output_index: 0,
+            item: {
+                type: "message",
+                id: "msg_1",
+                status: "completed",
+                role: "assistant",
+                content: [
+                    { type: "output_text", text: "hi there", annotations: [] },
+                ],
+            },
+        },
+    },
+    {
+        label: "openai_responses stream response.reasoning_summary_text.delta",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.reasoning_summary_text.delta",
+            sequence_number: 4,
+            item_id: "rs_1",
+            output_index: 0,
+            summary_index: 0,
+            delta: "hmm",
+        },
+    },
     // gemini
     // fiat's fromBody takes the endpoint's `model` path parameter as a
     // "model" key in the body; the REST endpoint itself puts model in the
@@ -1080,6 +1331,110 @@ const cases: Case[] = [
         },
     },
 
+    {
+        label: "gemini response prompt feedback and safety ratings",
+        fn: "fromResponse",
+        input: {
+            promptFeedback: {
+                safetyRatings: [
+                    {
+                        category: "HARM_CATEGORY_HARASSMENT",
+                        probability: "NEGLIGIBLE",
+                    },
+                ],
+            },
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "hi" }] },
+                    finishReason: "STOP",
+                    index: 0,
+                    safetyRatings: [
+                        {
+                            category: "HARM_CATEGORY_HARASSMENT",
+                            probability: "NEGLIGIBLE",
+                            blocked: false,
+                        },
+                    ],
+                },
+            ],
+            usageMetadata: {
+                promptTokenCount: 3,
+                candidatesTokenCount: 1,
+                totalTokenCount: 4,
+            },
+        },
+    },
+    {
+        label: "gemini response tool call without id",
+        fn: "fromResponse",
+        input: {
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            {
+                                functionCall: {
+                                    name: "get_weather",
+                                    args: { city: "Paris" },
+                                },
+                            },
+                        ],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+            usageMetadata: {
+                promptTokenCount: 10,
+                candidatesTokenCount: 4,
+                totalTokenCount: 14,
+            },
+        },
+    },
+    {
+        label: "gemini response thought part",
+        fn: "fromResponse",
+        input: {
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            { text: "thinking...", thought: true },
+                            { text: "hi" },
+                        ],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+            usageMetadata: {
+                promptTokenCount: 3,
+                candidatesTokenCount: 1,
+                totalTokenCount: 4,
+            },
+        },
+    },
+    {
+        label: "gemini stream thought part with safety ratings",
+        fn: "fromStreamResponse",
+        input: {
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [{ text: "thinking...", thought: true }],
+                    },
+                    index: 0,
+                    safetyRatings: [
+                        {
+                            category: "HARM_CATEGORY_HARASSMENT",
+                            probability: "NEGLIGIBLE",
+                        },
+                    ],
+                },
+            ],
+        },
+    },
     // openai_realtime
     // fiat's fromBody and fromResponse take a `{model, events}` aggregate:
     // one body object holding the model and the list of client or server
@@ -1364,118 +1719,248 @@ const cases: Case[] = [
             part: { type: "output_text", text: "" },
         },
     },
+    {
+        label: "openai_realtime request response.create metadata",
+        fn: "fromBody",
+        input: {
+            model: "gpt-realtime",
+            events: [
+                {
+                    event_id: "evt_1",
+                    type: "conversation.item.create",
+                    item: {
+                        type: "message",
+                        role: "user",
+                        content: [{ type: "input_text", text: "hi" }],
+                    },
+                },
+                {
+                    event_id: "evt_2",
+                    type: "response.create",
+                    response: { metadata: { trace: "abc" } },
+                },
+            ],
+        },
+    },
+    {
+        label: "openai_realtime response metadata and conversation_id",
+        fn: "fromResponse",
+        input: {
+            model: "gpt-realtime",
+            events: [
+                {
+                    event_id: "evt_1",
+                    type: "response.done",
+                    response: {
+                        id: "resp_1",
+                        object: "realtime.response",
+                        status: "completed",
+                        status_details: null,
+                        conversation_id: "conv_1",
+                        metadata: { trace: "abc" },
+                        output: [
+                            {
+                                id: "msg_1",
+                                object: "realtime.item",
+                                type: "message",
+                                status: "completed",
+                                role: "assistant",
+                                content: [
+                                    { type: "output_text", text: "hi there" },
+                                ],
+                            },
+                        ],
+                        usage: {
+                            input_tokens: 10,
+                            output_tokens: 5,
+                            total_tokens: 15,
+                        },
+                    },
+                },
+            ],
+        },
+    },
+    {
+        label: "openai_realtime stream output item added, function call",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e3",
+            type: "response.output_item.added",
+            response_id: "resp_1",
+            output_index: 1,
+            item: {
+                id: "fc_1",
+                object: "realtime.item",
+                type: "function_call",
+                status: "in_progress",
+                call_id: "call_1",
+                name: "get_weather",
+                arguments: "",
+            },
+        },
+    },
+    {
+        label: "openai_realtime stream output item done, message",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e9",
+            type: "response.output_item.done",
+            response_id: "resp_1",
+            output_index: 0,
+            item: {
+                id: "msg_1",
+                object: "realtime.item",
+                type: "message",
+                status: "completed",
+                role: "assistant",
+                content: [{ type: "output_text", text: "hi there" }],
+            },
+        },
+    },
+    {
+        label: "openai_realtime stream done with output and conversation_id",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e10",
+            type: "response.done",
+            response: {
+                id: "resp_1",
+                object: "realtime.response",
+                status: "completed",
+                status_details: null,
+                conversation_id: "conv_1",
+                output: [
+                    {
+                        id: "msg_1",
+                        object: "realtime.item",
+                        type: "message",
+                        status: "completed",
+                        role: "assistant",
+                        content: [{ type: "output_text", text: "hi there" }],
+                    },
+                ],
+                usage: {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    total_tokens: 15,
+                },
+            },
+        },
+    },
 ];
 
-// A unit names one leaf of wire data a dialect op still carries, and says
-// which input left it. A bare op name, a unit that stops at the first
-// nesting level, or one unit string shared by several inputs lets a new
-// provider-only field hide behind an existing row, so the walk goes to full
-// depth through every object and array the op holds, and each unit is
-// prefixed by the kind of input that produced it. A unit string is the input
-// kind — `request`, `response`, or `stream` plus, for a stream event that has
-// one, the event's wire `type` — then the op name, the wire slot, the
-// object's tag where it has one, and the path to the leaf, with every array
-// level written `[]`:
-// - a keyed op (body_field, event_param, response_param,
-//   stream_choice_param, sampling) starts from `op:key`;
-// - an op holding a whole wire object (output_meta, item_meta, part_meta,
-//   stream_event, ...) starts from the object's tag — its `type` or `kind`;
-// - an op holding a record of wire fields (usage, generation_config,
-//   candidate_meta) starts from `op`;
-// - the path then names each leaf, e.g.
-//   `stream:response.done:openai_realtime.event_param:type`.
-// openai_chat and gemini chunks have no wire `type`, so their stream units
-// start with `stream` alone. The walk is by shape, not op name: an op the
-// test has never seen is walked the same way, so a new dialect op cannot
-// slip through unsplit. A new key at any depth is a new unit; new array
-// elements reuse the same unit. The input prefix splits units by input, so
-// cleaning one event or one body kind stales its own row.
+// A unit names one leaf of provider data that a raise leaves outside the core
+// ops, and says which input left it. A bare op name, a unit that stops at the
+// first nesting level, or one unit string shared by several inputs lets a new
+// field hide behind an existing row, so the walk goes to full depth through
+// every object and array the op holds, and each unit starts with the input
+// that produced it: `request` for a request body, `response` for a response
+// body, and `stream` for a stream event, followed by the event's wire `type`
+// when the event has one. The op name comes next, then the path to the leaf,
+// with every array level written `[]`:
+// - an op with `key` and `value` (body_field, event_param, response_param,
+//   stream_choice_param, sampling) continues with the key;
+// - an op whose one other field is a whole wire object (output_meta,
+//   item_meta, part_meta, stream_event, ...) continues with the object's
+//   `type` or `kind`, when it has one;
+// - an op whose one other field is a record of wire fields (usage,
+//   generation_config, candidate_meta) continues with the leaf path;
+// - an op whose one other field is a scalar continues with the field name;
+// - an op with no field besides its name and its bookkeeping is one unit:
+//   the input and the op name;
+// - a field beyond that one payload is written `@field`: on an op with
+//   `key` and `value`, every other field continues `op:key@field`; on any
+//   other op with several fields, every field continues `op@field`. No
+//   corpus case produces such a field on main, so every `@` unit is new.
+// Example: `stream:response.done:openai_realtime.event_param:type`.
+// openai_chat and gemini stream chunks have no wire `type`, so their units
+// start with `stream` alone. The walk goes by the shape of the op, not by its
+// name, and it covers every op whose namespace is not a core namespace, so an
+// op the test has never seen, in a namespace the test has never seen, is
+// split into units the same way. A new key at any depth is a new unit; new
+// array elements reuse the same unit.
 //
-// The walk stops at values that hold caller-defined JSON. Those values are
-// the caller's data, not the provider's wire shape, so the keys inside them
-// are not wire data and do not open units. A stop below names either a
-// field (stops in the dialects listed, when the value is an object) or one
-// exact unit (a field name other ops carry as wire, stopped only where it
-// holds caller data). The stop still emits the unit for the field itself,
-// so its presence on the wire stays checked. Every stop must be reached by
-// some corpus case; the test fails on an unreached stop, so a stop cannot
-// silently protect data nothing exercises. Main's raises lift tool
-// arguments and tool schemas to core ops before any dialect op can hold
-// them, so no stop exists for them: if a future raise leaves such JSON in
-// a dialect op, each caller key opens a unit and must be classified or
-// given a justified stop with a corpus case.
-const stopPaths: Record<string, string | string[]> = {
-    // A free-form key-value map the caller set on the request, echoed back
-    // by the provider. The anthropic_messages request `metadata` is a
-    // provider-defined object (`user_id`), so it is walked there.
-    metadata: [
-        "openai_chat",
-        "openai_responses",
-        "openai_realtime",
-        "caller's free-form metadata",
-    ],
-    // The gemini functionResponse payload, kept raw for round-trip. Every
-    // other `response` field (openai_realtime event_param, openai_responses
-    // body_field) holds a provider response object and is walked.
-    "gemini.part_meta:functionResponse:response":
-        "caller's tool result payload",
+// Limits of the walk:
+// - The lists hold one row per unit, not one row per corpus case. When two
+//   cases produce the same unit and a change removes the unit from one of
+//   them, the row does not go stale, and the same data can return to that
+//   case later without a failure. openai_chat and gemini stream chunks share
+//   units this way, because their units carry no event type.
+// - The walk reads keys, not values. A changed value under a listed key is
+//   the same unit.
+
+// The walk stops at an object that holds JSON the provider does not define:
+// the keys inside are chosen by whoever built the request, so they are not
+// wire data and do not open units. A stop is one exact unit, written without
+// its input, so it covers one field of one op of one dialect and nothing
+// deeper or elsewhere. The stop still emits the unit of the field itself, so
+// the field's presence stays checked. Every stop needs a corpus case in which
+// the object holds at least one key; the test fails on a stop that hid no
+// key. Main's raises lift tool arguments and tool schemas to core ops, so no
+// stop exists for them.
+//
+// The four `metadata` stops are the free-form key-value map of the OpenAI
+// APIs: set on a request body, and returned on the response body. The
+// anthropic_messages request `metadata` is an object the provider defines
+// (`user_id`), and the `metadata` inside the response object of an
+// openai_responses or openai_realtime stream event has no stop: the walk
+// opens both.
+const stopPaths: Record<string, string> = {
+    "openai_chat.body_field:metadata": "free-form metadata map",
+    "openai_responses.body_field:metadata": "free-form metadata map",
+    "openai_realtime.response_param:metadata": "free-form metadata map",
+    "openai_realtime.body_field:metadata": "free-form metadata map",
+    // The gemini functionResponse payload, kept raw for round-trip.
+    "gemini.part_meta:functionResponse:response": "tool result payload",
 };
 
-function stopApplies(name: string, dialect: string): boolean {
-    if (!Object.hasOwn(stopPaths, name)) return false;
-    const stop = stopPaths[name]!;
-    // A list names the dialects the stop applies to; its last element is
-    // the comment.
-    return Array.isArray(stop) ? stop.includes(dialect) : true;
-}
-
-function stopComment(name: string): string {
-    const stop = stopPaths[name]!;
-    return Array.isArray(stop) ? stop[stop.length - 1]! : stop;
-}
-
-// Stop paths the corpus actually exercised. The walk records a stop when
-// it stops there; the test fails when a listed stop path is never reached,
-// because a stop nothing exercises protects nothing.
+// Stops that hid at least one key during the run.
 const reachedStops = new Set<string>();
 
-function isStopField(name: string, value: unknown, dialect: string): boolean {
-    const applies =
-        !name.includes(":") &&
-        stopApplies(name, dialect) &&
-        typeof value === "object" &&
-        value !== null &&
-        !Array.isArray(value);
-    if (applies) reachedStops.add(name);
-    return applies;
+function isStop(unit: string, input: string, value: unknown): boolean {
+    const path = unit.slice(input.length + 1);
+    if (!Object.hasOwn(stopPaths, path)) return false;
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+        return false;
+    if (Object.keys(value).length > 0) reachedStops.add(path);
+    return true;
 }
 
-function isStopUnit(unit: string, input: string): boolean {
-    // The walk builds units with the input prefix in front; strip it to
-    // compare against the exact-unit stop paths.
-    const unprefixed = unit.startsWith(input)
-        ? unit.slice(input.length + 1)
-        : unit;
-    const applies = Object.hasOwn(stopPaths, unprefixed);
-    if (applies) reachedStops.add(unprefixed);
-    return applies;
+// Fields that are fiat's bookkeeping on one op, not provider data: they open
+// no unit. A field is listed under the op that carries it, so the same field
+// name on any other op opens a unit. Every entry needs a corpus case that
+// raises the op with the field; the test fails on an entry no case reached.
+// - `preservesContent` marks a gemini.content op that lowering must keep.
+// - `eventType` names the event an openai_realtime.event_param belongs to;
+//   the event's wire `type` is a unit of its own.
+// - `of` holds the id of the llm.reasoning op that an
+//   openai_responses.reasoning_item decorates.
+// An entry hides a string or a boolean only, so a listed name cannot hide a
+// wire object. The value of a hidden string is not checked.
+const opMechanics: Record<string, string[]> = {
+    "gemini.content": ["preservesContent"],
+    "openai_realtime.event_param": ["eventType"],
+    "openai_responses.reasoning_item": ["of"],
+};
+
+// `op:field` pairs of opMechanics that hid a field during the run.
+const reachedMechanics = new Set<string>();
+
+function isMechanics(op: Op, field: string, value: unknown): boolean {
+    if (field === "op") return true;
+    // `appliesTo` is declared on every dialect op in src/core/ops.ts and
+    // holds one of two values; any other value opens a unit.
+    if (field === "appliesTo")
+        return value === "request" || value === "response";
+    if (!opMechanics[op.op]?.includes(field)) return false;
+    if (typeof value !== "string" && typeof value !== "boolean") return false;
+    reachedMechanics.add(`${op.op}:${field}`);
+    return true;
 }
 
-// Op mechanics, not wire data: they never open a unit. `of` names the op a
-// side op decorates; `idSource` marks a gemini id the raise synthesized.
-const opMechanics = new Set([
-    "op",
-    "appliesTo",
-    "eventType",
-    "preservesContent",
-    "idSource",
-    "of",
-]);
-
-// The input prefix names the kind of input that produced the ops, so a unit
-// raised from a request, a complete response, and one stream event is three
-// rows, not one. For a stream event with a wire `type` the prefix carries
-// that type too, so every stream row names one event kind.
+// The start of every unit a case produces: which input the ops came from.
+// A stream event with a wire `type` puts the type in the unit, so a row
+// names one event.
 function inputPrefixOf(c: Case): string {
     if (c.fn === "fromBody") return "request";
     if (c.fn === "fromResponse") return "response";
@@ -1485,51 +1970,58 @@ function inputPrefixOf(c: Case): string {
     return "stream";
 }
 
-function unitsOf(op: Op, input: string, dialect: string): string[] {
+function unitsOf(op: Op, input: string): string[] {
     const data = op as unknown as Record<string, unknown>;
     const units: string[] = [];
     const root = `${input}:${op.op}`;
+    const fields = Object.keys(data).filter(
+        (field) => !isMechanics(op, field, data[field]),
+    );
+    if (fields.length === 0) return [root];
     if (typeof data.key === "string" && "value" in data) {
-        // Keyed op: the key names the wire slot.
-        const prefix = `${root}:${data.key}`;
-        if (isStopField(data.key, data.value, dialect)) units.push(prefix);
-        else walk(prefix, data.value, "");
+        // The key names the wire slot, and the value is walked under it.
+        const slot = `${root}:${data.key}`;
+        walk(slot, data.value, "");
+        for (const field of fields) {
+            if (field === "key" || field === "value") continue;
+            walk(`${slot}@${field}`, data[field], "");
+        }
         return units;
     }
-    // Any other op: an object or array field is the op's wire payload, so
-    // the walk starts inside it; a scalar field names a wire slot of its
-    // own and keeps its name in the path.
-    for (const field of Object.keys(data)) {
-        if (opMechanics.has(field)) continue;
+    if (fields.length === 1) {
+        // The op's one payload: an object or array is walked from the op
+        // name, and a scalar keeps its field name in the path.
+        const field = fields[0]!;
         const value = data[field];
-        if (
-            (typeof value === "object" && value !== null) ||
-            Array.isArray(value)
-        ) {
-            walk(root, value, "");
-        } else {
-            walk(root, value, field);
-        }
+        if (typeof value === "object" && value !== null) walk(root, value, "");
+        else walk(root, value, field);
+        return units;
     }
+    for (const field of fields) walk(`${root}@${field}`, data[field], "");
     return units;
 
     function walk(prefix: string, value: unknown, path: string): void {
+        const unit = path === "" ? prefix : `${prefix}:${path}`;
+        if (isStop(unit, input, value)) {
+            units.push(unit);
+            return;
+        }
         if (Array.isArray(value)) {
             if (value.length === 0) {
                 // An empty array is still a wire slot; a row for it goes
                 // stale when a change drops it.
-                units.push(`${prefix}:${path === "" ? "" : path}[]`);
+                units.push(`${prefix}:${path}[]`);
                 return;
             }
-            const child = path === "" ? "[]" : `${path}[]`;
+            const child = `${path}[]`;
             for (const element of value) walk(prefix, element, child);
             return;
         }
         if (typeof value === "object" && value !== null) {
             let ownPrefix = prefix;
             if (path === "") {
-                // A whole wire object tags its units with its `type` or
-                // `kind`, so rows for different item kinds do not collide.
+                // A whole wire object puts its `type` or `kind` in its
+                // units, so rows for different items do not collide.
                 const tag =
                     (value as Record<string, unknown>).type ??
                     (value as Record<string, unknown>).kind;
@@ -1541,29 +2033,26 @@ function unitsOf(op: Op, input: string, dialect: string): string[] {
                 return;
             }
             for (const [key, childValue] of entries) {
-                const child = path === "" ? key : `${path}.${key}`;
-                const unit = `${ownPrefix}:${child}`;
-                if (
-                    isStopField(key, childValue, dialect) ||
-                    isStopUnit(unit, input)
-                ) {
-                    units.push(unit);
-                    continue;
-                }
-                walk(ownPrefix, childValue, child);
+                walk(
+                    ownPrefix,
+                    childValue,
+                    path === "" ? key : `${path}.${key}`,
+                );
             }
             return;
         }
-        units.push(path === "" ? prefix : `${prefix}:${path}`);
+        units.push(unit);
     }
 }
 
 describe("dialect residual allowlist", () => {
     test("raising ordinary bodies leaves only allowlisted dialect ops", () => {
+        // One set for all cases; see "Limits of the walk" above.
         const seen = new Set<string>();
         const violations: string[] = [];
         const skipped: string[] = [];
         reachedStops.clear();
+        reachedMechanics.clear();
 
         for (const unit of Object.keys(providerOnly)) {
             if (baseline.includes(unit)) {
@@ -1588,16 +2077,15 @@ describe("dialect residual allowlist", () => {
                         `raise threw on "${c.label}": ` +
                             `${(error as Error).message.split("\n")[0]} — ` +
                             `a new throw needs a row in expectedSkips in ` +
-                            `test/dialect_residual.test.ts`,
+                            `${testFile}`,
                     );
                 }
                 continue;
             }
 
             for (const op of program) {
-                const namespace = op.op.split(".")[0]!;
-                if (!Object.hasOwn(translators, namespace)) continue;
-                for (const unit of unitsOf(op, input, dialect)) {
+                if (isCoreOp(op)) continue;
+                for (const unit of unitsOf(op, input)) {
                     seen.add(unit);
                     if (
                         !Object.hasOwn(providerOnly, unit) &&
@@ -1615,13 +2103,26 @@ describe("dialect residual allowlist", () => {
             }
         }
 
-        for (const name of Object.keys(stopPaths)) {
-            if (!reachedStops.has(name)) {
+        for (const path of Object.keys(stopPaths)) {
+            if (!reachedStops.has(path)) {
                 violations.push(
-                    `stop path "${name}" (${allowlistFile}) was reached by ` +
-                        `no corpus case — extend the corpus or remove the ` +
-                        `stop path`,
+                    `stop path "${path}" (stopPaths in ${testFile}) hid no ` +
+                        `key in any corpus case — add a case whose object ` +
+                        `at that path holds a key, or remove the stop path`,
                 );
+            }
+        }
+
+        for (const [opName, fields] of Object.entries(opMechanics)) {
+            for (const field of fields) {
+                if (!reachedMechanics.has(`${opName}:${field}`)) {
+                    violations.push(
+                        `opMechanics lists "${field}" for "${opName}" ` +
+                            `(${testFile}), but no corpus case raised that ` +
+                            `op with that field — add a case or remove ` +
+                            `the entry`,
+                    );
+                }
             }
         }
 
@@ -1629,7 +2130,7 @@ describe("dialect residual allowlist", () => {
             if (!skipped.includes(label)) {
                 violations.push(
                     `"${label}" no longer throws, but expectedSkips in ` +
-                        `test/dialect_residual.test.ts still lists it — ` +
+                        `${testFile} still lists it — ` +
                         `remove the row so its residuals are checked`,
                 );
             }
