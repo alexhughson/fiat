@@ -1,16 +1,14 @@
 # stripHostOps
 
-Without `stripHostOps`, fiat returns no request body for a program that holds
-a `meta.trace` op or a `response.usage` op: the lowering throws
-`no serialization for op "meta.trace"` or
-`no serialization for op "response.usage"`. When a program holds the ops
-of an Anthropic response, `stripHostOps` removes the ops for the response's
-`id`, `type`, and `stop_sequence` fields; if those ops stayed in the program,
-fiat would write the three fields into the Anthropic request body.
+A program that fiat reads from a response holds ops that describe that
+response, such as `response.stop` and `response.usage`. A caller adds a message
+to the same program to send the next request, and a request body has no field
+for those ops: without `stripHostOps`, fiat throws an error such as
+`no serialization for op "response.stop"` and returns no request body.
 
-`stripHostOps(kind, program)` is in `src/core/pipeline.ts`. `lowerToWire` calls
-`stripHostOps` first, before the `beforeLower` hook and before the dialect's
-lower stages.
+`stripHostOps(kind, program)` is in `src/core/pipeline.ts`. `lowerToWire` and
+`lowerStreamResponseProgram` call `stripHostOps` first, before the
+`beforeLower` hook and before the dialect's lower stages.
 
 ## Example
 
@@ -91,4 +89,5 @@ neither op reaches the request body.
 about the ops that `stripHostOps` removes. A dialect op without `appliesTo` is
 kept, including an op from a dialect other than the target dialect.
 
-A stream response is lowered with kind `"response"`.
+For a stream response, `lowerStreamResponseProgram` passes kind `"response"` to
+`stripHostOps` and kind `"response_stream"` to the dialect's lower stages.
