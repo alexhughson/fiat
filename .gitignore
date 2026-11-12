@@ -7,4 +7,5 @@ e2e/anthropic/output
 examples/output
 scratch
 .scratch
-.semble-cache.amp/portals/*
+.semble-cache
+.amp/portals/*
