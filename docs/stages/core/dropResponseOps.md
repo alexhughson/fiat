@@ -133,7 +133,7 @@ body.
 about the ops that `dropResponseOps` removes. A dialect op without `appliesTo`
 is kept, including an op from a dialect other than the target dialect. A later
 step, `dropForeignResiduals`, removes an op that belongs to another dialect and
-warns. When that op holds message content, such as an Anthropic image block that
-names a file by its id, the op has the param `preservesContent: true`, and
-`dropForeignResiduals` throws instead. In both cases the op does not reach the
-body.
+warns. When that op has the param `preservesContent: true`,
+`dropForeignResiduals` throws instead. A raise step sets that param on some ops
+that hold message content, such as the op that holds an Anthropic image block
+which names a file by its id. In both cases the op does not reach the body.
