@@ -441,22 +441,20 @@ export function streamResponseFromWire(wire: unknown): Program {
         case "response.output_item.added":
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
-        // The part opens empty and its text arrives (and has already raised)
-        // as output_text.delta events. The event fields only openai_responses
-        // has stay in one stream_event_meta op; output_index raises to the
-        // core op's index. A part other than output_text is not raised yet
-        // and keeps the whole event in the meta op, so it round-trips.
+        // The part opens empty and its text arrives as output_text.delta
+        // events, so the meta op drops part.type (the core op names the text
+        // block) and the empty part.text; the keys only openai_responses has
+        // stay in the meta op. output_index raises to the core op's index.
+        // A part other than output_text still throws, like on main, until
+        // a refusal has a core op.
         case "response.content_part.added": {
             const part = asRecord(event.part, "stream event.part");
-            const program = [
-                streamEventMeta(
-                    event,
-                    part.type === "output_text" ? ["output_index"] : [],
-                ),
-            ];
-            if (part.type !== "output_text") return program;
+            if (part.type !== "output_text") {
+                throw unsupportedStreamPartType(part.type);
+            }
+            const { type: _type, text: _text, ...partMeta } = part;
             return [
-                ...program,
+                streamEventMeta({ ...event, part: partMeta }, ["output_index"]),
                 {
                     op: "response.text_start",
                     index: asNumber(
@@ -466,12 +464,19 @@ export function streamResponseFromWire(wire: unknown): Program {
                 },
             ];
         }
-        // The part's text has already raised as output_text.delta events, so
-        // content_part.done only ends the block. The event fields only
-        // openai_responses has stay in one stream_event_meta op.
-        case "response.content_part.done":
+        // part.type repeats what the core op already says, so the meta op
+        // drops it; the full part.text repeats the output_text.delta events,
+        // but stream lowering holds no state, so without the text in the meta
+        // op the done event would return from a round trip without its text.
+        // A part other than output_text still throws, like on main.
+        case "response.content_part.done": {
+            const part = asRecord(event.part, "stream event.part");
+            if (part.type !== "output_text") {
+                throw unsupportedStreamPartType(part.type);
+            }
+            const { type: _type, ...partMeta } = part;
             return [
-                streamEventMeta(event, ["output_index"]),
+                streamEventMeta({ ...event, part: partMeta }, ["output_index"]),
                 {
                     op: "response.block_stop",
                     index: asNumber(
@@ -480,6 +485,7 @@ export function streamResponseFromWire(wire: unknown): Program {
                     ),
                 },
             ];
+        }
         case "response.completed":
         case "response.incomplete":
         case "response.failed":
@@ -489,6 +495,14 @@ export function streamResponseFromWire(wire: unknown): Program {
                 `openai_responses stream response: unsupported event type ${JSON.stringify(type)}`,
             );
     }
+}
+
+// A part other than output_text, such as a refusal, has no core op yet; it
+// throws here rather than hiding its content inside a metadata op.
+function unsupportedStreamPartType(partType: unknown): LintError {
+    return new LintError(
+        `openai_responses stream response: unsupported part type ${JSON.stringify(partType)}`,
+    );
 }
 
 export function streamResponseToWire(program: Program): unknown {
@@ -509,17 +523,29 @@ export function streamResponseToWire(program: Program): unknown {
             case "response.text_start":
                 event.type ??= "response.content_part.added";
                 event.output_index = (op as OpOf<"response.text_start">).index;
-                event.part ??= {
+                // The meta op holds the part without type and text; lowering
+                // writes both back, with defaults when no meta op came.
+                event.part = {
                     type: "output_text",
                     text: "",
                     annotations: [],
                     logprobs: [],
+                    ...asRecord(event.part ?? {}, "stream event.part"),
                 };
                 break;
-            case "response.block_stop":
+            case "response.block_stop": {
                 event.type ??= "response.content_part.done";
                 event.output_index = (op as OpOf<"response.block_stop">).index;
+                // The done event's part keeps its text in the meta op; its
+                // type repeats the core op, so lowering writes it back.
+                if (event.part != null) {
+                    event.part = {
+                        type: "output_text",
+                        ...asRecord(event.part, "stream event.part"),
+                    };
+                }
                 break;
+            }
             case "response.tool_call_delta":
                 toolDeltas.push(op as OpOf<"response.tool_call_delta">);
                 event.type ??= "response.function_call_arguments.delta";

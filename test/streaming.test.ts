@@ -220,8 +220,6 @@ describe("stream response conversion", () => {
                     item_id: "msg_123",
                     content_index: 0,
                     part: {
-                        type: "output_text",
-                        text: "",
                         annotations: [],
                         logprobs: [],
                     },
@@ -235,34 +233,30 @@ describe("stream response conversion", () => {
         );
     });
 
-    test("openai responses content_part.added of a non-text part stays in the meta op", () => {
-        const event = {
-            type: "response.content_part.added",
-            sequence_number: 3,
-            item_id: "msg_123",
-            output_index: 0,
-            content_index: 0,
-            part: { type: "refusal", refusal: "" },
-        };
+    test("openai responses content_part.added of a non-text part still throws", () => {
+        expect(() =>
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.content_part.added",
+                sequence_number: 3,
+                item_id: "msg_123",
+                output_index: 0,
+                content_index: 0,
+                part: { type: "refusal", refusal: "" },
+            }),
+        ).toThrow(LintError);
+    });
 
-        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
-        expect(program).toEqual([
-            {
-                op: "openai_responses.stream_event_meta",
-                event: {
-                    type: "response.content_part.added",
-                    sequence_number: 3,
-                    item_id: "msg_123",
-                    output_index: 0,
-                    content_index: 0,
-                    part: { type: "refusal", refusal: "" },
-                },
-                appliesTo: "response",
-            },
-        ]);
-        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
-            event,
-        );
+    test("openai responses content_part.done of a non-text part still throws", () => {
+        expect(() =>
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.content_part.done",
+                sequence_number: 6,
+                item_id: "msg_123",
+                output_index: 0,
+                content_index: 0,
+                part: { type: "refusal", refusal: "No" },
+            }),
+        ).toThrow(LintError);
     });
 
     test("an anthropic text block start translates to an openai responses content_part.added event", () => {
@@ -313,7 +307,6 @@ describe("stream response conversion", () => {
                     item_id: "msg_123",
                     content_index: 0,
                     part: {
-                        type: "output_text",
                         text: "Hello",
                         annotations: [],
                         logprobs: [],
@@ -401,6 +394,52 @@ describe("stream response conversion", () => {
                 OpenAIRealtimeTranslator.fromStreamResponse(doneEvent),
             ),
         ).toEqual(doneEvent);
+    });
+
+    test("openai realtime content_part events of a text part raise to the block ops", () => {
+        const added = {
+            type: "response.content_part.added",
+            response_id: "resp_1",
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            part: { type: "text", text: "", transcripts: null },
+        };
+        const done = {
+            type: "response.content_part.done",
+            response_id: "resp_1",
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            part: { type: "text", text: "hi", transcripts: ["hi"] },
+        };
+
+        expect(
+            OpenAIRealtimeTranslator.fromStreamResponse(added),
+        ).toContainEqual({ op: "response.text_start", index: 0 });
+        expect(
+            OpenAIRealtimeTranslator.fromStreamResponse(done),
+        ).toContainEqual({ op: "response.block_stop", index: 0 });
+        // Lowering the block ops back to openai_realtime events is a later
+        // row; the stream writer has no serialization for them yet.
+        expect(() =>
+            OpenAIRealtimeTranslator.toStreamResponse(
+                OpenAIRealtimeTranslator.fromStreamResponse(added),
+            ),
+        ).toThrow(LintError);
+    });
+
+    test("openai realtime content_part.added of a non-text part still throws", () => {
+        expect(() =>
+            OpenAIRealtimeTranslator.fromStreamResponse({
+                type: "response.content_part.added",
+                response_id: "resp_1",
+                item_id: "msg_1",
+                output_index: 0,
+                content_index: 0,
+                part: { type: "audio", audio: null },
+            }),
+        ).toThrow(LintError);
     });
 
     test("openai realtime function-call done and terminal response metadata round-trip", () => {

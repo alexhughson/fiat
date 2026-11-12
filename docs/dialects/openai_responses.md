@@ -26,18 +26,19 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 
 ## Dialect ops
 
-| op                                | purpose                                           |
-| --------------------------------- | ------------------------------------------------- |
-| `openai_responses.input`          | one request `input[]` item                        |
-| `openai_responses.output`         | one response `output[]` item                      |
-| `openai_responses.output_meta`    | response item ids/status/content metadata         |
-| `openai_responses.reasoning_item` | side op of `llm.reasoning`: id, encrypted_content |
-| `openai_responses.tool`           | provider-specific hosted tools                    |
-| `openai_responses.tool_meta`      | extra function-tool fields such as `strict`       |
-| `openai_responses.finish_reason`  | response status/incomplete details                |
-| `openai_responses.usage`          | shared usage plus usage extras                    |
-| `openai_responses.tool_choice`    | provider-specific tool choice                     |
-| `openai_responses.body_field`     | unknown request key or response envelope field    |
+| op                                   | purpose                                                     |
+| ------------------------------------ | ----------------------------------------------------------- |
+| `openai_responses.input`             | one request `input[]` item                                  |
+| `openai_responses.output`            | one response `output[]` item                                |
+| `openai_responses.output_meta`       | response item ids/status/content metadata                   |
+| `openai_responses.reasoning_item`    | side op of `llm.reasoning`: id, encrypted_content           |
+| `openai_responses.tool`              | provider-specific hosted tools                              |
+| `openai_responses.tool_meta`         | extra function-tool fields such as `strict`                 |
+| `openai_responses.finish_reason`     | response status/incomplete details                          |
+| `openai_responses.usage`             | shared usage plus usage extras                              |
+| `openai_responses.tool_choice`       | provider-specific tool choice                               |
+| `openai_responses.body_field`        | unknown request key or response envelope field              |
+| `openai_responses.stream_event_meta` | fields of a content-part stream event that no core op holds |
 
 ## Tool rules
 
@@ -67,7 +68,7 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 ## Response streams
 
 `fromStreamResponse` parses one SSE event; each event type maps to ops. One
-event in, one event out:
+wire event can raise several ops:
 
 | wire event                                       | raised ops                                                       |
 | ------------------------------------------------ | ---------------------------------------------------------------- |
@@ -108,8 +109,6 @@ raised:
             "item_id": "msg_123",
             "content_index": 0,
             "part": {
-                "type": "output_text",
-                "text": "",
                 "annotations": [],
                 "logprobs": []
             }
@@ -123,14 +122,19 @@ raised:
 ]
 ```
 
-`output_index` is the core op's `index`; the fields only OpenAI has
-(`item_id`, `content_index`, `sequence_number`, and the `part` object, whose
-text the `response.text_delta` ops already carry) stay together in one
+`output_index` is the core op's `index`. `part.type` repeats what
+`response.text_start` already says and the part's `text` arrives as
+`response.text_delta` ops, so the meta op holds neither. The fields only
+OpenAI has (`item_id`, `content_index`, `sequence_number`, and the `part`
+keys `annotations` and `logprobs`) stay together in one
 `openai_responses.stream_event_meta` op, and lowering folds the two ops back
-into the same wire event. A part other than `output_text` is not raised yet
-and keeps the whole event in the meta op, so it round-trips.
-`response.content_part.done` raises the same way, to `response.block_stop`,
-which ends a text block or a tool call block and carries no text.
+into the same wire event. `response.content_part.done` raises the same way,
+to `response.block_stop`; its meta op keeps the part's `text`, because stream
+lowering holds no state, so without the text in the meta op the done event
+would return from a round trip without its text. `part.type` repeats the core
+op, so lowering writes the type back in both events. A part other than
+`output_text`, such as a refusal, still throws, until a refusal has a core
+op.
 
 Other stream events (`response.created`, `response.in_progress`,
 `response.output_text.done`) are not raised yet and still throw.

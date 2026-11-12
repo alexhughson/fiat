@@ -45,5 +45,16 @@ events, optionally with top-level call/session fields such as `model`.
   unless supplied by the caller.
 - Prefix system text lowers to `response.create.response.instructions`.
   Interleaved system text throws.
-- Streaming deltas are out of scope; parse `response.done` for final output.
+- In a complete response body, streaming detail events
+  (`response.output_text.delta`, `response.output_item.done`,
+  `response.output_text.done`) throw; parse `response.done` for the final
+  output.
+- On the stream edge, a `response.content_part.added` or
+  `response.content_part.done` event of a text part raises
+  `response.text_start` or `response.block_stop` beside the event's
+  `openai_realtime.event_param` ops. A part other than `text` raises no block
+  op: `response.content_part.added` throws, and
+  `response.content_part.done` raises the event params only, as before.
+  Lowering `response.text_start` and `response.block_stop` back to realtime
+  events is a later row; `toStreamResponse` throws on them.
 - WebRTC setup, auth, and live connection management are out of scope.
