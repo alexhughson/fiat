@@ -33,7 +33,7 @@ const wordsBetween = [
 // A word is a run of letters, digits, and underscores. A dotted name such as
 // `response.stop`, `response.*`, or `pipeline.ts` is one word, so an op name
 // is never the word "response". A possessive "'s" is left out of the word.
-// A dotted name that ends in `.kind` counts as the word "kind".
+// A dotted name that ends in `.kind` or `.kinds` counts as a kind word.
 const word = /(?<word>\w+(?:\.[\w*]+)*)(?:['’]s\b)?/;
 // Markdown emphasis puts an underscore on each side of a word or a phrase, as
 // in `_kind_`. The underscores at the start and at the end of a word are not
@@ -137,6 +137,10 @@ test('the rule matches "kind" next to "request" or "response"', () => {
             'When `target.kind` is `"response_stream"`, x.',
             '`target.kind` is `"response_stream"`',
         ],
+        [
+            'When `target.kinds` are `"request"`, x.',
+            '`target.kinds` are `"request"`',
+        ],
         // Each of the words that may stand between the two words.
         ['When `kind` is `"request"`, x.', '`kind` is `"request"`'],
         [
@@ -169,6 +173,7 @@ test('the rule matches "kind" next to "request" or "response"', () => {
         // Markdown emphasis.
         ['For _kind_ `"request"`, x.', '_kind_ `"request"`'],
         ["For the _request_ kind, x.", "_request_ kind"],
+        ['For the `"request"` _kind_, x.', '`"request"` _kind_'],
         ['For _the `"request"`_ kind, x.', '`"request"`_ kind'],
     ];
     expect(rejected.map(([sentence]) => [sentence, textsOf(sentence)])).toEqual(
@@ -181,6 +186,8 @@ test("the rule leaves a param named kind and other uses of the word alone", () =
         // `kind` as a param of an op.
         '`gemini.part_meta` with `kind: "functionResponse"` carries the function `name`.',
         "| `llm.server_tool` | `name`, `kind` | hosted web search or code execution |",
+        // "not" is no word of `wordsBetween`, so that this sentence passes.
+        "A part's `kind` is not response-specific.",
         // The word in other senses, and a body word in the next clause.
         "A response keeps every other kind of text intact.",
         "This kind of text stays intact in a response.",
