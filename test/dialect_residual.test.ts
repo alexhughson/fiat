@@ -1270,54 +1270,35 @@ const cases: Case[] = [
 
 // A unit names the wire data a dialect op still carries. A bare op name would
 // let a new provider-only field hide behind an existing row, so the test
-// splits every op down to the data a row in the allowlist can justify:
+// splits every op down to the data a row in the allowlist can justify. The
+// dispatch is by shape, not op name, so a dialect op added later is covered
+// without a change here:
 // - `op:key` for an op carrying one keyed wire field (body_field,
-//   event_param, response_param, stream_choice_param, sampling);
+//   event_param, response_param, stream_choice_param, sampling), or
+//   `op:key:subkey` per top-level key of the value when that value is a
+//   whole object (body_field:item, event_param:response, ...);
 // - `op:key` per key for an op carrying a record of wire fields (usage,
 //   generation_config, candidate_meta);
 // - `op:tag.key` per top-level key for an op carrying a whole wire object
-//   (output_meta, item_meta, part_meta, stream_event), where the tag is the
-//   object's type or kind;
-// - `op:key:subkey` per top-level key of the value for a keyed op whose value
-//   is a whole object (body_field:item, body_field:response,
-//   event_param:response, ...).
+//   (output_meta, item_meta, part_meta, stream_event, and the
+//   stream_event_meta op a later change adds), where the tag is the
+//   object's type or kind.
 function unitsOf(op: Op): string[] {
     const data = op as unknown as Record<string, unknown>;
     if (typeof data.key === "string" && data.value !== undefined) {
         return recordUnits(`${op.op}:${data.key}`, data.value);
     }
-    switch (op.op) {
-        case "anthropic_messages.usage":
-        case "openai_chat.usage":
-        case "openai_responses.usage":
-        case "openai_realtime.usage":
-            return recordUnits(op.op, data.usage);
-        case "gemini.usage":
-            return recordUnits(op.op, data.usage);
-        case "gemini.generation_config":
-            return recordUnits(op.op, data.value);
-        case "gemini.candidate_meta":
-            return recordUnits(op.op, data.candidate);
-        case "gemini.part_meta":
-            return objectUnits(op.op, data.part as Record<string, unknown>, [
-                "kind",
-            ]);
-        case "openai_responses.output_meta":
-        case "openai_realtime.output_meta":
-            return objectUnits(op.op, data.item as Record<string, unknown>, [
-                "type",
-            ]);
-        case "openai_realtime.item_meta":
-            return objectUnits(op.op, data.event as Record<string, unknown>, [
-                "type",
-            ]);
-        case "anthropic_messages.stream_event":
-            return objectUnits(op.op, data.event as Record<string, unknown>, [
-                "type",
-            ]);
-        default:
-            return [op.op];
-    }
+    if (isRecord(data.usage)) return recordUnits(op.op, data.usage);
+    if (isRecord(data.candidate)) return recordUnits(op.op, data.candidate);
+    if (isRecord(data.value)) return recordUnits(op.op, data.value);
+    if (isRecord(data.event)) return objectUnits(op.op, data.event, ["type"]);
+    if (isRecord(data.item)) return objectUnits(op.op, data.item, ["type"]);
+    if (isRecord(data.part)) return objectUnits(op.op, data.part, ["kind"]);
+    return [op.op];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // One unit per key of a record op (usage, generation_config, candidate_meta).
