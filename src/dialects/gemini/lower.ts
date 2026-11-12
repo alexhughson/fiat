@@ -26,6 +26,7 @@ interface ResponsePartMeta {
 
 export const lowerRequestStages: Stage[] = [
     lowerReasoning,
+    dropAnthropicTextMeta,
     lintMidConversationSystem,
     lowerThinking,
     lowerStructuredOutput,
@@ -44,6 +45,7 @@ export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
     lowerReasoning,
+    dropAnthropicTextMeta,
     lowerStopReasons,
     lowerUsageCounts,
     collectModelContent,
@@ -53,6 +55,7 @@ export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
     dropStreamReasoning,
+    dropAnthropicTextMeta,
     lowerStopReasons,
     lowerUsageCounts,
     collectStreamModelContent,
@@ -118,6 +121,21 @@ export function dropStreamReasoning(program: Program, target?: Target): Program 
             op as reasoning.Reasoning,
             target,
             "stream lowering does not write reasoning yet",
+        );
+        return false;
+    });
+}
+
+// The text of an anthropic text block is already an llm.text op. The keys
+// beside it (citations, cache_control) have no place on this wire.
+export function dropAnthropicTextMeta(program: Program): Program {
+    return program.filter((op) => {
+        if (op.op !== "anthropic_messages.text_meta") return true;
+        const keys = Object.keys(
+            opData<{ fields: Record<string, unknown> }>(op).fields,
+        );
+        console.warn(
+            `metamodel: gemini dropped ${keys.join(", ")} from an anthropic text block`,
         );
         return false;
     });

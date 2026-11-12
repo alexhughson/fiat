@@ -23,6 +23,7 @@ import type {
 
 export const lowerRequestStages: Stage[] = [
     dropReasoning,
+    dropAnthropicTextMeta,
     lowerRequestTexts,
     lowerRequestImages,
     lowerRequestAudio,
@@ -39,6 +40,7 @@ export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
     dropReasoning,
+    dropAnthropicTextMeta,
     lowerStopReasons,
     lowerUsageCounts,
     collectAssistantMessage,
@@ -48,6 +50,7 @@ export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
     dropReasoning,
+    dropAnthropicTextMeta,
     lowerStopReasons,
     lowerUsageCounts,
 ];
@@ -55,6 +58,21 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+// The text of an anthropic text block is already an llm.text op. The keys
+// beside it (citations, cache_control) have no place on this wire.
+export function dropAnthropicTextMeta(program: Program): Program {
+    return program.filter((op) => {
+        if (op.op !== "anthropic_messages.text_meta") return true;
+        const keys = Object.keys(
+            opData<{ fields: Record<string, unknown> }>(op).fields,
+        );
+        console.warn(
+            `metamodel: openai_chat dropped ${keys.join(", ")} from an anthropic text block`,
+        );
+        return false;
+    });
+}
 
 export function lowerRequestTexts(program: Program): Program {
     return program.flatMap((op) => {
