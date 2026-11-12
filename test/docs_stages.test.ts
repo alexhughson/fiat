@@ -18,15 +18,17 @@ function exampleOf(page: string): { input: Program; output: Program } {
     return { input, output };
 }
 
-test("docs/stages/core/stripHostOps.md shows what stripHostOps returns", () => {
-    const { input, output } = exampleOf("core/stripHostOps.md");
-    // stripHostOps is not exported. beforeLower receives its return value.
-    let afterStrip: Program | undefined;
+test("docs/stages/core/dropResponseOps.md shows what dropResponseOps returns", () => {
+    const { input, output } = exampleOf("core/dropResponseOps.md");
+    // dropResponseOps is not exported. The page's input holds no meta.* op, so
+    // dropMetaOps changes nothing and beforeLower receives the return value of
+    // dropResponseOps.
+    let afterDrop: Program | undefined;
     AnthropicTranslator.toBody(input, {
         beforeLower: (program) => {
-            afterStrip = program;
+            afterDrop = program;
             return program;
         },
     });
-    expect(afterStrip).toEqual(output);
+    expect(afterDrop).toEqual(output);
 });
