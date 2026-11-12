@@ -802,6 +802,7 @@ function collectResponsePartMeta(
             appliesTo?: "request" | "response";
         }>(op);
         const part = meta.part;
+        if (part.kind === "functionResponse") continue;
         if (meta.appliesTo === "request" || part.index == null) continue;
         const omitFunctionCallId =
             part.kind === "functionCall" && part.idSource === "synthesized";

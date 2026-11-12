@@ -65,11 +65,12 @@ Raising turns a `response` whose only key is `output` back into the wrapped
 value: a string as text, anything else as JSON. A response with `output` among
 other keys raises as the whole object.
 
-`gemini.part_meta` for a `functionResponse` part holds the part `index` and
-the function `name` only; the dialect op's type allows nothing else for that
+`gemini.part_meta` for a `functionResponse` part holds the function `name`
+only; the dialect op's type allows nothing else for that
 kind. Lowering writes `response` from
 `llm.tool_result.content`, so a transform that edits that op changes the
-gemini body.
+gemini body. The result's position is the `llm.tool_result` op's position, so
+the part_meta stores no `index`.
 
 A body raised and lowered back to gemini can therefore change:
 
@@ -106,7 +107,7 @@ tool result whose content is the JSON text of the object with the single
 key `a` produces from any dialect.
 
 A `functionResponse` with no `response` raises to content `"{}"` and returns
-with `response: {}`, the same in both cases.
+with `response: {}`, so the body differs from the request.
 
 ## Thinking and signatures
 

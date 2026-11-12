@@ -54,7 +54,6 @@ describe("gemini requests", () => {
                 op: "gemini.part_meta",
                 part: {
                     kind: "functionResponse",
-                    index: 0,
                     name: "get_weather",
                 },
             },
