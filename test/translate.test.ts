@@ -1,6 +1,7 @@
 // Executable documentation for shared cross-dialect pipeline semantics.
 
 import { describe, expect, spyOn, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
     AnthropicTranslator,
     GeminiTranslator,
@@ -652,8 +653,62 @@ describe("the model that answered", () => {
         expect(fromAnthropic).not.toHaveProperty("model");
     });
 
-    test("request settings in a response program do not change the response body", () => {
+    const sevenSettings = [
+        { op: "llm.temperature" as const, value: 0.5 },
+        { op: "llm.max_output_tokens" as const, value: 9 },
+        { op: "llm.thinking" as const, effort: "low" as const },
+        {
+            op: "llm.tool" as const,
+            name: "lookup",
+            inputSchema: { type: "object" },
+        },
+        {
+            op: "llm.server_tool" as const,
+            name: "web_search",
+            kind: "web_search" as const,
+        },
+        { op: "llm.tool_choice" as const, value: "auto" as const },
+        {
+            op: "llm.output" as const,
+            format: "json_schema" as const,
+            name: "answer",
+            schema: { type: "object" },
+        },
+    ];
+    // openai_chat and openai_responses stamp the time of the call
+    const withoutTime = (body: unknown) => {
+        const { created, created_at, ...rest } = body as Record<
+            string,
+            unknown
+        >;
+        return rest;
+    };
+
+    test("a request setting in a response program does not change the response body", () => {
+        // No model op: llm.model in a program without response.model does
+        // change the body, which the tests below cover.
         const response = [
+            { op: "response.id" as const, id: "id_1" },
+            {
+                op: "llm.text" as const,
+                role: "assistant" as const,
+                content: "hi",
+            },
+            { op: "response.stop" as const, reason: "end_turn" as const },
+        ];
+        for (const target of translators) {
+            for (const setting of sevenSettings) {
+                expect(
+                    withoutTime(target.toResponse([setting, ...response])),
+                ).toEqual(withoutTime(target.toResponse(response)));
+            }
+        }
+    });
+
+    test("content beside request settings stays in the response body", () => {
+        const program = [
+            { op: "llm.model" as const, model: "requested-model" },
+            ...sevenSettings,
             { op: "response.id" as const, id: "id_1" },
             { op: "response.model" as const, model: "model-that-answered" },
             {
@@ -663,43 +718,36 @@ describe("the model that answered", () => {
             },
             { op: "response.stop" as const, reason: "end_turn" as const },
         ];
-        const settings = [
-            { op: "llm.model" as const, model: "requested-model" },
-            { op: "llm.temperature" as const, value: 0.5 },
-            { op: "llm.max_output_tokens" as const, value: 9 },
-            { op: "llm.thinking" as const, effort: "low" as const },
-            {
-                op: "llm.tool" as const,
-                name: "lookup",
-                inputSchema: { type: "object" },
-            },
-            {
-                op: "llm.server_tool" as const,
-                name: "web_search",
-                kind: "web_search" as const,
-            },
-            { op: "llm.tool_choice" as const, value: "auto" as const },
-            {
-                op: "llm.output" as const,
-                format: "json_schema" as const,
-                name: "answer",
-                schema: { type: "object" },
-            },
-        ];
-        // openai_chat and openai_responses stamp the time of the call
-        const withoutTime = (body: unknown) => {
-            const { created, created_at, ...rest } = body as Record<
-                string,
-                unknown
-            >;
-            return rest;
-        };
+        expect(AnthropicTranslator.toResponse(program)).toEqual({
+            id: "id_1",
+            type: "message",
+            role: "assistant",
+            model: "model-that-answered",
+            content: [{ type: "text", text: "hi" }],
+            stop_reason: "end_turn",
+        });
+        expect(withoutTime(OpenAIChatTranslator.toResponse(program))).toEqual({
+            id: "id_1",
+            object: "chat.completion",
+            model: "model-that-answered",
+            choices: [
+                {
+                    index: 0,
+                    message: { role: "assistant", content: "hi" },
+                    finish_reason: "stop",
+                    logprobs: null,
+                },
+            ],
+        });
+        // A system text is content, not a setting, so response lowering
+        // receives it and rejects it.
         for (const target of translators) {
-            for (const setting of settings) {
-                expect(
-                    withoutTime(target.toResponse([setting, ...response])),
-                ).toEqual(withoutTime(target.toResponse(response)));
-            }
+            expect(() =>
+                target.toResponse([
+                    { op: "llm.text", role: "system", content: "be brief" },
+                    ...program,
+                ]),
+            ).toThrow("unexpected system text in a response program");
         }
     });
 
@@ -722,29 +770,68 @@ describe("the model that answered", () => {
             type: "message_start",
             message: { model: "requested-model" },
         });
+        // Request lowering writes the last llm.model, so the response names
+        // the last one too.
         expect(
             AnthropicTranslator.toResponse([
+                { op: "llm.model", model: "first-requested-model" },
                 ...handBuilt,
-                { op: "response.model", model: "model-that-answered" },
             ]),
-        ).toMatchObject({ model: "model-that-answered" });
+        ).toMatchObject({ model: "requested-model" });
     });
 
-    test("stream events raise the model wherever the event names it", () => {
-        const chatChunk = {
-            id: "chatcmpl-1",
-            object: "chat.completion.chunk",
-            created: 1700000000,
-            model: "gpt-4o-2024-08-06",
-            choices: [
-                { index: 0, delta: { content: "hello" }, finish_reason: null },
-            ],
+    test("a response program with response.model names the model that answered, wherever llm.model stands", () => {
+        const content = [
+            {
+                op: "llm.text" as const,
+                role: "assistant" as const,
+                content: "hi",
+            },
+            { op: "response.stop" as const, reason: "end_turn" as const },
+        ];
+        const answered = {
+            op: "response.model" as const,
+            model: "model-that-answered",
         };
-        const fromChat = OpenAIChatTranslator.fromStreamResponse(chatChunk);
-        expect(fromChat.filter((op) => op.op.endsWith(".model"))).toEqual([
+        const requested = {
+            op: "llm.model" as const,
+            model: "requested-model",
+        };
+        for (const program of [
+            [requested, answered, ...content],
+            [answered, requested, ...content],
+            [answered, ...content, requested],
+        ]) {
+            expect(AnthropicTranslator.toResponse(program)).toMatchObject({
+                model: "model-that-answered",
+            });
+            expect(OpenAIChatTranslator.toResponse(program)).toMatchObject({
+                model: "model-that-answered",
+            });
+            expect(GeminiTranslator.toResponse(program)).toMatchObject({
+                modelVersion: "model-that-answered",
+            });
+        }
+    });
+
+    const chatChunk = (choices: unknown[]) => ({
+        id: "chatcmpl-1",
+        object: "chat.completion.chunk",
+        created: 1700000000,
+        model: "gpt-4o-2024-08-06",
+        choices,
+    });
+
+    test("a Chat stream chunk raises the model, and each dialect writes it only into an event that has a field for it", () => {
+        const textChunk = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([
+                { index: 0, delta: { content: "hello" }, finish_reason: null },
+            ]),
+        );
+        expect(textChunk.filter((op) => op.op.endsWith(".model"))).toEqual([
             { op: "response.model", model: "gpt-4o-2024-08-06" },
         ]);
-        expect(GeminiTranslator.toStreamResponses(fromChat)).toEqual([
+        expect(GeminiTranslator.toStreamResponses(textChunk)).toEqual([
             {
                 modelVersion: "gpt-4o-2024-08-06",
                 candidates: [
@@ -752,11 +839,69 @@ describe("the model that answered", () => {
                 ],
             },
         ]);
-        // a delta event of the Responses API has no model field
-        expect(
-            OpenAIResponsesTranslator.toStreamResponses(fromChat)[0],
-        ).not.toHaveProperty("model");
+        // a delta event of the Responses API and of the Realtime API has no
+        // model field
+        expect(OpenAIResponsesTranslator.toStreamResponses(textChunk)).toEqual([
+            {
+                type: "response.output_text.delta",
+                item_id: expect.any(String),
+                output_index: 0,
+                content_index: 0,
+                delta: "hello",
+            },
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(textChunk)).toEqual([
+            { type: "response.output_text.delta", delta: "hello" },
+        ]);
 
+        const finishChunk = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([{ index: 0, delta: {}, finish_reason: "stop" }]),
+        );
+        // message_delta of the Anthropic API has no model field
+        expect(AnthropicTranslator.toStreamResponses(finishChunk)).toEqual([
+            { type: "message_delta", delta: { stop_reason: "end_turn" } },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(finishChunk),
+        ).toEqual([
+            {
+                type: "response.completed",
+                response: {
+                    model: "gpt-4o-2024-08-06",
+                    status: "completed",
+                },
+            },
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(finishChunk)).toEqual(
+            [
+                {
+                    type: "response.done",
+                    response: { status: "completed", status_details: null },
+                },
+            ],
+        );
+    });
+
+    test("a Chat stream chunk that holds only the model writes no event where no event has a field for the model", () => {
+        const modelOnly = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([]),
+        );
+        expect(modelOnly.filter((op) => op.op.endsWith(".model"))).toEqual([
+            { op: "response.model", model: "gpt-4o-2024-08-06" },
+        ]);
+        expect(AnthropicTranslator.toStreamResponses(modelOnly)).toEqual([]);
+        expect(OpenAIResponsesTranslator.toStreamResponses(modelOnly)).toEqual(
+            [],
+        );
+        expect(OpenAIRealtimeTranslator.toStreamResponses(modelOnly)).toEqual(
+            [],
+        );
+        expect(GeminiTranslator.toStreamResponses(modelOnly)).toEqual([
+            { modelVersion: "gpt-4o-2024-08-06" },
+        ]);
+    });
+
+    test("a terminal event of the Responses API raises the model and writes it back", () => {
         const completed = {
             type: "response.completed",
             sequence_number: 4,
@@ -781,28 +926,31 @@ describe("the model that answered", () => {
         expect(
             OpenAIChatTranslator.toStreamResponses(fromResponses)[0],
         ).toMatchObject({ model: "gpt-4o-2024-08-06" });
+    });
 
-        const done = {
-            type: "response.done",
-            event_id: "event_1",
-            response: {
-                object: "realtime.response",
-                id: "resp_2",
-                status: "completed",
-                model: "gpt-realtime-2025-08-28",
-                usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
-            },
-        };
+    test("a recorded Realtime response.done event names no model, and none is raised from it", () => {
+        const recording = JSON.parse(
+            readFileSync(
+                new URL(
+                    "../e2e/openai_realtime/output/latest/text.gpt-realtime-2.json",
+                    import.meta.url,
+                ),
+                "utf8",
+            ),
+        ) as { rawResponseEvents: { type: string }[] };
+        const done = recording.rawResponseEvents.find(
+            (event) => event.type === "response.done",
+        );
+        expect(done).toBeDefined();
         const fromRealtime = OpenAIRealtimeTranslator.fromStreamResponse(done);
-        expect(fromRealtime).toContainEqual({
-            op: "response.model",
-            model: "gpt-realtime-2025-08-28",
-        });
+        expect(fromRealtime.filter((op) => op.op.endsWith(".model"))).toEqual(
+            [],
+        );
         expect(
             OpenAIRealtimeTranslator.toStreamResponses(fromRealtime),
         ).toEqual([done]);
         expect(
             OpenAIChatTranslator.toStreamResponses(fromRealtime)[0],
-        ).toMatchObject({ model: "gpt-realtime-2025-08-28" });
+        ).not.toHaveProperty("model");
     });
 });

@@ -347,13 +347,9 @@ export function streamResponseToWire(program: Program): unknown {
     const event: Record<string, unknown> = {};
     let eventType: string | undefined;
     let sawTextDelta = false;
-    let model: string | undefined;
 
     for (const op of program) {
         switch (op.op) {
-            case "response.model":
-                model = (op as OpOf<"response.model">).model;
-                break;
             case "response.text_delta":
                 sawTextDelta = true;
                 text += (op as OpOf<"response.text_delta">).content;
@@ -443,7 +439,6 @@ export function streamResponseToWire(program: Program): unknown {
             event.response ?? {},
             "stream event.response",
         );
-        if (model != null) response.model = model;
         applyStatus(response, finishReason);
         if (usage) response.usage = usage;
         return { type: "response.done", ...event, response };
@@ -564,13 +559,7 @@ function streamOutputItemEvent(
 function streamDoneEvent(event: Record<string, unknown>): Program {
     const program = streamEventParams(event, ["response"]);
     const response = asRecord(event.response, "stream event.response");
-    const { usage: _usage, model, ...responseMeta } = response;
-    if (model != null) {
-        program.push({
-            op: "response.model",
-            model: asString(model, "response.model"),
-        });
-    }
+    const { usage: _usage, ...responseMeta } = response;
     if (Object.keys(responseMeta).length > 0) {
         program.push({
             op: "openai_realtime.event_param",

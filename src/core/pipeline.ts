@@ -68,14 +68,14 @@ export function lowerToWire(
     low = codec.lower(low, {
         dialect: dialect.name,
         kind,
-        model: targetModel(kind, low),
+        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
         dialect: dialect.name,
         kind,
-        model: targetModel(kind, low),
+        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     };
     for (const legalize of codec.legalizations ?? []) {
@@ -141,14 +141,14 @@ function lowerStreamResponseProgram(
     low = codec.lower(low, {
         dialect: dialect.name,
         kind: "response_stream",
-        model: targetModel("response_stream", low),
+        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
         dialect: dialect.name,
         kind: "response_stream",
-        model: targetModel("response_stream", low),
+        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     };
     for (const legalize of codec.legalizations ?? []) {
@@ -217,17 +217,6 @@ function useRequestedModelWhenNoResponseModel(program: Program): Program {
     return program.map((op) =>
         op === last ? { op: "response.model", model: last.model } : op,
     );
-}
-
-// The model that legalizations judge: the requested model of a request, the
-// model that answered of a response.
-function targetModel(
-    kind: Target["kind"],
-    program: Program,
-): string | undefined {
-    return kind === "request"
-        ? firstOp(program, "llm.model")?.model
-        : firstOp(program, "response.model")?.model;
 }
 
 // Foreign dialect ops are transcript remnants for endpoints that know how to

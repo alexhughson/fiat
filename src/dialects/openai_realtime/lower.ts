@@ -38,7 +38,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
-    keepResponseModelForDoneEvent,
+    dropResponseModelFromStreamEvents,
     dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
@@ -48,33 +48,13 @@ export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
 
-// Among the stream events this codec writes, only response.done holds the
-// response object, where a model can be written. OpenAI's Realtime reference
-// lists no model field on that object, but recorded response.done events have
-// held one, and the complete-body codec reads and writes it there. A delta
-// event or an output item event has no response object, so response.model is
-// removed from a program that builds one of those.
-export function keepResponseModelForDoneEvent(program: Program): Program {
-    const buildsDeltaEvent = program.some(
-        (op) =>
-            op.op === "response.text_delta" ||
-            op.op === "response.tool_call_delta",
-    );
-    const buildsDoneEvent =
-        !buildsDeltaEvent &&
-        program.some(
-            (op) =>
-                op.op === "response.stop" ||
-                op.op === "response.usage" ||
-                op.op === "openai_realtime.finish_reason" ||
-                op.op === "openai_realtime.usage" ||
-                (op.op === "openai_realtime.event_param" &&
-                    opData<{ eventType: string }>(op).eventType ===
-                        "response.done"),
-        );
-    return buildsDoneEvent
-        ? program
-        : program.filter((op) => op.op !== "response.model");
+// OpenAI's Realtime reference lists no model field in any stream event that
+// this codec writes: the response object of response.done has none, and a
+// delta event or an output item event has no response object. The reference
+// names the model in the session object. So response.model is removed from
+// every program that builds a Realtime stream event.
+export function dropResponseModelFromStreamEvents(program: Program): Program {
+    return program.filter((op) => op.op !== "response.model");
 }
 
 // Sampling remains session/model dependent in Realtime GA. Model is accepted
