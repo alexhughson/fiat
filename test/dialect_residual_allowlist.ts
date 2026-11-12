@@ -1,7 +1,7 @@
 // Allowlist for the test in test/dialect_residual.test.ts. That test raises
 // ordinary request bodies, response bodies, and stream events, and splits
-// every op outside the core namespaces into units. The comment "A unit" in
-// that file gives the rules for a unit string.
+// every op that is not a core op into units. The comment "A unit" in that
+// file gives the rules for a unit string.
 //
 // providerOnly: units whose data only one provider has. A row is here only
 // when the public API references of the other providers were read and none

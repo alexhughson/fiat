@@ -2,7 +2,7 @@
 // must be raised to a core op, not left in a dialect-specific op. The test
 // raises ordinary request bodies, complete response bodies, and single stream
 // events of every dialect through the dialect's public translators, splits
-// every op outside the core namespaces into units (see "A unit" below), and
+// every op that is not a core op into units (see "A unit" below), and
 // checks each unit against test/dialect_residual_allowlist.ts. A providerOnly
 // row names the public API references that show no other provider has the
 // data. A baseline row is a residual that main has today: backlog to raise to
@@ -17,7 +17,7 @@ import {
     OpenAIChatTranslator,
     OpenAIRealtimeTranslator,
     OpenAIResponsesTranslator,
-    isCoreOp,
+    type CoreOp,
     type Op,
     type Program,
     type Translator,
@@ -30,6 +30,42 @@ const translators: Record<string, Translator> = {
     openai_responses: OpenAIResponsesTranslator,
     gemini: GeminiTranslator,
     openai_realtime: OpenAIRealtimeTranslator,
+};
+
+// The names of the core ops: the `op` values of the CoreOp union in
+// src/core/ops.ts. The test skips an op only when its name is in this list,
+// and splits every other op into units. A core namespace is not enough: the
+// program type accepts any op name, so a raise can keep wire data in an op
+// named `response.finish_detail` or `meta.anthropic_stream_event`. The source
+// holds the union as a type only, so the names are written here, and the
+// Record type makes `tsc` fail when a name of the union is missing from this
+// list or a name in this list is not in the union.
+const coreOpNames: Record<CoreOp["op"], true> = {
+    "llm.model": true,
+    "llm.temperature": true,
+    "llm.max_output_tokens": true,
+    "request.user": true,
+    "request.stream": true,
+    "request.stop_sequences": true,
+    "llm.thinking": true,
+    "llm.text": true,
+    "llm.reasoning": true,
+    "llm.image": true,
+    "llm.audio": true,
+    "llm.document": true,
+    "llm.video": true,
+    "llm.tool": true,
+    "llm.server_tool": true,
+    "llm.tool_choice": true,
+    "llm.tool_call": true,
+    "llm.tool_result": true,
+    "llm.output": true,
+    "meta.trace": true,
+    "response.id": true,
+    "response.usage": true,
+    "response.stop": true,
+    "response.text_delta": true,
+    "response.tool_call_delta": true,
 };
 
 const allowlistFile = "test/dialect_residual_allowlist.ts";
@@ -1875,10 +1911,10 @@ const cases: Case[] = [
 // Example: `stream:response.done:openai_realtime.event_param:type`.
 // openai_chat and gemini stream chunks have no wire `type`, so their units
 // start with `stream` alone. The walk goes by the shape of the op, not by its
-// name, and it covers every op whose namespace is not a core namespace, so an
-// op the test has never seen, in a namespace the test has never seen, is
-// split into units the same way. A new key at any depth is a new unit; new
-// array elements reuse the same unit.
+// name, and it covers every op whose name is not in coreOpNames, so an op the
+// test has never seen is split into units the same way, in a namespace the
+// test has never seen and in a core namespace alike. A new key at any depth
+// is a new unit; new array elements reuse the same unit.
 //
 // Limits of the walk:
 // - The lists hold one row per unit, not one row per corpus case. When two
@@ -1888,6 +1924,8 @@ const cases: Case[] = [
 //   units this way, because their units carry no event type.
 // - The walk reads keys, not values. A changed value under a listed key is
 //   the same unit.
+// - The walk does not read an op whose name is in coreOpNames, so a field
+//   that a raise adds to such an op opens no unit.
 
 // The walk stops at an object that holds JSON the provider does not define:
 // the keys inside are chosen by whoever built the request, so they are not
@@ -2084,7 +2122,7 @@ describe("dialect residual allowlist", () => {
             }
 
             for (const op of program) {
-                if (isCoreOp(op)) continue;
+                if (Object.hasOwn(coreOpNames, op.op)) continue;
                 for (const unit of unitsOf(op, input)) {
                     seen.add(unit);
                     if (
