@@ -52,9 +52,16 @@ events, optionally with top-level call/session fields such as `model`.
 - On the stream edge, a `response.content_part.added` or
   `response.content_part.done` event of a text part raises
   `response.text_start` or `response.block_stop` beside the event's
-  `openai_realtime.event_param` ops. A part other than `text` raises no block
-  op: `response.content_part.added` throws, and
+  `openai_realtime.event_param` ops. The params hold only realtime data: no
+  `output_index` or `part.type` (the core op states both) and, on `added`,
+  no empty `part.text` (the part's text arrives as
+  `response.output_text.delta` events). The done event's params keep the full
+  `part.text`, because stream lowering holds no state, so without the text in
+  the params the done event would return from a round trip without its text.
+  A part other than `text` raises no block op:
+  `response.content_part.added` throws, and
   `response.content_part.done` raises the event params only, as before.
-  Lowering `response.text_start` and `response.block_stop` back to realtime
-  events is a later row; `toStreamResponse` throws on them.
+  Lowering writes `response.content_part.added` for `response.text_start`
+  and `response.content_part.done` for `response.block_stop`, rebuilding
+  `output_index` from the op's `index` and `part.type` as `text`.
 - WebRTC setup, auth, and live connection management are out of scope.

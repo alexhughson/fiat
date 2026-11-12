@@ -396,7 +396,7 @@ describe("stream response conversion", () => {
         ).toEqual(doneEvent);
     });
 
-    test("openai realtime content_part events of a text part raise to the block ops", () => {
+    test("openai realtime content_part events of a text part raise to the block ops and round-trip", () => {
         const added = {
             type: "response.content_part.added",
             response_id: "resp_1",
@@ -414,19 +414,97 @@ describe("stream response conversion", () => {
             part: { type: "text", text: "hi", transcripts: ["hi"] },
         };
 
+        // The params hold only openai_realtime data: no output_index or
+        // part.type (the core op states both) and no empty part.text.
+        expect(OpenAIRealtimeTranslator.fromStreamResponse(added)).toEqual([
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.added",
+                key: "type",
+                value: "response.content_part.added",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.added",
+                key: "response_id",
+                value: "resp_1",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.added",
+                key: "item_id",
+                value: "msg_1",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.added",
+                key: "content_index",
+                value: 0,
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.added",
+                key: "part",
+                value: { transcripts: null },
+                appliesTo: "response",
+            },
+            { op: "response.text_start", index: 0 },
+        ]);
+        // Stream lowering holds no state, so the done event keeps its text
+        // in the params; lowering writes output_index and part.type back.
+        expect(OpenAIRealtimeTranslator.fromStreamResponse(done)).toEqual([
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.done",
+                key: "type",
+                value: "response.content_part.done",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.done",
+                key: "response_id",
+                value: "resp_1",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.done",
+                key: "item_id",
+                value: "msg_1",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.done",
+                key: "content_index",
+                value: 0,
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.content_part.done",
+                key: "part",
+                value: { text: "hi", transcripts: ["hi"] },
+                appliesTo: "response",
+            },
+            { op: "response.block_stop", index: 0 },
+        ]);
+
         expect(
-            OpenAIRealtimeTranslator.fromStreamResponse(added),
-        ).toContainEqual({ op: "response.text_start", index: 0 });
-        expect(
-            OpenAIRealtimeTranslator.fromStreamResponse(done),
-        ).toContainEqual({ op: "response.block_stop", index: 0 });
-        // Lowering the block ops back to openai_realtime events is a later
-        // row; the stream writer has no serialization for them yet.
-        expect(() =>
             OpenAIRealtimeTranslator.toStreamResponse(
                 OpenAIRealtimeTranslator.fromStreamResponse(added),
             ),
-        ).toThrow(LintError);
+        ).toEqual(added);
+        expect(
+            OpenAIRealtimeTranslator.toStreamResponse(
+                OpenAIRealtimeTranslator.fromStreamResponse(done),
+            ),
+        ).toEqual(done);
     });
 
     test("openai realtime content_part.added of a non-text part still throws", () => {
@@ -440,6 +518,25 @@ describe("stream response conversion", () => {
                 part: { type: "audio", audio: null },
             }),
         ).toThrow(LintError);
+    });
+
+    test("openai realtime content_part.done of a non-text part stays params-only and round-trips", () => {
+        const audioDone = {
+            type: "response.content_part.done",
+            response_id: "resp_1",
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            part: { type: "audio", audio: null },
+        };
+        const program = OpenAIRealtimeTranslator.fromStreamResponse(audioDone);
+        // No core op: a part other than text has no block ops yet.
+        expect(
+            program.every((op) => op.op === "openai_realtime.event_param"),
+        ).toBe(true);
+        expect(OpenAIRealtimeTranslator.toStreamResponse(program)).toEqual(
+            audioDone,
+        );
     });
 
     test("openai realtime function-call done and terminal response metadata round-trip", () => {

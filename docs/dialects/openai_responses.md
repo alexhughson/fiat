@@ -75,7 +75,7 @@ wire event can raise several ops:
 | `response.output_text.delta`                     | one `body_field` op per event field + `response.text_delta`      |
 | `response.function_call_arguments.delta`         | one `body_field` op per event field + `response.tool_call_delta` |
 | `response.content_part.added` (`output_text`)    | `openai_responses.stream_event_meta` + `response.text_start`     |
-| `response.content_part.done`                     | `openai_responses.stream_event_meta` + `response.block_stop`     |
+| `response.content_part.done` (`output_text`)     | `openai_responses.stream_event_meta` + `response.block_stop`     |
 | `response.output_item.added` / `.done`           | one `body_field` op per event field, plus the item               |
 | `response.completed` / `.incomplete` / `.failed` | one `body_field` op per event field, plus usage                  |
 

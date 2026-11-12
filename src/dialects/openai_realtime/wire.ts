@@ -332,15 +332,21 @@ export function streamResponseFromWire(wire: unknown): Program {
         case "response.output_text.done":
             return streamEventParams(event, []);
         // A text part opens here and its text arrives as output_text.delta
-        // events, so the event also raises response.text_start. A part other
-        // than text is not raised; it keeps main's behavior for this event.
+        // events, so the event also raises response.text_start. The params
+        // hold no output_index or part.type (the core op states both) and no
+        // part.text (it is empty here); the keys only openai_realtime has,
+        // such as transcripts, stay in the params. A part other than text
+        // is not raised; it keeps main's behavior for this event.
         case "response.content_part.added": {
             const part = asRecord(event.part, "stream event.part");
             if (part.type !== "text") {
                 throwUnsupportedStreamResponseEvent(type);
             }
+            const { type: _type, text: _text, ...partParams } = part;
             return [
-                ...streamEventParams(event, []),
+                ...streamEventParams({ ...event, part: partParams }, [
+                    "output_index",
+                ]),
                 {
                     op: "response.text_start",
                     index: asNumber(
@@ -351,11 +357,18 @@ export function streamResponseFromWire(wire: unknown): Program {
             ];
         }
         // A text part ends here, so the event also raises response.block_stop.
+        // The params hold no output_index or part.type (the core op states
+        // both); the full part.text repeats the output_text.delta events, but
+        // stream lowering holds no state, so without the text in the params
+        // the done event would return from a round trip without its text.
         // A part other than text keeps main's behavior: dialect params only.
         case "response.content_part.done": {
             const part = asRecord(event.part, "stream event.part");
-            const program = streamEventParams(event, []);
-            if (part.type !== "text") return program;
+            if (part.type !== "text") return streamEventParams(event, []);
+            const { type: _type, ...partParams } = part;
+            const program = streamEventParams({ ...event, part: partParams }, [
+                "output_index",
+            ]);
             program.push({
                 op: "response.block_stop",
                 index: asNumber(
@@ -388,6 +401,32 @@ export function streamResponseToWire(program: Program): unknown {
                 text += (op as OpOf<"response.text_delta">).content;
                 eventType ??= "response.output_text.delta";
                 break;
+            case "response.text_start":
+                eventType ??= "response.content_part.added";
+                event.output_index = (op as OpOf<"response.text_start">).index;
+                // The params hold the part without type, text, and
+                // output_index; lowering writes those back, with the shape
+                // of a real added event when no part param came.
+                event.part = {
+                    type: "text",
+                    text: "",
+                    transcripts: null,
+                    ...asRecord(event.part ?? {}, "stream event.part"),
+                };
+                break;
+            case "response.block_stop": {
+                eventType ??= "response.content_part.done";
+                event.output_index = (op as OpOf<"response.block_stop">).index;
+                // The done event's part keeps its text in the params; its
+                // type repeats the core op, so lowering writes it back.
+                if (event.part != null) {
+                    event.part = {
+                        type: "text",
+                        ...asRecord(event.part, "stream event.part"),
+                    };
+                }
+                break;
+            }
             case "response.tool_call_delta":
                 toolDeltas.push(op as OpOf<"response.tool_call_delta">);
                 eventType ??= "response.function_call_arguments.delta";
