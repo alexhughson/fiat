@@ -92,7 +92,7 @@ export const dialectResidualAllowlist: Record<string, string> = {
     "openai_responses.body_field:parallel_tool_calls":
         "shared with anthropic_messages (tool_choice.disable_parallel_tool_use), openai_chat (parallel_tool_calls): not provider-only (whether the model may call tools in parallel, echoed on the response)",
     "openai_responses.body_field:previous_response_id":
-        "openai_responses only: chains this response to a previous one server-side; the other four dialects are stateless request/response APIs with no response chaining field (checked anthropic_messages, openai_chat, gemini, openai_realtime response schemas)",
+        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; openai_realtime groups turns by conversation_id on the response instead)",
     "openai_responses.body_field:reasoning:effort":
         "shared with anthropic_messages (thinking.budget_tokens), gemini (generationConfig.thinkingConfig.thinkingBudget), openai_chat (reasoning_effort): not provider-only (reasoning effort setting echoed on the response)",
     "openai_responses.body_field:reasoning:summary":
@@ -120,7 +120,7 @@ export const dialectResidualAllowlist: Record<string, string> = {
     "openai_responses.body_field:response:parallel_tool_calls":
         "shared with anthropic_messages (tool_choice.disable_parallel_tool_use), openai_chat (parallel_tool_calls): not provider-only (whether the model may call tools in parallel, on the terminal event)",
     "openai_responses.body_field:response:previous_response_id":
-        "openai_responses only: chains this response to a previous one server-side; the other four dialects are stateless request/response APIs with no response chaining field (checked anthropic_messages, openai_chat, gemini, openai_realtime response schemas)",
+        "openai_responses only: identifies the previous response this one continues server-side; no other dialect has a response-chaining id (anthropic_messages, openai_chat, and gemini are stateless APIs; openai_realtime groups turns by conversation_id on the response instead)",
     "openai_responses.body_field:response:reasoning":
         "shared with anthropic_messages (thinking), gemini (generationConfig.thinkingConfig): not provider-only (reasoning setting on the terminal event)",
     "openai_responses.body_field:response:service_tier":
