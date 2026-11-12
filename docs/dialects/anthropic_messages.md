@@ -8,6 +8,7 @@ Anthropic Messages (`POST /v1/messages`). Code:
 | wire                                         | core                    |
 | -------------------------------------------- | ----------------------- |
 | `model`                                      | `llm.model`             |
+| response `id`                                | `response.id`           |
 | `temperature`                                | `llm.temperature`       |
 | `max_tokens`                                 | `llm.max_output_tokens` |
 | `system`                                     | system `llm.text`       |

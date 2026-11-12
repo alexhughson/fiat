@@ -596,6 +596,7 @@ describe("openai_chat translation", () => {
         ) as Record<string, unknown>;
 
         expect(openaiResponse.model).toBe("claude-sonnet-4-6");
+        expect(openaiResponse.id).toBe("msg_01ABC");
         expect(openaiResponse.choices).toEqual([
             {
                 index: 0,
@@ -610,6 +611,33 @@ describe("openai_chat translation", () => {
         });
         // Protocol boilerplate is synthesized when the source has none to map.
         expect(openaiResponse.object).toBe("chat.completion");
+    });
+
+    test("a chat response id raises to response.id and lowers into the anthropic id", () => {
+        const program = OpenAIChatTranslator.fromResponse({
+            id: "chatcmpl-abc",
+            object: "chat.completion",
+            created: 1700000000,
+            model: "gpt-4o",
+            choices: [
+                {
+                    index: 0,
+                    message: { role: "assistant", content: "It is correct." },
+                    finish_reason: "stop",
+                },
+            ],
+            usage: { prompt_tokens: 20, completion_tokens: 9 },
+        });
+
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "chatcmpl-abc",
+        });
+        const response = AnthropicTranslator.toResponse(program) as Record<
+            string,
+            unknown
+        >;
+        expect(response.id).toBe("chatcmpl-abc");
     });
 
     test("a responses tool call can become an openai chat response", () => {

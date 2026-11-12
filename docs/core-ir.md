@@ -82,15 +82,48 @@ not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 
 ## Response ops
 
-| op                         | fields                                 | notes                         |
-| -------------------------- | -------------------------------------- | ----------------------------- |
-| `response.stop`            | normalized stop reason                 | provider enum values map here |
-| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only            |
-| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta             |
-| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta        |
+| op                         | fields                                 | notes                                                            |
+| -------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
+| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below |
+| `response.stop`            | normalized stop reason                 | provider enum values map here                                    |
+| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                                               |
+| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                |
+| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                           |
 
 Assistant responses raise to `llm.text` and `llm.tool_call`. That is why a
 response program can be appended to the next request program.
+
+## Response id
+
+`response.id` holds the id that a provider's API gave to one complete
+response. A dialect raises the op from the id field of a complete response
+body, and writes the op's `id` into the same field when it lowers a program to
+a complete response body.
+
+```ts
+{
+    op: "response.id";
+    id: string;
+}
+```
+
+| dialect              | response body field that holds the id     |
+| -------------------- | ----------------------------------------- |
+| `anthropic_messages` | top-level `id`                            |
+| `openai_chat`        | top-level `id`                            |
+| `openai_responses`   | top-level `id`                            |
+| `gemini`             | top-level `responseId`                    |
+| `openai_realtime`    | `id` in the `response` of `response.done` |
+
+A dialect writes the id unchanged, so an `openai_chat` response body can hold
+an id that Anthropic's API issued. When a program holds several `response.id`
+ops, the last one is written. When a program holds none, four dialects invent
+an id and `gemini` writes no `responseId`.
+
+Lowering a program to a request body removes `response.id`, like every other
+`response.*` op. Among the stream codecs, only the `anthropic_messages` one
+that lowers a complete response to stream events reads the op: it writes the
+id into `message_start.message.id`.
 
 ## Host ops
 

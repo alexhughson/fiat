@@ -175,6 +175,12 @@ export function responseFromWire(wire: unknown): Program {
                     model: asString(value, "model"),
                 });
                 break;
+            case "responseId":
+                program.push({
+                    op: "response.id",
+                    id: asString(value, "responseId"),
+                });
+                break;
             case "candidates":
                 program.push(...candidateFromWire(value));
                 break;
@@ -208,6 +214,9 @@ export function responseToWire(program: Program): unknown {
         switch (op.op) {
             case "llm.model":
                 body.model = op.model;
+                break;
+            case "response.id":
+                body.responseId = (op as OpOf<"response.id">).id;
                 break;
             case "gemini.content":
                 if (content)

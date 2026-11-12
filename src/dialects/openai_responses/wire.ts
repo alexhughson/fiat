@@ -284,6 +284,12 @@ export function responseFromWire(wire: unknown): Program {
                     model: asString(value, "model"),
                 });
                 break;
+            case "id":
+                program.push({
+                    op: "response.id",
+                    id: asString(value, "id"),
+                });
+                break;
             case "output":
                 for (const item of asArray(value, "output")) {
                     const output = asRecord(
@@ -354,6 +360,9 @@ export function responseToWire(program: Program): unknown {
         switch (op.op) {
             case "llm.model":
                 body.model = op.model;
+                break;
+            case "response.id":
+                body.id = (op as OpOf<"response.id">).id;
                 break;
             case "openai_responses.output":
                 output.push(opData<{ item: WireOutputItem }>(op).item);

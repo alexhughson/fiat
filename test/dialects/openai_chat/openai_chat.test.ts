@@ -644,12 +644,7 @@ describe("openai_chat responses", () => {
     test("a response raises to the same op vocabulary as requests", () => {
         // Op order follows wire key order; envelope params are born droppable.
         expect(OpenAIChatTranslator.fromResponse(wireResponse)).toEqual([
-            {
-                op: "openai_chat.body_field",
-                key: "id",
-                value: "chatcmpl-123",
-                appliesTo: "response",
-            },
+            { op: "response.id", id: "chatcmpl-123" },
             {
                 op: "openai_chat.body_field",
                 key: "object",

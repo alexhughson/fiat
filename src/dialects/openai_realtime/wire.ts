@@ -247,6 +247,9 @@ export function responseToWire(program: Program): unknown {
             case "llm.model":
                 body.model = op.model;
                 break;
+            case "response.id":
+                body.id = (op as OpOf<"response.id">).id;
+                break;
             case "openai_realtime.output":
                 output.push(opData<{ item: WireOutputItem }>(op).item);
                 break;
@@ -678,6 +681,12 @@ function parseResponseDone(
                 program.push({
                     op: "llm.model",
                     model: asString(value, "response.model"),
+                });
+                break;
+            case "id":
+                program.push({
+                    op: "response.id",
+                    id: asString(value, "response.id"),
                 });
                 break;
             case "output":

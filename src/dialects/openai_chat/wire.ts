@@ -239,6 +239,12 @@ export function responseFromWire(wire: unknown): Program {
                     model: asString(value, "model"),
                 });
                 break;
+            case "id":
+                program.push({
+                    op: "response.id",
+                    id: asString(value, "id"),
+                });
+                break;
             case "choices": {
                 const choices = asArray(value, "choices");
                 if (choices.length !== 1) {
@@ -290,6 +296,9 @@ export function responseToWire(program: Program): unknown {
         switch (op.op) {
             case "llm.model":
                 body.model = op.model;
+                break;
+            case "response.id":
+                body.id = (op as OpOf<"response.id">).id;
                 break;
             case "openai_chat.message":
                 if (message)

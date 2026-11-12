@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { GeminiTranslator, OpenAIChatTranslator } from "../../../src/index";
+import {
+    AnthropicTranslator,
+    GeminiTranslator,
+    OpenAIChatTranslator,
+} from "../../../src/index";
 import {
     geminiPlannerProgram,
     mixedHistoryProgram,
@@ -519,5 +523,48 @@ describe("gemini translation", () => {
         // Gemini lowering injects on the functionCall part is pre-existing
         // behavior for core tool history without a Gemini response.
         expect(lowered.contents[2]!.parts).toEqual(body.contents[2]!.parts);
+    });
+
+    test("an anthropic response id lowers into the gemini responseId", () => {
+        const response = GeminiTranslator.toResponse(
+            AnthropicTranslator.fromResponse({
+                id: "msg_01ABC",
+                type: "message",
+                role: "assistant",
+                model: "claude-sonnet-4-6",
+                content: [{ type: "text", text: "It is correct." }],
+                stop_reason: "end_turn",
+                usage: { input_tokens: 20, output_tokens: 9 },
+            }),
+        ) as Record<string, unknown>;
+
+        expect(response.responseId).toBe("msg_01ABC");
+    });
+
+    test("a gemini responseId raises to response.id and lowers into the anthropic id", () => {
+        const program = GeminiTranslator.fromResponse({
+            responseId: "resp_123",
+            model: "models/gemini-3.5-flash",
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [{ text: "It is correct." }],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+            usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 9 },
+        });
+
+        expect(program).toContainEqual({
+            op: "response.id",
+            id: "resp_123",
+        });
+        const response = AnthropicTranslator.toResponse(program) as Record<
+            string,
+            unknown
+        >;
+        expect(response.id).toBe("resp_123");
     });
 });

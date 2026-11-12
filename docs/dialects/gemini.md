@@ -9,6 +9,7 @@ path. Code: `src/dialects/gemini/`.
 | wire                                         | core                    |
 | -------------------------------------------- | ----------------------- |
 | `model`                                      | `llm.model`             |
+| `responseId`                                 | `response.id`           |
 | `systemInstruction.parts[].text`             | system `llm.text`       |
 | `generationConfig.maxOutputTokens`           | `llm.max_output_tokens` |
 | `generationConfig.temperature`               | `llm.temperature`       |
