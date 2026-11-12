@@ -49,7 +49,9 @@ path. Code: `src/dialects/gemini/`.
   to the lowered part it annotates. A functionResponse `gemini.part_meta`
   names its `llm.tool_result` by id under `of`, so its position is free;
   lowering binds it to the nearest earlier result with that id, or the
-  nearest later one, and removes it when no result has that id.
+  nearest later one, and removes it when no result has that id. Two
+  functionResponse `gemini.part_meta` ops with one `of` lower without a
+  throw, and the later one's name wins.
 
 ## Tool results
 
@@ -78,12 +80,12 @@ Gemini's API this `functionResponse.response` object, nested inside the
 `GeminiTranslator.fromBody` raises a `response` whose only key is `output`
 into the wrapped value: a string as text, anything else as JSON. A
 `response` with `output` among other keys raises as the whole object. When
-the proxy's client sends a request whose `response` holds the number 378,
-`GeminiTranslator.fromBody` raises the part to the text `"378"`, and
-`GeminiTranslator.toBody` writes text as a string under `output`, so the
-proxy sends the part on to Gemini's API with the type changed. The diff shows
-the `functionResponse` object, nested inside the part the proxy sends to
-Gemini's API:
+the proxy's client sends a request whose `response` holds the number 378
+under `output`, `GeminiTranslator.fromBody` raises the part to the text
+`"378"`, and `GeminiTranslator.toBody` writes text as a string under
+`output`, so the proxy sends the part on to Gemini's API with the type
+changed. The diff shows the `functionResponse` object, nested inside the
+part the proxy sends to Gemini's API:
 
 ```diff
  {
@@ -107,22 +109,21 @@ returns with the wrapper removed, and the same holds for a string under
 holds. A string under `output` whose text is not a JSON object returns
 unchanged.
 
-`gemini.part_meta` with `kind: "functionResponse"` carries the function
+A `functionResponse` `gemini.part_meta` carries the function
 `name`, which Gemini requires on every `functionResponse` part and which
 `llm.tool_result` does not hold, and it names the `llm.tool_result` the part
 answers by that op's id under `of`, plus any other keys of the wire part under
 `meta`. `GeminiTranslator.fromBody` returns the op directly after the
-`llm.tool_result` raised from the same part. The op's `part` field holds, with
-`meta` present only when the wire part had other keys:
+`llm.tool_result` raised from the same part. The op's `part` field holds the
+variant as `src/dialects/gemini/ops.ts` declares it, with `meta` present only
+when the wire part had other keys:
 
-```json
+```ts
 {
-    "kind": "functionResponse",
-    "of": "<the id of the llm.tool_result the part answers>",
-    "name": "<the function the tool result answers>",
-    "meta": {
-        "<any other wire part key>": "<its value>"
-    }
+    kind: "functionResponse";
+    of: string;
+    name: string;
+    meta?: Record<string, unknown>;
 }
 ```
 

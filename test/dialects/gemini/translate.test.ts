@@ -867,6 +867,101 @@ describe("gemini translation", () => {
         ]);
     });
 
+    test("two functionResponse parts with different ids keep their own names", () => {
+        const body = {
+            model: "models/gemini-3.5-flash",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "get_population",
+                                response: { output: "378" },
+                                id: "call_pop",
+                            },
+                        },
+                        {
+                            functionResponse: {
+                                name: "get_weather",
+                                response: { temp: 9 },
+                                id: "call_weather",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        // Each part_meta names its own result under `of`, so lowering cannot
+        // take one part's name for the other.
+        const program = GeminiTranslator.fromBody(body);
+        const lowered = GeminiTranslator.toBody(program) as typeof body;
+        expect(lowered.contents[0]!.parts).toEqual([
+            {
+                functionResponse: {
+                    name: "get_population",
+                    response: { output: "378" },
+                    id: "call_pop",
+                },
+            },
+            {
+                functionResponse: {
+                    name: "get_weather",
+                    response: { temp: 9 },
+                    id: "call_weather",
+                },
+            },
+        ]);
+    });
+
+    test("a functionResponse part_meta name wins over the llm.tool_call name", () => {
+        const body = {
+            model: "models/gemini-3.5-flash",
+            contents: [
+                {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: "get_weather",
+                                args: {},
+                                id: "c1",
+                            },
+                        },
+                    ],
+                },
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "get_population",
+                                response: { output: "378" },
+                                id: "c1",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        // A transform may rewrite the call's name after the answer was
+        // recorded; the part_meta's name is the one the part carries, so it
+        // wins over the llm.tool_call name for the same id.
+        const program = GeminiTranslator.fromBody(body);
+        const lowered = GeminiTranslator.toBody(program) as typeof body;
+        expect(lowered.contents[1]!.parts).toEqual([
+            {
+                functionResponse: {
+                    name: "get_population",
+                    response: { output: "378" },
+                    id: "c1",
+                },
+            },
+        ]);
+    });
+
     test("an anthropic response id lowers into the gemini responseId", () => {
         const response = GeminiTranslator.toResponse(
             AnthropicTranslator.fromResponse({
