@@ -2279,6 +2279,9 @@ function isMechanics(op: Op, field: string, value: unknown): boolean {
     // holds one of two values; any other value opens a unit.
     if (field === "appliesTo")
         return value === "request" || value === "response";
+    // An op name that Object.prototype also holds, such as `toString`, must
+    // read as "not listed", so the lookup takes own keys only.
+    if (!Object.hasOwn(opMechanics, op.op)) return false;
     if (!opMechanics[op.op]?.includes(field)) return false;
     if (typeof value !== "string" && typeof value !== "boolean") return false;
     reachedMechanics.add(`${op.op}:${field}`);
