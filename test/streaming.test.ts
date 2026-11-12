@@ -1139,7 +1139,7 @@ describe("stream response conversion", () => {
         });
     });
 
-    test("a raised anthropic text stream lowers to openai responses events in order", () => {
+    test("a raised anthropic text stream lowers one event at a time through toStreamResponse", () => {
         const anthropicStream = [
             {
                 type: "message_start",
@@ -1174,11 +1174,14 @@ describe("stream response conversion", () => {
             { type: "message_stop" },
         ];
 
-        const lowered = anthropicStream.flatMap((event) =>
-            OpenAIResponsesTranslator.toStreamResponses(
-                AnthropicTranslator.fromStreamResponse(event),
-            ),
-        ) as Record<string, unknown>[];
+        const lowered = anthropicStream
+            .slice(0, 6)
+            .map(
+                (event) =>
+                    OpenAIResponsesTranslator.toStreamResponse(
+                        AnthropicTranslator.fromStreamResponse(event),
+                    ) as Record<string, unknown>,
+            );
 
         // The stream opens with response.created before any text, the text
         // arrives as deltas, and only the events with a stop reason close
@@ -1194,9 +1197,28 @@ describe("stream response conversion", () => {
         expect((lowered[0]!.response as Record<string, unknown>).model).toEqual(
             "claude-3-5",
         );
+        // message_stop raises only to a foreign op, which openai_responses
+        // does not write; the singular lowering throws instead of emitting
+        // a non-event, and the plural function returns no event.
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponse(
+                AnthropicTranslator.fromStreamResponse({
+                    type: "message_stop",
+                }),
+            ),
+        ).toThrow(
+            "openai_responses stream response toWire: no event ops in program",
+        );
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(
+                AnthropicTranslator.fromStreamResponse({
+                    type: "message_stop",
+                }),
+            ),
+        ).toEqual([]);
     });
 
-    test("a raised openai chat chunk with a model name lowers to a text delta", () => {
+    test("a raised openai chat chunk with a model name and content lowers to a text delta, and the model is dropped", () => {
         const chunk = {
             id: "chatcmpl-1",
             object: "chat.completion.chunk",
@@ -1218,6 +1240,26 @@ describe("stream response conversion", () => {
 
         expect(event.type).toEqual("response.output_text.delta");
         expect(event.delta).toEqual("hi");
+        // The text delta returns early; the model beside it does not reach
+        // the event, so a chat chunk that carries content writes no envelope.
+        expect(event.response).toBeUndefined();
+    });
+
+    test("a raised openai chat chunk with a model name and no content lowers to a created event", () => {
+        const chunk = {
+            id: "chatcmpl-1",
+            object: "chat.completion.chunk",
+            created: 1700000000,
+            model: "gpt-4o",
+            choices: [{ index: 0, delta: {}, finish_reason: null }],
+        };
+
+        const event = OpenAIResponsesTranslator.toStreamResponse(
+            OpenAIChatTranslator.fromStreamResponse(chunk),
+        ) as { type: string; response: { model: string } };
+
+        expect(event.type).toEqual("response.created");
+        expect(event.response.model).toEqual("gpt-4o");
     });
 
     test("anthropic tool fragments stay partial across raise and lower", () => {

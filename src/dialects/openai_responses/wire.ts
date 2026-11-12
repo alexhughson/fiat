@@ -643,15 +643,19 @@ export function streamResponseToWire(program: Program): unknown {
 
     // The envelope ops (model, usage, finish reason) pick the lifecycle type
     // together, after the whole program is scanned: a finish reason closes
-    // the response, and model or usage without one opens it, because the
-    // anthropic message_start and a bare openai_chat chunk carry no finish
-    // reason. A meta op that carries its own "type" key keeps that type.
+    // the response, and a model without one opens it, because the anthropic
+    // message_start and a bare openai_chat chunk carry no finish reason.
+    // Usage without a model or a finish reason keeps the response.completed
+    // event the base wrote. A meta op that carries its own "type" key keeps
+    // that type.
     const hasEnvelope = usage || finishReason != null || model != null;
     if (hasEnvelope && event.type == null) {
         event.type =
             finishReason != null
                 ? terminalEventType(finishReason)
-                : "response.created";
+                : model != null
+                  ? "response.created"
+                  : "response.completed";
     }
     // Lowering never writes into an object an input op holds. The meta op
     // and a body_field value share their response record with the event,
@@ -698,6 +702,14 @@ export function streamResponseToWire(program: Program): unknown {
         }
         if (usage) response.usage = usage;
         event.response = response;
+    }
+    // A program that lowered to no event must not serialize to a non-event
+    // object: the anthropic message_stop, whose raise holds only a foreign
+    // op, reaches this point with an empty event.
+    if (event.type == null) {
+        throw new LintError(
+            "openai_responses stream response toWire: no event ops in program",
+        );
     }
     return event;
 }

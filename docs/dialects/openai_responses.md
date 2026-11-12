@@ -237,11 +237,24 @@ The `error` stream event still throws; a core error op does not exist yet.
 Stream lowering accepts `llm.model`: the model raises from
 `response.created` and from another dialect's first event, and lowering
 writes it back into the response envelope. The envelope ops (model, usage,
-finish reason) pick the event type together: a finish reason closes the
-response, and a model or usage count without one opens it, because the
-anthropic `message_start` and a bare openai_chat chunk carry no finish
-reason. A raised anthropic text stream therefore lowers to
-`response.created`, the text deltas, and `response.completed` last.
+finish reason) pick the event type together after the whole program is
+scanned: a finish reason closes the response (`end_turn` and `tool_use` to
+`response.completed`, `max_tokens` and `content_filter` to
+`response.incomplete`), and a model without one opens it
+(`response.created`), because the anthropic `message_start` and a bare
+openai_chat chunk carry no finish reason. Usage without a model or a
+finish reason keeps the `response.completed` event. A program that lowers
+to no event — the anthropic `message_stop`, which raises only to a foreign
+op — makes singular `toStreamResponse` throw, and `toStreamResponses`
+returns no event for it. The model reaches the envelope only when the
+program holds no text or tool delta: a delta makes lowering return the
+delta event first, and a model or usage count beside it is dropped, so an
+openai_chat or gemini chunk that carries content writes no
+`response.created`. Lowered one event at a time with `toStreamResponse`,
+a raised anthropic text stream yields `response.created`,
+`response.content_part.added`, the text deltas,
+`response.content_part.done`, `response.completed`, and the `message_stop`
+throws.
 
 ## Out of scope
 
