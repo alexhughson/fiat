@@ -45,6 +45,15 @@ const expectedSkips = [
     "anthropic_messages stream message_start",
     "anthropic_messages stream content_block_start text",
     "anthropic_messages stream content_block_stop",
+    "anthropic_messages stream ping",
+    "openai_responses stream response.created",
+    "openai_responses stream response.in_progress",
+    "openai_responses stream response.content_part.added",
+    "openai_responses stream response.content_part.done",
+    "openai_responses stream response.output_text.done",
+    "openai_responses stream response.function_call_arguments.done",
+    "openai_realtime stream response.created",
+    "openai_realtime stream response.content_part.added",
 ];
 
 const cases: Case[] = [
@@ -125,6 +134,7 @@ const cases: Case[] = [
             model: "claude-sonnet-4-6",
             content: [{ type: "text", text: "hi there" }],
             stop_reason: "end_turn",
+            stop_sequence: null,
             usage: { input_tokens: 10, output_tokens: 5 },
         },
     },
@@ -146,6 +156,7 @@ const cases: Case[] = [
                 },
             ],
             stop_reason: "tool_use",
+            stop_sequence: null,
             usage: { input_tokens: 10, output_tokens: 5 },
         },
     },
@@ -161,6 +172,7 @@ const cases: Case[] = [
                 model: "claude-sonnet-4-6",
                 content: [],
                 stop_reason: null,
+                stop_sequence: null,
                 usage: { input_tokens: 10, output_tokens: 1 },
             },
         },
@@ -193,7 +205,7 @@ const cases: Case[] = [
         fn: "fromStreamResponse",
         input: {
             type: "message_delta",
-            delta: { stop_reason: "end_turn" },
+            delta: { stop_reason: "end_turn", stop_sequence: null },
             usage: { output_tokens: 5 },
         },
     },
@@ -224,6 +236,11 @@ const cases: Case[] = [
             index: 1,
             delta: { type: "input_json_delta", partial_json: '{"ci' },
         },
+    },
+    {
+        label: "anthropic_messages stream ping",
+        fn: "fromStreamResponse",
+        input: { type: "ping" },
     },
 
     // openai_chat
@@ -269,6 +286,7 @@ const cases: Case[] = [
                 },
             ],
             messages: [
+                { role: "system", content: "be brief" },
                 {
                     role: "assistant",
                     tool_calls: [
@@ -282,7 +300,7 @@ const cases: Case[] = [
                         },
                     ],
                 },
-                { role: "user", content: "18C" },
+                { role: "tool", tool_call_id: "call_1", content: "18C" },
             ],
         },
     },
@@ -354,7 +372,7 @@ const cases: Case[] = [
         },
     },
     {
-        label: "openai_chat stream tool call chunk",
+        label: "openai_chat stream tool call start chunk",
         fn: "fromStreamResponse",
         input: {
             id: "chatcmpl-1",
@@ -383,7 +401,31 @@ const cases: Case[] = [
         },
     },
     {
-        label: "openai_chat stream stop reason and usage",
+        label: "openai_chat stream tool call argument continuation chunk",
+        fn: "fromStreamResponse",
+        input: {
+            id: "chatcmpl-1",
+            object: "chat.completion.chunk",
+            created: 123,
+            model: "gpt-4o",
+            choices: [
+                {
+                    index: 0,
+                    delta: {
+                        tool_calls: [
+                            {
+                                index: 0,
+                                function: { arguments: 'ty":"Paris"}' },
+                            },
+                        ],
+                    },
+                    finish_reason: null,
+                },
+            ],
+        },
+    },
+    {
+        label: "openai_chat stream finish chunk",
         fn: "fromStreamResponse",
         input: {
             id: "chatcmpl-1",
@@ -391,6 +433,18 @@ const cases: Case[] = [
             created: 123,
             model: "gpt-4o",
             choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            usage: null,
+        },
+    },
+    {
+        label: "openai_chat stream usage-only final chunk",
+        fn: "fromStreamResponse",
+        input: {
+            id: "chatcmpl-1",
+            object: "chat.completion.chunk",
+            created: 123,
+            model: "gpt-4o",
+            choices: [],
             usage: {
                 prompt_tokens: 10,
                 completion_tokens: 5,
@@ -459,16 +513,19 @@ const cases: Case[] = [
         input: {
             id: "resp_1",
             object: "response",
-            created_at: 123,
+            created_at: 1741386163,
             status: "completed",
+            error: null,
+            incomplete_details: null,
+            instructions: "be brief",
+            max_output_tokens: null,
             model: "gpt-5",
-            service_tier: "default",
             output: [
                 {
                     type: "message",
                     id: "msg_1",
-                    role: "assistant",
                     status: "completed",
+                    role: "assistant",
                     content: [
                         {
                             type: "output_text",
@@ -483,20 +540,22 @@ const cases: Case[] = [
                     call_id: "call_1",
                     name: "get_weather",
                     arguments: '{"city":"Paris"}',
+                    status: "completed",
                 },
             ],
-            usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
-        },
-    },
-    {
-        label: "openai_responses stream text delta",
-        fn: "fromStreamResponse",
-        input: {
-            type: "response.output_text.delta",
-            response_id: "resp_1",
-            output_index: 0,
-            content_index: 0,
-            delta: "hello",
+            parallel_tool_calls: true,
+            previous_response_id: null,
+            reasoning: { effort: null, summary: null },
+            store: true,
+            temperature: 1.0,
+            text: { format: { type: "text" } },
+            tool_choice: "auto",
+            tools: [],
+            top_p: 1.0,
+            truncation: "disabled",
+            usage: { input_tokens: 32, output_tokens: 5, total_tokens: 37 },
+            metadata: {},
+            service_tier: "default",
         },
     },
     {
@@ -504,7 +563,7 @@ const cases: Case[] = [
         fn: "fromStreamResponse",
         input: {
             type: "response.output_item.added",
-            response_id: "resp_1",
+            sequence_number: 5,
             output_index: 0,
             item: {
                 type: "message",
@@ -516,14 +575,43 @@ const cases: Case[] = [
         },
     },
     {
+        label: "openai_responses stream text delta",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.output_text.delta",
+            sequence_number: 6,
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            delta: "hello",
+        },
+    },
+    {
         label: "openai_responses stream tool call argument delta",
         fn: "fromStreamResponse",
         input: {
             type: "response.function_call_arguments.delta",
-            response_id: "resp_1",
-            output_index: 1,
+            sequence_number: 9,
             item_id: "fc_1",
+            output_index: 1,
             delta: '{"ci',
+        },
+    },
+    {
+        label: "openai_responses stream output item done, function call",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.output_item.done",
+            sequence_number: 11,
+            output_index: 1,
+            item: {
+                type: "function_call",
+                id: "fc_1",
+                call_id: "call_1",
+                name: "get_weather",
+                arguments: '{"city":"Paris"}',
+                status: "completed",
+            },
         },
     },
     {
@@ -531,10 +619,11 @@ const cases: Case[] = [
         fn: "fromStreamResponse",
         input: {
             type: "response.completed",
-            response_id: "resp_1",
+            sequence_number: 12,
             response: {
                 id: "resp_1",
                 object: "response",
+                created_at: 1741386163,
                 status: "completed",
                 usage: {
                     input_tokens: 10,
@@ -543,6 +632,141 @@ const cases: Case[] = [
                 },
                 output: [],
             },
+        },
+    },
+    {
+        label: "openai_responses stream incomplete",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.incomplete",
+            sequence_number: 12,
+            response: {
+                id: "resp_1",
+                object: "response",
+                created_at: 1741386163,
+                status: "incomplete",
+                incomplete_details: { reason: "max_output_tokens" },
+                error: null,
+                instructions: null,
+                max_output_tokens: 100,
+                model: "gpt-5",
+                output: [],
+                parallel_tool_calls: true,
+                previous_response_id: null,
+                reasoning: { effort: null, summary: null },
+                store: true,
+                temperature: 1.0,
+                text: { format: { type: "text" } },
+                tool_choice: "auto",
+                tools: [],
+                top_p: 1.0,
+                truncation: "disabled",
+                usage: {
+                    input_tokens: 10,
+                    output_tokens: 100,
+                    total_tokens: 110,
+                },
+                metadata: {},
+                service_tier: "default",
+            },
+        },
+    },
+    {
+        label: "openai_responses stream failed",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.failed",
+            sequence_number: 12,
+            response: {
+                id: "resp_1",
+                object: "response",
+                created_at: 1741386163,
+                status: "failed",
+                error: { code: "server_error", message: "oops" },
+                incomplete_details: null,
+                instructions: null,
+                max_output_tokens: null,
+                model: "gpt-5",
+                output: [],
+                parallel_tool_calls: true,
+                previous_response_id: null,
+                reasoning: { effort: null, summary: null },
+                store: true,
+                temperature: 1.0,
+                text: { format: { type: "text" } },
+                tool_choice: "auto",
+                tools: [],
+                top_p: 1.0,
+                truncation: "disabled",
+                usage: { input_tokens: 1, output_tokens: 0, total_tokens: 1 },
+                metadata: {},
+                service_tier: "default",
+            },
+        },
+    },
+    {
+        label: "openai_responses stream response.created",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.created",
+            sequence_number: 1,
+            response: { id: "resp_1", status: "in_progress" },
+        },
+    },
+    {
+        label: "openai_responses stream response.in_progress",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.in_progress",
+            sequence_number: 2,
+            response: { id: "resp_1", status: "in_progress" },
+        },
+    },
+    {
+        label: "openai_responses stream response.content_part.added",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.content_part.added",
+            sequence_number: 4,
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            part: { type: "output_text", text: "", annotations: [] },
+        },
+    },
+    {
+        label: "openai_responses stream response.content_part.done",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.content_part.done",
+            sequence_number: 10,
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            part: { type: "output_text", text: "hi", annotations: [] },
+        },
+    },
+    {
+        label: "openai_responses stream response.output_text.done",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.output_text.done",
+            sequence_number: 8,
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            text: "hi there",
+        },
+    },
+    {
+        label: "openai_responses stream response.function_call_arguments.done",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.function_call_arguments.done",
+            sequence_number: 10,
+            item_id: "fc_1",
+            output_index: 1,
+            arguments: '{"city":"Paris"}',
         },
     },
 
@@ -560,8 +784,8 @@ const cases: Case[] = [
                     parts: [
                         { text: "hi" },
                         {
-                            inline_data: {
-                                mime_type: "image/png",
+                            inlineData: {
+                                mimeType: "image/png",
                                 data: "aGk=",
                             },
                         },
@@ -632,7 +856,6 @@ const cases: Case[] = [
         label: "gemini response text answer, usage, stop reason",
         fn: "fromResponse",
         input: {
-            model: "models/gemini-3.5-flash",
             candidates: [
                 {
                     content: {
@@ -655,16 +878,16 @@ const cases: Case[] = [
                 candidatesTokenCount: 2,
                 totalTokenCount: 14,
                 thoughtsTokenCount: 1,
-                serviceTier: "default",
+                serviceTier: "standard",
             },
             responseId: "resp_123",
+            modelVersion: "gemini-3.5-flash",
         },
     },
     {
         label: "gemini response tool call",
         fn: "fromResponse",
         input: {
-            model: "models/gemini-3.5-flash",
             candidates: [
                 {
                     content: {
@@ -745,9 +968,22 @@ const cases: Case[] = [
                 promptTokenCount: 10,
                 candidatesTokenCount: 5,
                 totalTokenCount: 15,
+                serviceTier: "standard",
             },
             responseId: "resp_123",
             modelVersion: "gemini-3.5-flash",
+        },
+    },
+    {
+        label: "gemini stream usage-only final chunk",
+        fn: "fromStreamResponse",
+        input: {
+            usageMetadata: {
+                promptTokenCount: 10,
+                candidatesTokenCount: 5,
+                totalTokenCount: 15,
+                serviceTier: "standard",
+            },
         },
     },
 
@@ -759,6 +995,7 @@ const cases: Case[] = [
             model: "gpt-realtime",
             events: [
                 {
+                    event_id: "evt_1",
                     type: "conversation.item.create",
                     item: {
                         type: "message",
@@ -773,11 +1010,11 @@ const cases: Case[] = [
                     },
                 },
                 {
+                    event_id: "evt_2",
                     type: "response.create",
                     response: {
                         instructions: "be brief",
                         max_output_tokens: 100,
-                        temperature: 0.5,
                         tools: [
                             {
                                 type: "function",
@@ -798,6 +1035,7 @@ const cases: Case[] = [
             model: "gpt-realtime",
             events: [
                 {
+                    event_id: "evt_a",
                     type: "conversation.item.create",
                     item: {
                         type: "function_call",
@@ -807,6 +1045,7 @@ const cases: Case[] = [
                     },
                 },
                 {
+                    event_id: "evt_b",
                     type: "conversation.item.create",
                     item: {
                         type: "function_call_output",
@@ -815,9 +1054,10 @@ const cases: Case[] = [
                     },
                 },
                 {
+                    event_id: "evt_c",
                     type: "response.create",
                     response: {
-                        modalities: ["text"],
+                        output_modalities: ["text"],
                         max_output_tokens: 100,
                     },
                 },
@@ -828,12 +1068,18 @@ const cases: Case[] = [
         label: "openai_realtime response text answer, tool call, usage",
         fn: "fromResponse",
         input: {
+            model: "gpt-realtime",
             events: [
                 {
+                    event_id: "evt_1",
                     type: "response.done",
                     response: {
                         id: "resp_1",
+                        object: "realtime.response",
+                        created_at: 123,
                         status: "completed",
+                        status_details: null,
+                        model: "gpt-realtime",
                         output: [
                             {
                                 type: "message",
@@ -842,9 +1088,8 @@ const cases: Case[] = [
                                 status: "completed",
                                 content: [
                                     {
-                                        type: "text",
+                                        type: "output_text",
                                         text: "hi there",
-                                        transcript: "hi there",
                                     },
                                 ],
                             },
@@ -867,37 +1112,37 @@ const cases: Case[] = [
         },
     },
     {
-        label: "openai_realtime response error",
+        label: "openai_realtime response failed",
         fn: "fromResponse",
         input: {
             events: [
                 {
+                    event_id: "evt_2",
                     type: "response.done",
                     response: {
                         id: "resp_1",
+                        object: "realtime.response",
+                        created_at: 123,
                         status: "failed",
-                        output: [],
-                        error: { type: "server_error", code: "x" },
+                        status_details: {
+                            type: "failed",
+                            error: { code: "server_error", message: "oops" },
+                        },
+                        usage: {
+                            input_tokens: 1,
+                            output_tokens: 0,
+                            total_tokens: 1,
+                        },
                     },
                 },
             ],
         },
     },
     {
-        label: "openai_realtime stream text delta",
-        fn: "fromStreamResponse",
-        input: {
-            type: "response.output_text.delta",
-            response_id: "resp_1",
-            output_index: 0,
-            content_index: 0,
-            delta: "hello",
-        },
-    },
-    {
         label: "openai_realtime stream output item added",
         fn: "fromStreamResponse",
         input: {
+            event_id: "e4",
             type: "response.output_item.added",
             response_id: "resp_1",
             output_index: 0,
@@ -911,81 +1156,194 @@ const cases: Case[] = [
         },
     },
     {
+        label: "openai_realtime stream text delta",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e5",
+            type: "response.output_text.delta",
+            response_id: "resp_1",
+            output_index: 0,
+            content_index: 0,
+            delta: "hello",
+        },
+    },
+    {
+        label: "openai_realtime stream output text done",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e6",
+            type: "response.output_text.done",
+            response_id: "resp_1",
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            text: "hi there",
+        },
+    },
+    {
+        label: "openai_realtime stream content part done",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e7",
+            type: "response.content_part.done",
+            response_id: "resp_1",
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            part: { type: "output_text", text: "hi there" },
+        },
+    },
+    {
         label: "openai_realtime stream tool call argument delta",
         fn: "fromStreamResponse",
         input: {
+            event_id: "e8",
             type: "response.function_call_arguments.delta",
             response_id: "resp_1",
-            output_index: 1,
             item_id: "fc_1",
+            output_index: 1,
             delta: '{"ci',
+        },
+    },
+    {
+        label: "openai_realtime stream output item done, function call",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e9",
+            type: "response.output_item.done",
+            response_id: "resp_1",
+            output_index: 1,
+            item: {
+                type: "function_call",
+                id: "fc_1",
+                call_id: "call_1",
+                name: "get_weather",
+                arguments: '{"city":"Paris"}',
+            },
         },
     },
     {
         label: "openai_realtime stream done with usage",
         fn: "fromStreamResponse",
         input: {
+            event_id: "e10",
             type: "response.done",
-            response_id: "resp_1",
             response: {
                 id: "resp_1",
+                object: "realtime.response",
+                created_at: 123,
                 status: "completed",
+                status_details: null,
+                model: "gpt-realtime",
+                output: [],
                 usage: {
                     input_tokens: 10,
                     output_tokens: 5,
                     total_tokens: 15,
                 },
-                output: [],
             },
+        },
+    },
+    {
+        label: "openai_realtime stream response.created",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e1",
+            type: "response.created",
+            response: { id: "resp_1", status: "in_progress" },
+        },
+    },
+    {
+        label: "openai_realtime stream response.content_part.added",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e2",
+            type: "response.content_part.added",
+            response_id: "resp_1",
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            part: { type: "output_text", text: "" },
         },
     },
 ];
 
-// A unit names the wire data a dialect op still carries: `op:key` for an op
-// holding one keyed wire field or one record key, `op:tag` for an op holding
-// a whole wire object, tagged by its type or kind. A bare op name would let
-// a new provider-only field hide behind an existing row.
+// A unit names the wire data a dialect op still carries. A bare op name would
+// let a new provider-only field hide behind an existing row, so the test
+// splits every op down to the data a row in the allowlist can justify:
+// - `op:key` for an op carrying one keyed wire field (body_field,
+//   event_param, response_param, stream_choice_param, sampling);
+// - `op:key` per key for an op carrying a record of wire fields (usage,
+//   generation_config, candidate_meta);
+// - `op:tag.key` per top-level key for an op carrying a whole wire object
+//   (output_meta, item_meta, part_meta, stream_event), where the tag is the
+//   object's type or kind;
+// - `op:key:subkey` per top-level key of the value for a keyed op whose value
+//   is a whole object (body_field:item, body_field:response,
+//   event_param:response, ...).
 function unitsOf(op: Op): string[] {
     const data = op as unknown as Record<string, unknown>;
-    if (typeof data.key === "string") return [`${op.op}:${data.key}`];
+    if (typeof data.key === "string" && data.value !== undefined) {
+        return recordUnits(`${op.op}:${data.key}`, data.value);
+    }
     switch (op.op) {
         case "anthropic_messages.usage":
         case "openai_chat.usage":
         case "openai_responses.usage":
         case "openai_realtime.usage":
+            return recordUnits(op.op, data.usage);
         case "gemini.usage":
-            return Object.keys(data.usage as Record<string, unknown>).map(
-                (key) => `${op.op}:${key}`,
-            );
+            return recordUnits(op.op, data.usage);
         case "gemini.generation_config":
-            return Object.keys(data.value as Record<string, unknown>).map(
-                (key) => `${op.op}:${key}`,
-            );
+            return recordUnits(op.op, data.value);
         case "gemini.candidate_meta":
-            return Object.keys(data.candidate as Record<string, unknown>).map(
-                (key) => `${op.op}:${key}`,
-            );
+            return recordUnits(op.op, data.candidate);
         case "gemini.part_meta":
-            return [
-                `${op.op}:${(data.part as { kind: string }).kind ?? "untagged"}`,
-            ];
+            return objectUnits(op.op, data.part as Record<string, unknown>, [
+                "kind",
+            ]);
         case "openai_responses.output_meta":
         case "openai_realtime.output_meta":
-            return [
-                `${op.op}:${(data.item as { type?: string }).type ?? "untagged"}`,
-            ];
+            return objectUnits(op.op, data.item as Record<string, unknown>, [
+                "type",
+            ]);
         case "openai_realtime.item_meta":
-            return [
-                `${op.op}:${
-                    (data.event as { item?: { type?: string } }).item?.type ??
-                    "untagged"
-                }`,
-            ];
+            return objectUnits(op.op, data.event as Record<string, unknown>, [
+                "type",
+            ]);
         case "anthropic_messages.stream_event":
-            return [`${op.op}:${(data.event as { type: string }).type}`];
+            return objectUnits(op.op, data.event as Record<string, unknown>, [
+                "type",
+            ]);
         default:
             return [op.op];
     }
+}
+
+// One unit per key of a record op (usage, generation_config, candidate_meta).
+// For a keyed op whose value is an object this yields one `op:key:subkey`
+// unit per top-level key of the value; a scalar value yields `op:key`.
+function recordUnits(op: string, record: unknown): string[] {
+    if (typeof record !== "object" || record === null || Array.isArray(record))
+        return [op];
+    return Object.keys(record as Record<string, unknown>).map(
+        (key) => `${op}:${key}`,
+    );
+}
+
+// One unit per top-level key of an object op, tagged by the key in `tagKey`.
+// A new key added to the object produces a new unit, so it cannot hide
+// behind an existing row.
+function objectUnits(
+    op: string,
+    object: Record<string, unknown>,
+    tagKey: string[],
+): string[] {
+    const tag = String(
+        tagKey.map((key) => object[key]).find((value) => value !== undefined) ??
+            "untagged",
+    );
+    return Object.keys(object).map((key) => `${op}:${tag}.${key}`);
 }
 
 describe("dialect residual allowlist", () => {
