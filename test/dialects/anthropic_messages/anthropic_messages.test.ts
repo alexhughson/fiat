@@ -1306,7 +1306,7 @@ describe("anthropic_messages response streams", () => {
     });
 
     test("OpenAI chat response IR lowers directly to Anthropic stream events", () => {
-        const raised = OpenAIChatTranslator.fromResponse({
+        const core = OpenAIChatTranslator.fromResponse({
             id: "chatcmpl_1",
             object: "chat.completion",
             created: 0,
@@ -1327,14 +1327,6 @@ describe("anthropic_messages response streams", () => {
             op.op === "llm.model" ? { ...op, model: "claude-sonnet-4-6" } : op,
         );
 
-        // The stream lowerer has no complete-response mapping for the id op
-        // yet; the stream rows own adding it.
-        expect(() => AnthropicTranslator.toStreamResponses(raised)).toThrow(
-            'no complete response stream mapping for op "response.id"',
-        );
-
-        const core = raised.filter((op) => op.op !== "response.id");
-
         const events = AnthropicTranslator.toStreamResponses(core) as Record<
             string,
             unknown
@@ -1348,6 +1340,9 @@ describe("anthropic_messages response streams", () => {
             "message_delta",
             "message_stop",
         ]);
+        expect((events[0]!.message as Record<string, unknown>).id).toBe(
+            "chatcmpl_1",
+        );
         expect(events[2]).toEqual({
             type: "content_block_delta",
             index: 0,
@@ -1358,6 +1353,15 @@ describe("anthropic_messages response streams", () => {
             delta: { stop_reason: "end_turn", stop_sequence: null },
             usage: { input_tokens: 3, output_tokens: 2 },
         });
+
+        // a program without an id op still gets an invented one
+        const idFree = core.filter((op) => op.op !== "response.id");
+        const idFreeEvents = AnthropicTranslator.toStreamResponses(
+            idFree,
+        ) as Record<string, unknown>[];
+        expect(
+            (idFreeEvents[0]!.message as Record<string, unknown>).id,
+        ).toMatch(/^msg_[0-9a-f]{32}$/);
     });
 
     test("foreign stream residuals warn and drop around complete response lowering", () => {

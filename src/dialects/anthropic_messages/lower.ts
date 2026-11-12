@@ -569,6 +569,7 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
 
     const events: WireAnthropicStreamEvent[] = [];
     let model: string | undefined;
+    let responseId: string | undefined;
     let usage: Record<string, unknown> | undefined;
     let stopReason: string | undefined;
     let index = 0;
@@ -578,6 +579,12 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
         switch (op.op) {
             case "llm.model":
                 model = (op as OpOf<"llm.model">).model;
+                break;
+            case "response.id":
+                // same field as the non-stream encoder; a later op wins, and
+                // lowering falls back to an invented id when the program holds
+                // no response.id
+                responseId = (op as OpOf<"response.id">).id;
                 break;
             case "llm.text": {
                 const text = op as OpOf<"llm.text">;
@@ -661,7 +668,9 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
         streamEvent({
             type: "message_start",
             message: {
-                id: `msg_${crypto.randomUUID().replaceAll("-", "")}`,
+                id:
+                    responseId ??
+                    `msg_${crypto.randomUUID().replaceAll("-", "")}`,
                 type: "message",
                 role: "assistant",
                 model,
