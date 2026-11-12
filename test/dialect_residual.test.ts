@@ -3,10 +3,11 @@
 // raises ordinary requests, complete responses, and single stream events from
 // every dialect through the dialect's public translators, collects every
 // dialect-op unit the raise leaves behind, and checks each unit against
-// test/dialect_residual_allowlist.ts, whose rows say why only that provider
-// has the data. A raise that throws is recorded as a skip, not a failure;
-// the skips seeded from main live in expectedSkips, so a raiser that starts
-// or stops throwing shows up here too.
+// test/dialect_residual_allowlist.ts: providerOnly rows say why only that
+// provider has the data; baseline rows are main's unclassified residuals,
+// which a pull request may delete and may not extend. A raise that throws is
+// recorded as a skip, not a failure; the skips seeded from main live in
+// expectedSkips, so a raiser that starts or stops throwing shows up here too.
 
 import { describe, expect, test } from "bun:test";
 import {
@@ -19,7 +20,7 @@ import {
     type Program,
     type Translator,
 } from "../src/index";
-import { dialectResidualAllowlist } from "./dialect_residual_allowlist";
+import { baseline, providerOnly } from "./dialect_residual_allowlist";
 
 const translators: Record<string, Translator> = {
     anthropic_messages: AnthropicTranslator,
@@ -480,7 +481,7 @@ const cases: Case[] = [
         label: "openai_responses request sampling, tool call, tool result",
         fn: "fromBody",
         input: {
-            model: "gpt-5",
+            model: "gpt-4o",
             max_output_tokens: 100,
             temperature: 0.5,
             top_p: 0.9,
@@ -625,12 +626,43 @@ const cases: Case[] = [
                 object: "response",
                 created_at: 1741386163,
                 status: "completed",
+                error: null,
+                incomplete_details: null,
+                instructions: "be brief",
+                max_output_tokens: null,
+                model: "gpt-4o",
+                output: [
+                    {
+                        type: "message",
+                        id: "msg_1",
+                        status: "completed",
+                        role: "assistant",
+                        content: [
+                            {
+                                type: "output_text",
+                                text: "hi there",
+                                annotations: [],
+                            },
+                        ],
+                    },
+                ],
+                parallel_tool_calls: true,
+                previous_response_id: null,
+                reasoning: { effort: null, summary: null },
+                store: true,
+                temperature: 0.5,
+                text: { format: { type: "text" } },
+                tool_choice: "auto",
+                tools: [],
+                top_p: 0.9,
+                truncation: "disabled",
                 usage: {
                     input_tokens: 10,
                     output_tokens: 5,
                     total_tokens: 15,
                 },
-                output: [],
+                metadata: {},
+                service_tier: "default",
             },
         },
     },
@@ -710,7 +742,31 @@ const cases: Case[] = [
         input: {
             type: "response.created",
             sequence_number: 1,
-            response: { id: "resp_1", status: "in_progress" },
+            response: {
+                id: "resp_1",
+                object: "response",
+                created_at: 1741386163,
+                status: "in_progress",
+                error: null,
+                incomplete_details: null,
+                instructions: "be brief",
+                max_output_tokens: null,
+                model: "gpt-4o",
+                output: [],
+                parallel_tool_calls: true,
+                previous_response_id: null,
+                reasoning: { effort: null, summary: null },
+                store: true,
+                temperature: 0.5,
+                text: { format: { type: "text" } },
+                tool_choice: "auto",
+                tools: [],
+                top_p: 0.9,
+                truncation: "disabled",
+                usage: null,
+                metadata: {},
+                service_tier: "default",
+            },
         },
     },
     {
@@ -719,7 +775,31 @@ const cases: Case[] = [
         input: {
             type: "response.in_progress",
             sequence_number: 2,
-            response: { id: "resp_1", status: "in_progress" },
+            response: {
+                id: "resp_1",
+                object: "response",
+                created_at: 1741386163,
+                status: "in_progress",
+                error: null,
+                incomplete_details: null,
+                instructions: "be brief",
+                max_output_tokens: null,
+                model: "gpt-4o",
+                output: [],
+                parallel_tool_calls: true,
+                previous_response_id: null,
+                reasoning: { effort: null, summary: null },
+                store: true,
+                temperature: 0.5,
+                text: { format: { type: "text" } },
+                tool_choice: "auto",
+                tools: [],
+                top_p: 0.9,
+                truncation: "disabled",
+                usage: null,
+                metadata: {},
+                service_tier: "default",
+            },
         },
     },
     {
@@ -771,6 +851,9 @@ const cases: Case[] = [
     },
 
     // gemini
+    // fiat's fromBody takes the endpoint's `model` path parameter as a
+    // "model" key in the body; the REST endpoint itself puts model in the
+    // URL path, not the JSON body. Every other key below is literal wire.
     {
         label: "gemini request text, image, system prompt",
         fn: "fromBody",
@@ -988,6 +1071,10 @@ const cases: Case[] = [
     },
 
     // openai_realtime
+    // fiat's fromBody and fromResponse take a `{model, events}` aggregate:
+    // one body object holding the model and the list of client or server
+    // events to raise. That aggregate is fiat's input shape, not a single
+    // provider body or event; every event inside it is literal wire.
     {
         label: "openai_realtime request text, image, system prompt, tool",
         fn: "fromBody",
@@ -1004,7 +1091,7 @@ const cases: Case[] = [
                             { type: "input_text", text: "hi" },
                             {
                                 type: "input_image",
-                                image_url: "https://example.com/cat.png",
+                                image_url: "data:image/png;base64,aGk=",
                             },
                         ],
                     },
@@ -1162,6 +1249,7 @@ const cases: Case[] = [
             event_id: "e5",
             type: "response.output_text.delta",
             response_id: "resp_1",
+            item_id: "msg_1",
             output_index: 0,
             content_index: 0,
             delta: "hello",
@@ -1268,63 +1356,145 @@ const cases: Case[] = [
     },
 ];
 
-// A unit names the wire data a dialect op still carries. A bare op name would
-// let a new provider-only field hide behind an existing row, so the test
-// splits every op down to the data a row in the allowlist can justify. The
-// dispatch is by shape, not op name, so a dialect op added later is covered
-// without a change here:
-// - `op:key` for an op carrying one keyed wire field (body_field,
-//   event_param, response_param, stream_choice_param, sampling), or
-//   `op:key:subkey` per top-level key of the value when that value is a
-//   whole object (body_field:item, event_param:response, ...);
-// - `op:key` per key for an op carrying a record of wire fields (usage,
-//   generation_config, candidate_meta);
-// - `op:tag.key` per top-level key for an op carrying a whole wire object
-//   (output_meta, item_meta, part_meta, stream_event, and the
-//   stream_event_meta op a later change adds), where the tag is the
-//   object's type or kind.
+// A unit names one leaf of wire data a dialect op still carries. A bare op
+// name, or a unit that stops at the first nesting level, lets a new
+// provider-only field hide behind an existing row, so the walk goes to full
+// depth through every object and array the op holds. A unit string is the op
+// name, the wire slot, the object's tag where it has one, and the path to
+// the leaf, with every array level written `[]`:
+// - a keyed op (body_field, event_param, response_param,
+//   stream_choice_param, sampling) starts from `op:key`;
+// - an op holding a whole wire object (output_meta, item_meta, part_meta,
+//   stream_event, ...) starts from the object's tag — its `type` or `kind`;
+// - an op holding a record of wire fields (usage, generation_config,
+//   candidate_meta) starts from `op`;
+// - the path then names each leaf, e.g.
+//   `openai_responses.output_meta:message.content[].text`.
+// The walk is by shape, not op name: an op the test has never seen is walked
+// the same way, so a new dialect op cannot slip through unsplit. A new key
+// at any depth is a new unit; new array elements reuse the same unit.
+//
+// The walk stops at values that hold caller-defined JSON. Those values are
+// the caller's data, not the provider's wire shape, so the keys inside them
+// are not wire data and do not open units. A stop below names either a
+// field (stops anywhere in any op, when the value is an object) or one
+// exact unit (a field name other ops carry as wire, stopped only where it
+// holds caller data). The stop still emits the unit for the field itself,
+// so its presence on the wire stays checked.
+const stopPaths: Record<string, string> = {
+    // The tool caller's arguments as an object: anthropic_messages
+    // tool_use `input`, gemini functionCall `args`.
+    input: "caller's tool call arguments",
+    args: "caller's tool call arguments",
+    // A tool's JSON Schema: anthropic_messages `input_schema`, OpenAI
+    // `parameters`, openai_chat response_format `schema`.
+    input_schema: "caller's tool schema",
+    parameters: "caller's tool schema",
+    schema: "caller's tool schema",
+    // A free-form key-value map the caller set on the request, echoed back
+    // by the provider.
+    metadata: "caller's free-form metadata",
+    // Extra part fields the gemini raise could not classify.
+    meta: "unclassified part extras",
+    // The gemini functionResponse payload, kept raw for round-trip. Every
+    // other `response` field (openai_realtime event_param, openai_responses
+    // body_field) holds a provider response object and is walked.
+    "gemini.part_meta:functionResponse:response":
+        "caller's tool result payload",
+};
+
+function isStopField(name: string, value: unknown): boolean {
+    return (
+        !name.includes(":") &&
+        Object.hasOwn(stopPaths, name) &&
+        typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value)
+    );
+}
+
+function isStopUnit(unit: string): boolean {
+    return Object.hasOwn(stopPaths, unit);
+}
+
+// Op mechanics, not wire data: they never open a unit. `of` names the op a
+// side op decorates; `idSource` marks a gemini id the raise synthesized.
+const opMechanics = new Set([
+    "op",
+    "appliesTo",
+    "eventType",
+    "preservesContent",
+    "idSource",
+    "of",
+]);
+
 function unitsOf(op: Op): string[] {
     const data = op as unknown as Record<string, unknown>;
-    if (typeof data.key === "string" && data.value !== undefined) {
-        return recordUnits(`${op.op}:${data.key}`, data.value);
+    const units: string[] = [];
+    if (typeof data.key === "string" && "value" in data) {
+        // Keyed op: the key names the wire slot.
+        const prefix = `${op.op}:${data.key}`;
+        if (isStopField(data.key, data.value)) units.push(prefix);
+        else walk(prefix, data.value, "");
+        return units;
     }
-    if (isRecord(data.usage)) return recordUnits(op.op, data.usage);
-    if (isRecord(data.candidate)) return recordUnits(op.op, data.candidate);
-    if (isRecord(data.value)) return recordUnits(op.op, data.value);
-    if (isRecord(data.event)) return objectUnits(op.op, data.event, ["type"]);
-    if (isRecord(data.item)) return objectUnits(op.op, data.item, ["type"]);
-    if (isRecord(data.part)) return objectUnits(op.op, data.part, ["kind"]);
-    return [op.op];
-}
+    // Any other op: an object or array field is the op's wire payload, so
+    // the walk starts inside it; a scalar field names a wire slot of its
+    // own and keeps its name in the path.
+    for (const field of Object.keys(data)) {
+        if (opMechanics.has(field)) continue;
+        const value = data[field];
+        if (
+            (typeof value === "object" && value !== null) ||
+            Array.isArray(value)
+        ) {
+            walk(op.op, value, "");
+        } else {
+            walk(op.op, value, field);
+        }
+    }
+    return units;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-// One unit per key of a record op (usage, generation_config, candidate_meta).
-// For a keyed op whose value is an object this yields one `op:key:subkey`
-// unit per top-level key of the value; a scalar value yields `op:key`.
-function recordUnits(op: string, record: unknown): string[] {
-    if (typeof record !== "object" || record === null || Array.isArray(record))
-        return [op];
-    return Object.keys(record as Record<string, unknown>).map(
-        (key) => `${op}:${key}`,
-    );
-}
-
-// One unit per top-level key of an object op, tagged by the key in `tagKey`.
-// A new key added to the object produces a new unit, so it cannot hide
-// behind an existing row.
-function objectUnits(
-    op: string,
-    object: Record<string, unknown>,
-    tagKey: string[],
-): string[] {
-    const tag = String(
-        tagKey.map((key) => object[key]).find((value) => value !== undefined) ??
-            "untagged",
-    );
-    return Object.keys(object).map((key) => `${op}:${tag}.${key}`);
+    function walk(prefix: string, value: unknown, path: string): void {
+        if (Array.isArray(value)) {
+            if (value.length === 0) {
+                // An empty array is still a wire slot; a row for it goes
+                // stale when a change drops it.
+                units.push(`${prefix}:${path === "" ? "" : path}[]`);
+                return;
+            }
+            const child = path === "" ? "[]" : `${path}[]`;
+            for (const element of value) walk(prefix, element, child);
+            return;
+        }
+        if (typeof value === "object" && value !== null) {
+            let ownPrefix = prefix;
+            if (path === "") {
+                // A whole wire object tags its units with its `type` or
+                // `kind`, so rows for different item kinds do not collide.
+                const tag =
+                    (value as Record<string, unknown>).type ??
+                    (value as Record<string, unknown>).kind;
+                if (typeof tag === "string") ownPrefix = `${prefix}:${tag}`;
+            }
+            const entries = Object.entries(value as Record<string, unknown>);
+            if (entries.length === 0) {
+                units.push(path === "" ? ownPrefix : `${ownPrefix}:${path}`);
+                return;
+            }
+            for (const [key, childValue] of entries) {
+                const child = path === "" ? key : `${path}.${key}`;
+                const unit = `${ownPrefix}:${child}`;
+                if (isStopField(key, childValue) || isStopUnit(unit)) {
+                    units.push(unit);
+                    continue;
+                }
+                walk(ownPrefix, childValue, child);
+            }
+            return;
+        }
+        units.push(path === "" ? prefix : `${prefix}:${path}`);
+    }
 }
 
 describe("dialect residual allowlist", () => {
@@ -1332,6 +1502,15 @@ describe("dialect residual allowlist", () => {
         const seen = new Set<string>();
         const violations: string[] = [];
         const skipped: string[] = [];
+
+        for (const unit of Object.keys(providerOnly)) {
+            if (baseline.includes(unit)) {
+                violations.push(
+                    `"${unit}" is in both providerOnly and baseline ` +
+                        `(${allowlistFile}) — keep it in providerOnly only`,
+                );
+            }
+        }
 
         for (const c of cases) {
             const dialect = c.label.split(" ")[0]!;
@@ -1357,12 +1536,16 @@ describe("dialect residual allowlist", () => {
                 if (!Object.hasOwn(translators, namespace)) continue;
                 for (const unit of unitsOf(op)) {
                     seen.add(unit);
-                    if (!Object.hasOwn(dialectResidualAllowlist, unit)) {
+                    if (
+                        !Object.hasOwn(providerOnly, unit) &&
+                        !baseline.includes(unit)
+                    ) {
                         violations.push(
                             `dialect op unit "${unit}" is not in the allowlist ` +
                                 `(${allowlistFile}) — produced by ` +
-                                `"${c.label}". Add a row with a reason it is ` +
-                                `provider-only, or raise the concept to a core op.`,
+                                `"${c.label}". Add a providerOnly row with a ` +
+                                `reason it is provider-only, or raise the ` +
+                                `concept to a core op.`,
                         );
                     }
                 }
@@ -1379,12 +1562,21 @@ describe("dialect residual allowlist", () => {
             }
         }
 
-        for (const unit of Object.keys(dialectResidualAllowlist)) {
+        for (const unit of Object.keys(providerOnly)) {
             if (!seen.has(unit)) {
                 violations.push(
-                    `allowlist row "${unit}" (${allowlistFile}) was never ` +
-                        `produced by the corpus — extend the corpus or remove ` +
-                        `the row`,
+                    `providerOnly row "${unit}" (${allowlistFile}) was never ` +
+                        `produced by the corpus — extend the corpus or ` +
+                        `remove the row`,
+                );
+            }
+        }
+        for (const unit of baseline) {
+            if (!seen.has(unit)) {
+                violations.push(
+                    `baseline row "${unit}" (${allowlistFile}) was never ` +
+                        `produced by the corpus — extend the corpus or ` +
+                        `remove the row`,
                 );
             }
         }
