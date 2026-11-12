@@ -145,8 +145,8 @@ also raises the core op `response.done`, after the `response.stop` and
 reason, so it raises `response.usage` and `response.done` only. Lowering folds
 `response.done` back into the same one terminal event the `response.stop` and
 `response.usage` ops build, and a program holding only `response.done` lowers
-to a `response.completed` event with an empty response object — the zero-event
-shape of a bare op is what row 66 settles.
+to a bare `response.completed` event with no response object — what a call
+returns when no op produces an event is what row 66 settles.
 
 ## Out of scope
 
