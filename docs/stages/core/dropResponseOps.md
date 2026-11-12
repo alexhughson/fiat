@@ -12,9 +12,9 @@ function dropResponseOps(program: Program): Program;
 
 The prompt is the request program shown below.
 
-`dropResponseOps(program)` is in `src/core/pipeline.ts`. For kind `"request"`,
-`lowerToWire` calls `dropResponseOps` after `dropMetaOps`, before the
-`beforeLower` hook and before the dialect's lower stages.
+`dropResponseOps(program)` is in `src/core/pipeline.ts`. When `lowerToWire`
+compiles a request body, it calls `dropResponseOps` after `dropMetaOps`, before
+the `beforeLower` hook and before the dialect's lower stages.
 
 ## Example
 

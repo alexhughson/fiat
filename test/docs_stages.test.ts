@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import { AnthropicTranslator, type Program } from "../src/index";
 
 // Each page under docs/stages shows one input program and one output program
-// as its first two json blocks. These tests rerun the code on the page's input
-// and compare the result with the page's output.
+// as its first two json blocks, and the signature of its function as its first
+// ts block. One test reruns the code on the page's input and compares the
+// result with the page's output. The other test compares the page's signature
+// with the declaration in the source file.
 function exampleOf(page: string): { input: Program; output: Program } {
     const markdown = readFileSync(
         new URL(`../docs/stages/${page}`, import.meta.url),
