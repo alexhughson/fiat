@@ -1,5 +1,13 @@
 # stripHostOps
 
+Without `stripHostOps`, fiat returns no request body for a program that holds
+a `meta.trace` op or a `response.usage` op: the lowering throws
+`no serialization for op "meta.trace"` or
+`no serialization for op "response.usage"`. When a program holds the ops
+of an Anthropic response, `stripHostOps` removes the ops for the response's
+`id`, `type`, and `stop_sequence` fields; if those ops stayed in the program,
+fiat would write the three fields into the Anthropic request body.
+
 `stripHostOps(kind, program)` is in `src/core/pipeline.ts`. `lowerToWire` calls
 `stripHostOps` first, before the `beforeLower` hook and before the dialect's
 lower stages.
