@@ -213,19 +213,59 @@ function raiseStreamEvent(event: WireAnthropicStreamEvent): Op[] {
             return [raiseContentBlockStart(event)];
         case "message_delta":
             return raiseMessageDelta(event);
+        case "message_start":
+            return raiseMessageStart(event);
         case "message_stop":
-            return [
-                {
-                    op: "anthropic_messages.stream_event",
-                    event,
-                    appliesTo: "response",
-                },
-            ];
+        // ping keeps the connection open and carries no other meaning; only
+        // anthropic sends it, so it stays a dialect op.
+        case "ping":
+            return [streamEventResidual(event)];
         default:
             throw new LintError(
                 `anthropic_messages stream event ${JSON.stringify(event.type)} is unsupported`,
             );
     }
+}
+
+function streamEventResidual(event: WireAnthropicStreamEvent): Op {
+    return {
+        op: "anthropic_messages.stream_event",
+        event,
+        appliesTo: "response",
+    };
+}
+
+// The message envelope's model and input usage are the same fields the
+// non-stream response raises; the rest of the envelope (id, role, empty
+// content, stop_reason, stop_sequence) is bookkeeping with no core op and
+// stays in the residual. lowerStreamMessageStart folds the raised ops back
+// into the event.
+function raiseMessageStart(event: WireAnthropicStreamEvent): Op[] {
+    const message = asRecord(
+        event.message,
+        "anthropic_messages message_start.message",
+    );
+    const out: Op[] = [];
+    if (typeof message.model === "string") {
+        out.push({ op: "llm.model", model: message.model });
+    }
+    if (message.usage != null) {
+        out.push(
+            ...raiseUsage([
+                {
+                    op: "anthropic_messages.usage",
+                    usage: asRecord(
+                        message.usage,
+                        "anthropic_messages message_start.message.usage",
+                    ),
+                    appliesTo: "response",
+                },
+            ]),
+        );
+    }
+    const { model: _model, usage: _usage, ...rest } = message;
+    out.push(streamEventResidual({ ...event, message: rest }));
+    return out;
 }
 
 function raiseContentBlockDelta(event: WireAnthropicStreamEvent): Op {

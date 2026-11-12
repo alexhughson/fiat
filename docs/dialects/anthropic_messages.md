@@ -58,7 +58,86 @@ field.
   with citations or other provider-only extras stay as content-bearing
   Anthropic residuals.
 
+## Response streams
+
+`fromStreamResponse` wraps one SSE event as an `anthropic_messages.stream_event`
+op; `raiseStreamEvents` maps each event type. One event in, one event out:
+
+| wire event                               | raised ops                                                              |
+| ---------------------------------------- | ----------------------------------------------------------------------- |
+| `message_start`                          | `llm.model` + `response.usage` + a `stream_event` residual for the rest |
+| `content_block_start` (tool_use)         | `response.tool_call_delta` with `id` and `name`                         |
+| `content_block_delta` (text_delta)       | `response.text_delta`                                                   |
+| `content_block_delta` (input_json_delta) | `response.tool_call_delta`                                              |
+| `ping`, `message_stop`                   | `stream_event` residual                                                 |
+| `message_delta`                          | `response.stop` + `response.usage`                                      |
+
+`message_start`:
+
+```json
+{
+    "type": "message_start",
+    "message": {
+        "id": "msg_01",
+        "type": "message",
+        "role": "assistant",
+        "content": [],
+        "model": "claude-opus-5-5",
+        "stop_reason": null,
+        "stop_sequence": null,
+        "usage": {
+            "input_tokens": 25,
+            "output_tokens": 1
+        }
+    }
+}
+```
+
+raised:
+
+```json
+[
+    {
+        "op": "llm.model",
+        "model": "claude-opus-5-5"
+    },
+    {
+        "op": "response.usage",
+        "inputTokens": 25,
+        "outputTokens": 1
+    },
+    {
+        "op": "anthropic_messages.stream_event",
+        "appliesTo": "response",
+        "event": {
+            "type": "message_start",
+            "message": {
+                "id": "msg_01",
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null
+            }
+        }
+    }
+]
+```
+
+On lowering, `lowerStreamMessageStart` folds the `llm.model` and usage ops
+back into the `message_start` residual, so each event lowers back to the same
+wire event. Residual events pass through `toStreamResponse` untouched;
+lowering to another dialect drops them with a warning.
+
+`ping` keeps the connection open and carries no other meaning; only Anthropic
+sends it, so it stays an `anthropic_messages.stream_event` op.
+
+Text-block `content_block_start`, `content_block_stop`, and `error` are not
+raised yet and still throw. Reasoning stream events (`thinking` /
+`redacted_thinking` block starts, `thinking_delta`, `signature_delta`) are not
+raised yet and still throw.
+
 ## Out of scope
 
-Streaming events, provider-neutral provider file handles, audio/video, prompt
-caching markers, and citations.
+Provider-neutral provider file handles, audio/video, prompt caching markers,
+and citations.
