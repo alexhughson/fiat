@@ -277,8 +277,9 @@ export function lowerStructuredOutput(program: Program): Program {
 // object always comes from llm.tool_result.content, so a transform that
 // edits that op changes the gemini body. Each part_meta belongs to the
 // nearest earlier llm.tool_result with its id, or the nearest later one
-// when no earlier result exists, so a transform may move the op anywhere
-// in the program, and two results that reuse one id keep their own names.
+// when no earlier result exists; a part_meta's position is free when one
+// result has the id, and when two results reuse one id, each part_meta
+// must sit after its own result and before the next result with that id.
 // Whole-program stage for that reason; it also removes every
 // functionResponse part_meta: a matched one is consumed, and one whose
 // `of` matches no result holds only the name of a part that no longer
@@ -286,6 +287,7 @@ export function lowerStructuredOutput(program: Program): Program {
 // Runs before lowerToolCalls so the llm.tool_call ops it scans for names
 // are still present. The tool_call scan collects every call by id, so when
 // a later call reuses an id, that later call's name wins.
+// When several part_metas bind to one result, the later one's name wins.
 export function lowerToolResults(program: Program): Program {
     const callNames = new Map<string, string>();
     const resultIndexesById = new Map<string, number[]>();

@@ -826,14 +826,34 @@ describe("gemini translation", () => {
         // serve both parts.
         const program = GeminiTranslator.fromBody(body);
         const lowered = GeminiTranslator.toBody(program) as typeof body;
-        expect(lowered.contents[2]!.parts).toEqual([
+        const expected = [
             {
                 functionResponse: { name: "f", response: { a: 1 }, id: "c1" },
             },
             {
                 functionResponse: { name: "g", response: { b: 2 }, id: "c1" },
             },
-        ]);
+        ];
+        expect(lowered.contents[2]!.parts).toEqual(expected);
+
+        // The first part_meta moved before the first result binds to the
+        // nearest later result of its id, so both parts keep their own
+        // names.
+        const modelOp = program.find((op) => op.op === "llm.model")!;
+        const metas = program.filter((op) => op.op === "gemini.part_meta");
+        const results = program.filter((op) => op.op === "llm.tool_result");
+        const textOp = program.find((op) => op.op === "llm.text")!;
+        const callOps = program.filter((op) => op.op === "llm.tool_call");
+        const moved = GeminiTranslator.toBody([
+            modelOp,
+            textOp,
+            ...callOps,
+            metas[0]!,
+            results[0]!,
+            results[1]!,
+            metas[1]!,
+        ]) as typeof body;
+        expect(moved.contents[2]!.parts).toEqual(expected);
     });
 
     test("a functionResponse part_meta whose `of` names no tool result is removed, and the body still lowers", () => {
@@ -845,6 +865,7 @@ describe("gemini translation", () => {
                     parts: [
                         { text: "cut history" },
                         {
+                            thoughtSignature: "sig",
                             functionResponse: {
                                 name: "calc",
                                 response: { output: "361" },
@@ -897,7 +918,7 @@ describe("gemini translation", () => {
         // take one part's name for the other.
         const program = GeminiTranslator.fromBody(body);
         const lowered = GeminiTranslator.toBody(program) as typeof body;
-        expect(lowered.contents[0]!.parts).toEqual([
+        const expected = [
             {
                 functionResponse: {
                     name: "get_population",
@@ -912,7 +933,22 @@ describe("gemini translation", () => {
                     id: "call_weather",
                 },
             },
-        ]);
+        ];
+        expect(lowered.contents[0]!.parts).toEqual(expected);
+
+        // Both part_metas moved to the end of the program, in reverse order,
+        // still lower to the same parts, because each one reads its own
+        // `of`.
+        const metas = program.filter((op) => op.op === "gemini.part_meta");
+        const rest = program.filter((op) => op.op !== "gemini.part_meta");
+        const moved = GeminiTranslator.toBody([
+            ...rest,
+            metas[1]!,
+            metas[0]!,
+        ]) as {
+            contents: { role: string; parts: unknown[] }[];
+        };
+        expect(moved.contents[0]!.parts).toEqual(expected);
     });
 
     test("a functionResponse part_meta name wins over the llm.tool_call name", () => {
@@ -957,6 +993,44 @@ describe("gemini translation", () => {
                     name: "get_population",
                     response: { output: "378" },
                     id: "c1",
+                },
+            },
+        ]);
+    });
+
+    test("the later of two functionResponse part_metas bound to one result wins", () => {
+        const body = {
+            model: "models/gemini-3.5-flash",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "get_population",
+                                response: { output: "378" },
+                                id: "call_pop",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        // A transform that duplicates the op can leave two part_metas on one
+        // result; lowering takes the later one's name instead of throwing.
+        const program = GeminiTranslator.fromBody(body);
+        const metaOp = program.find((op) => op.op === "gemini.part_meta")!;
+        const dup = JSON.parse(JSON.stringify(metaOp));
+        dup.part.name = "get_weather";
+        const withDup = [...program.filter((op) => op !== metaOp), metaOp, dup];
+        const lowered = GeminiTranslator.toBody(withDup) as typeof body;
+        expect(lowered.contents[0]!.parts).toEqual([
+            {
+                functionResponse: {
+                    name: "get_weather",
+                    response: { output: "378" },
+                    id: "call_pop",
                 },
             },
         ]);
