@@ -144,9 +144,11 @@ also raises the core op `response.done`, after the `response.stop` and
 `response.usage` ops it holds. `response.failed` maps its status to no stop
 reason, so it raises `response.usage` and `response.done` only. Lowering folds
 `response.done` back into the same one terminal event the `response.stop` and
-`response.usage` ops build, and a program holding only `response.done` lowers
-to a bare `response.completed` event with no response object — what a call
-returns when no op produces an event is what row 66 settles.
+`response.usage` ops build. A `response.done` that arrives beside none of
+those — a raised `message_stop` — adds no data, so stream lowering drops it:
+the plural call returns no event, and the singular call returns the bare
+`response.completed` event it builds for an empty program; row 66 settles what
+the singular call owes such a program.
 
 ## Out of scope
 

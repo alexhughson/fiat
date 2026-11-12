@@ -876,6 +876,54 @@ describe("response.done across dialects", () => {
         expect(GeminiTranslator.toStreamResponses(raised)).toEqual([]);
     });
 
+    test("a whole anthropic stream lowered event by event ends with one terminal event", () => {
+        // message_start raises llm.model, which openai_responses and
+        // openai_realtime stream lowering have no serialization for (the same
+        // on the row's base), so the stream starts at its first block event.
+        const stream = [
+            {
+                type: "content_block_start",
+                index: 0,
+                content_block: { type: "text", text: "" },
+            },
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "text_delta", text: "Hi" },
+            },
+            { type: "content_block_stop", index: 0 },
+            {
+                type: "message_delta",
+                delta: { stop_reason: "end_turn", stop_sequence: null },
+                usage: { output_tokens: 2 },
+            },
+            { type: "message_stop" },
+        ];
+        for (const translator of [
+            OpenAIResponsesTranslator,
+            OpenAIRealtimeTranslator,
+        ]) {
+            const events = stream.flatMap(
+                (event) =>
+                    translator.toStreamResponses(
+                        AnthropicTranslator.fromStreamResponse(event),
+                    ) as Record<string, unknown>[],
+            );
+            const terminals = events.filter(
+                (event) =>
+                    event.type === "response.completed" ||
+                    event.type === "response.incomplete" ||
+                    event.type === "response.failed" ||
+                    event.type === "response.done",
+            );
+            expect(terminals).toHaveLength(1);
+            expect(
+                (terminals[0] as { response?: { usage?: unknown } }).response
+                    ?.usage,
+            ).toEqual({ output_tokens: 2 });
+        }
+    });
+
     test("a raised terminal event keeps lowering to the same openai chat chunk as before the op", () => {
         const completed = {
             type: "response.completed",

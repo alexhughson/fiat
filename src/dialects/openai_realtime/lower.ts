@@ -41,6 +41,7 @@ export const lowerStreamResponseStages: Stage[] = [
     dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
+    dropBareStreamDone,
 ];
 
 export const lowerStreamResponse: Stage = stagePipeline(
@@ -217,6 +218,29 @@ export function lowerUsageCounts(program: Program): Program {
             },
         ];
     });
+}
+
+// This dialect states the stop reason, the usage, and the stream's end in
+// one response.done event; anthropic states them in two, message_delta then
+// message_stop. Stream lowering sees one event per call and can attach the
+// terminal event to only one of them, and the stop reason and usage carry
+// the data. So a response.done that reaches this stage alone (a raised
+// message_stop, or a terminal body from another dialect that holds no
+// realtime params) has no data to add and is dropped rather than emitting a
+// second, empty terminal event beside the real one. A program that still
+// holds its response.done params, stop reason, or usage keeps the op: its
+// lowering writes that one event.
+export function dropBareStreamDone(program: Program): Program {
+    const carries = program.some(
+        (op) =>
+            op.op === "openai_realtime.finish_reason" ||
+            op.op === "openai_realtime.usage" ||
+            (op.op === "openai_realtime.event_param" &&
+                opData<{ eventType: string }>(op).eventType ===
+                    "response.done"),
+    );
+    if (carries) return program;
+    return program.filter((op) => op.op !== "response.done");
 }
 
 // Rebuilds the response.done output array. A message-type output_meta acts

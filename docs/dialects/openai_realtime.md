@@ -67,6 +67,10 @@ events, optionally with top-level call/session fields such as `model`.
   response has ended, a fact shared with the end events of other providers, so
   it raises the core op `response.done`, after the `response.stop` and
   `response.usage` ops raised from the same event. Lowering folds the op back
-  into the same one `response.done` event those ops build. The
+  into the same one `response.done` event those ops build. A `response.done`
+  that arrives beside none of those — a raised `message_stop` — adds no data,
+  so stream lowering drops it: the plural call returns no event, and the
+  singular call returns the bare `response.done` event it builds for an empty
+  program; row 66 settles what the singular call owes such a program. The
   `response.created` stream event is not raised yet and still throws.
 - WebRTC setup, auth, and live connection management are out of scope.

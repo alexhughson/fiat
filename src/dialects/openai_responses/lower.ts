@@ -49,6 +49,7 @@ export const lowerStreamResponseStages: Stage[] = [
     lowerReasoning,
     lowerStopReasons,
     lowerUsageCounts,
+    dropBareStreamDone,
 ];
 
 export const lowerStreamResponse: Stage = stagePipeline(
@@ -329,6 +330,36 @@ export function lowerUsageCounts(program: Program): Program {
             },
         ];
     });
+}
+
+const TERMINAL_EVENT_TYPES = new Set([
+    "response.completed",
+    "response.incomplete",
+    "response.failed",
+]);
+
+// This dialect states the stop reason, the usage, and the stream's end in
+// one terminal event; anthropic states them in two, message_delta then
+// message_stop. Stream lowering sees one event per call and can attach the
+// terminal event to only one of them, and the stop reason and usage carry
+// the data. So a response.done that reaches this stage alone (a raised
+// message_stop) has no data to add and is dropped rather than emitting a
+// second, empty terminal event beside the real one. A program that still
+// holds its terminal event's body fields, stop reason, or usage keeps the
+// op: its lowering writes that one event.
+export function dropBareStreamDone(program: Program): Program {
+    const carries = program.some(
+        (op) =>
+            op.op === "openai_responses.finish_reason" ||
+            op.op === "openai_responses.usage" ||
+            (op.op === "openai_responses.body_field" &&
+                opData<{ key: string; value: unknown }>(op).key === "type" &&
+                TERMINAL_EVENT_TYPES.has(
+                    String(opData<{ key: string; value: unknown }>(op).value),
+                )),
+    );
+    if (carries) return program;
+    return program.filter((op) => op.op !== "response.done");
 }
 
 // Rebuilds the response's output array. output_meta residuals (present when
