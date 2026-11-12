@@ -401,7 +401,7 @@ describe("gemini translation", () => {
         });
     });
 
-    test("a tool result whose content is a string lowers to gemini under the output key", () => {
+    test("a tool result whose content is text lowers to gemini as a string under the output key", () => {
         const body = GeminiTranslator.toBody(
             OpenAIChatTranslator.fromBody({
                 model: "gpt-4o-mini",
@@ -459,9 +459,10 @@ describe("gemini translation", () => {
                         {
                             functionResponse: {
                                 name: "calc",
-                                // "361" parses as a JSON number, so the
-                                // wrapped value is the number 361.
-                                response: { output: 361 },
+                                // Lowering writes text content as the string
+                                // under the output key; "361" does not
+                                // become the number 361.
+                                response: { output: "361" },
                                 id: "call_math",
                             },
                         },
@@ -519,15 +520,15 @@ describe("gemini translation", () => {
         const lowered = GeminiTranslator.toBody(program) as {
             contents: { role: string; parts: unknown[] }[];
         };
-        // "361" parses as a JSON number, so lowering writes the number back
-        // instead of the string the body had. The thoughtSignature Gemini
+        // The string under the output key is the tool result's text, so the
+        // round trip returns the same body. The thoughtSignature Gemini
         // lowering injects on the functionCall part is pre-existing behavior
         // for core tool history without a Gemini response.
         expect(lowered.contents[2]!.parts).toEqual([
             {
                 functionResponse: {
                     name: "calc",
-                    response: { output: 361 },
+                    response: { output: "361" },
                     id: "call_math",
                 },
             },
@@ -566,9 +567,9 @@ describe("gemini translation", () => {
                         {
                             functionResponse: {
                                 name: "calc",
-                                // "999" parses as a JSON number, so the
-                                // edit reaches the body as the number.
-                                response: { output: 999 },
+                                // The edit reaches the body as the string
+                                // "999" under the output key.
+                                response: { output: "999" },
                                 id: "call_math",
                             },
                         },
@@ -605,14 +606,16 @@ describe("gemini translation", () => {
             return lowered.contents[0]!.parts[0]!.functionResponse;
         };
 
-        // The string "378" parses as a JSON number, so it comes back as 378.
+        // A string under the output key is the tool result's text, so it
+        // returns unchanged.
         expect(roundTrip({ output: "378" })).toEqual({
             name: "calc",
-            response: { output: 378 },
+            response: { output: "378" },
             id: "call_math",
         });
-        // The object under the output key is the tool result itself, so it
-        // comes back as the response object without the wrapper key.
+        // An object under the output key raises to JSON text, and lowering
+        // parses that text back into the object, which becomes the response
+        // without the wrapper key.
         expect(roundTrip({ output: { a: 1 } })).toEqual({
             name: "calc",
             response: { a: 1 },
@@ -625,6 +628,71 @@ describe("gemini translation", () => {
             response: {},
             id: "call_math",
         });
+        // A number under the output key raises to the text "378", and
+        // lowering writes text back as a string, so the type changes. This
+        // is the accepted cost of keeping every other kind of text intact.
+        expect(roundTrip({ output: 378 })).toEqual({
+            name: "calc",
+            response: { output: "378" },
+            id: "call_math",
+        });
+    });
+
+    test("tool result text that is not a JSON object keeps its exact characters", () => {
+        const results = [
+            "361",
+            "12345678901234567890",
+            "1.10",
+            "true",
+            "null",
+            "[1,2]",
+            '"a"',
+        ];
+        const body = {
+            model: "models/gemini-3.5-flash",
+            contents: [
+                { role: "user", parts: [{ text: "what is 19 * 19?" }] },
+                {
+                    role: "model",
+                    parts: results.map((_, i) => ({
+                        functionCall: {
+                            name: "calc",
+                            args: {},
+                            id: `call_${i}`,
+                        },
+                    })),
+                },
+                {
+                    role: "user",
+                    parts: results.map((content, i) => ({
+                        functionResponse: {
+                            name: "calc",
+                            response: { output: content },
+                            id: `call_${i}`,
+                        },
+                    })),
+                },
+            ],
+        };
+
+        const program = GeminiTranslator.fromBody(body);
+        for (const [i, content] of results.entries()) {
+            expect(program).toContainEqual({
+                op: "llm.tool_result",
+                id: `call_${i}`,
+                content,
+            });
+        }
+        const lowered = GeminiTranslator.toBody(program) as typeof body;
+        expect(lowered.contents[2]!.parts).toEqual(
+            results.map((content, i) => ({
+                functionResponse: {
+                    name: "calc",
+                    response: { output: content },
+                    id: `call_${i}`,
+                },
+            })),
+        );
     });
 
     test("an anthropic response id lowers into the gemini responseId", () => {

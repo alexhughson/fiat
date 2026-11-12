@@ -863,17 +863,17 @@ function parseToolResultObject(
     result: OpOf<"llm.tool_result">,
 ): Record<string, unknown> {
     // Gemini requires functionResponse.response to be a JSON object, but a
-    // tool result is often a bare string, number, or array. Parse the content
-    // when it is JSON and wrap any non-object value under the "output" key,
-    // which Gemini's docs name for function output. Content that is not JSON
-    // at all is plain text, so it wraps under the same key as a string.
+    // tool result is usually plain text. Parse the content only to test
+    // whether it is a JSON object; an object is the response itself. Every
+    // other content is text, so it wraps as a string under the "output" key,
+    // which Gemini's docs name for function output.
     let parsed: unknown;
     try {
         parsed = JSON.parse(result.content);
     } catch {
         return { output: result.content };
     }
-    return isRecord(parsed) ? parsed : { output: parsed };
+    return isRecord(parsed) ? parsed : { output: result.content };
 }
 
 function parseToolCallDeltaArguments(

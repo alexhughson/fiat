@@ -50,10 +50,13 @@ path. Code: `src/dialects/gemini/`.
 ## Tool results
 
 Gemini requires `functionResponse.response` to be a JSON object. A tool result
-whose content parses to a JSON object lowers into `response` as that object; a
-tool result that is anything else — a string, number, boolean, array, `null`,
-or text that is not JSON — lowers wrapped under the `output` key, which
-Gemini's docs name for function output:
+whose content parses to a JSON object lowers into `response` as that object.
+Every other content is text, so it lowers as that string wrapped under the
+`output` key, which Gemini's docs name for function output — including content
+that parses as JSON but is not an object, such as a number, boolean, array,
+or `null`. Text keeps its exact characters: the digit text
+`12345678901234567890` does not become a number that loses digits, and `1.10`
+does not become `1.1`:
 
 ```json
 {
@@ -61,9 +64,24 @@ Gemini's docs name for function output:
 }
 ```
 
-Raising turns a `response` whose only key is `output` back into the wrapped
+Raising turns a response whose only key is `output` back into the wrapped
 value: a string as text, anything else as JSON. A response with `output` among
-other keys raises as the whole object.
+other keys raises as the whole object. The number 378 raises to the text
+`"378"`, and lowering writes text as a string under `output`, so a round trip
+through gemini changes the type:
+
+```diff
+ {
+     "name": "get_population",
+     "response": {
+-        "output": 378
++        "output": "378"
+     },
+     "id": "call_pop"
+ }
+```
+
+This is the accepted cost of keeping every other kind of text intact.
 
 `gemini.part_meta` for a `functionResponse` part holds the function `name`
 and any provider part extras under `meta`; the type allows no `id`, no
@@ -72,21 +90,7 @@ and any provider part extras under `meta`; the type allows no `id`, no
 gemini body. The result's position is the `llm.tool_result` op's position, so
 the part_meta stores no `index`.
 
-A body raised and lowered back to gemini can therefore change:
-
-```diff
- {
-     "name": "get_population",
-     "response": {
--        "output": "378"
-+        "output": 378
-     },
-     "id": "call_pop"
- }
-```
-
-`"378"` parses as JSON, so lowering writes the number 378 instead of the
-string.
+A body with an object under `output` also changes:
 
 ```diff
  {

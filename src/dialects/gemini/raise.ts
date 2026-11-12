@@ -422,11 +422,10 @@ function partKind(
 }
 
 // Gemini requires functionResponse.response to be a JSON object, so lowering
-// wraps a tool result that is not an object under the "output" key, which
-// Gemini's docs name for function output. A response body whose only key is
-// "output" raises back to the wrapped value: a string as text, anything else
-// as JSON, so a round trip through Gemini returns the caller's original
-// content.
+// wraps tool result text that is not a JSON object under the "output" key,
+// which Gemini's docs name for function output. A response body whose only
+// key is "output" raises back to the wrapped value: a string as text,
+// anything else as JSON.
 function toolResultContent(responseBody: Record<string, unknown>): string {
     const keys = Object.keys(responseBody);
     if (keys.length !== 1 || keys[0] !== "output") {
