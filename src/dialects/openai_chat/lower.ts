@@ -12,6 +12,7 @@ import {
     dataUrlFromBase64,
     mediaDataUrlFromBase64,
 } from "../../core/media.js";
+import { dropReasoning } from "../../core/reasoning.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import { lowerFinishReason } from "./raise.js";
 import type {
@@ -21,6 +22,7 @@ import type {
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    dropReasoning,
     lowerRequestTexts,
     lowerRequestImages,
     lowerRequestAudio,
@@ -35,6 +37,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
     collectAssistantMessage,
@@ -43,6 +46,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
 ];

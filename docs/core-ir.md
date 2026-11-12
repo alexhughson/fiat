@@ -6,6 +6,7 @@ Core IR is the provider-neutral op vocabulary. Types live in
 A program is `Op[]`. Conversation order matters for:
 
 - `llm.text`
+- `llm.reasoning`
 - `llm.image`
 - `llm.audio`
 - `llm.document`
@@ -27,6 +28,7 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 | `request.stop_sequences` | `value: string[]`                         | provider stop strings                      |
 | `llm.thinking`           | `effort`                                  | portable effort; dialects choose wire form |
 | `llm.text`               | `role`, `content`                         | one text unit                              |
+| `llm.reasoning`          | `id`, `content`                           | model reasoning; see Reasoning below       |
 | `llm.image`              | `role:"user"`, `source`                   | image URL or base64 image data             |
 | `llm.audio`              | `role:"user"`, `source`                   | base64 audio data                          |
 | `llm.document`           | `role:"user"`, `source`                   | PDF URL or base64 PDF data                 |
@@ -48,6 +50,35 @@ Provider-owned file ids, provider file URIs, image detail knobs, tool config,
 usage details, and message metadata stay in dialect residual ops. Residuals
 that preserve user content are marked so translating them to another backend
 throws instead of warning and dropping the content.
+
+## Reasoning
+
+`llm.reasoning` is reasoning that the model produced before its answer.
+`content` is the readable text, and is `""` when the provider returned none.
+
+`signature` is optional: `{ dialect, value }`. `value` is the signature the
+provider attached to the reasoning (Anthropic `signature`, Gemini
+`thoughtSignature`), and `dialect` names the dialect that raised it. A
+signature is valid only for the provider that issued it, so a dialect writes
+`value` only when `dialect` is its own name, and otherwise treats the op as
+unsigned.
+
+Other data that only one provider can read lives in a side op of that
+provider's dialect, placed after the `llm.reasoning` op. The side op's `of`
+field holds the `llm.reasoning` op's `id`, and resolves to the nearest earlier
+`llm.reasoning` op with that id.
+
+| dialect              | reads                        | lowering `llm.reasoning`                                       |
+| -------------------- | ---------------------------- | -------------------------------------------------------------- |
+| `anthropic_messages` | its own `signature`          | `thinking` block; dropped with a warning without its signature |
+| `anthropic_messages` | `redacted_thinking { data }` | `redacted_thinking` block                                      |
+| `openai_responses`   | `reasoning_item { fields }`  | `reasoning` item; dropped with a warning without the side op   |
+| `gemini`             | its own `signature`          | `thought: true` part; dropped with a warning with no text      |
+| `openai_chat`        | nothing                      | dropped with a warning                                         |
+| `openai_realtime`    | nothing                      | dropped with a warning                                         |
+
+In strict mode each warning is a `LintError`. Stream events for reasoning are
+not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 
 ## Response ops
 

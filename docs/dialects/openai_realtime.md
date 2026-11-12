@@ -38,6 +38,8 @@ events, optionally with top-level call/session fields such as `model`.
 - Text, function tools, final function calls, and function call outputs map to
   core.
 - Audio and other Realtime-only parts stay residuals.
+- Realtime has no field for reasoning: `llm.reasoning` is dropped with a
+  warning.
 - `toBody` emits `response.create.response.output_modalities: ["text"]`
   unless supplied by the caller.
 - Prefix system text lowers to `response.create.response.instructions`.

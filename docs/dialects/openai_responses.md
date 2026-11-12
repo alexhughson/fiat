@@ -13,6 +13,7 @@ OpenAI Responses (`POST /v1/responses`). Code:
 | `max_output_tokens`                         | `llm.max_output_tokens`             |
 | `reasoning.effort`                          | `llm.thinking`                      |
 | text input/output items                     | `llm.text`                          |
+| `reasoning` input/output items              | `llm.reasoning`                     |
 | `input_image.image_url`                     | `llm.image`                         |
 | `input_file.file_url` / `file_data`         | `llm.document` for PDFs             |
 | function-call items                         | `llm.tool_call` / `llm.tool_result` |
@@ -24,17 +25,18 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 
 ## Dialect ops
 
-| op                               | purpose                                        |
-| -------------------------------- | ---------------------------------------------- |
-| `openai_responses.input`         | one request `input[]` item                     |
-| `openai_responses.output`        | one response `output[]` item                   |
-| `openai_responses.output_meta`   | response item ids/status/content metadata      |
-| `openai_responses.tool`          | provider-specific hosted tools                 |
-| `openai_responses.tool_meta`     | extra function-tool fields such as `strict`    |
-| `openai_responses.finish_reason` | response status/incomplete details             |
-| `openai_responses.usage`         | shared usage plus usage extras                 |
-| `openai_responses.tool_choice`   | provider-specific tool choice                  |
-| `openai_responses.body_field`    | unknown request key or response envelope field |
+| op                                | purpose                                           |
+| --------------------------------- | ------------------------------------------------- |
+| `openai_responses.input`          | one request `input[]` item                        |
+| `openai_responses.output`         | one response `output[]` item                      |
+| `openai_responses.output_meta`    | response item ids/status/content metadata         |
+| `openai_responses.reasoning_item` | side op of `llm.reasoning`: id, encrypted_content |
+| `openai_responses.tool`           | provider-specific hosted tools                    |
+| `openai_responses.tool_meta`      | extra function-tool fields such as `strict`       |
+| `openai_responses.finish_reason`  | response status/incomplete details                |
+| `openai_responses.usage`          | shared usage plus usage extras                    |
+| `openai_responses.tool_choice`    | provider-specific tool choice                     |
+| `openai_responses.body_field`     | unknown request key or response envelope field    |
 
 ## Tool rules
 

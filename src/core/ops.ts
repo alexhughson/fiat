@@ -51,6 +51,18 @@ export type CoreOp =
     | { op: "request.stop_sequences"; value: string[] }
     | { op: "llm.thinking"; effort: ThinkingEffort }
     | { op: "llm.text"; role: Role; content: string }
+    // Reasoning the model produced before its answer. `content` is the
+    // readable text, and is "" when the provider returned none. A signature
+    // is valid only for the provider that issued it, so `signature.dialect`
+    // names the dialect it was raised from, and only that dialect writes it.
+    // Other provider data (redacted data, encrypted content) lives in that
+    // dialect's side ops, which name this op's id in `of`.
+    | {
+          op: "llm.reasoning";
+          id: string;
+          content: string;
+          signature?: { dialect: string; value: string };
+      }
     | { op: "llm.image"; role: "user"; source: ImageSource }
     | { op: "llm.audio"; role: "user"; source: AudioSource }
     | { op: "llm.document"; role: "user"; source: DocumentSource }

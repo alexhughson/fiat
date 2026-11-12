@@ -18,7 +18,8 @@ import {
     assertDocumentSource,
     assertImageMediaType,
 } from "../../core/media.js";
-import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import * as reasoning from "../../core/reasoning.js";
+import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
 import type {
     WireAnthropicMessage,
     WireAnthropicStreamEvent,
@@ -26,6 +27,7 @@ import type {
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    lowerReasoning,
     lintMidConversationSystem,
     lowerThinking,
     lowerStructuredOutput,
@@ -44,6 +46,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    lowerReasoning,
     dropEmptyText,
     lowerStopReasons,
     lowerUsageCounts,
@@ -53,6 +56,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    lowerReasoning,
     lowerCompleteResponseToStreamEvents,
     lowerStreamTextDeltas,
     lowerStreamToolCallDeltas,
@@ -62,6 +66,49 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+const REDACTED_THINKING = "anthropic_messages.redacted_thinking";
+
+// Anthropic verifies the signature of a thinking block and decrypts the data
+// of a redacted_thinking block, so a reasoning op that carries neither (one
+// raised from another provider) has no block Anthropic would accept.
+export function lowerReasoning(program: Program, target?: Target): Program {
+    const sideOps = reasoning.sideOpsOf(program, [REDACTED_THINKING]);
+    return program.flatMap((op): Op[] => {
+        if (op.op === REDACTED_THINKING) return [];
+        if (op.op !== "llm.reasoning") return [op];
+        const thought = op as reasoning.Reasoning;
+        const redacted = sideOps.get(thought)![0];
+        const signature = reasoning.signatureFor(thought, "anthropic_messages");
+        if (redacted) {
+            return [
+                reasoningBlock({
+                    type: "redacted_thinking",
+                    data: opData<{ data: string }>(redacted).data,
+                }),
+            ];
+        }
+        if (signature !== undefined) {
+            return [
+                reasoningBlock({
+                    type: "thinking",
+                    thinking: thought.content,
+                    signature,
+                }),
+            ];
+        }
+        reasoning.warnDropped(
+            thought,
+            target,
+            "accepts a thinking block only with the signature Anthropic issued for it",
+        );
+        return [];
+    });
+}
+
+function reasoningBlock(block: WireBlock): Op {
+    return { op: "anthropic_messages.content_block", role: "assistant", block };
+}
 
 export function lowerThinking(program: Program): Program {
     const hasRawThinking = program.some(

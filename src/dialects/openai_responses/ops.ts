@@ -46,9 +46,22 @@ export interface WireOutputMessage {
     [key: string]: unknown;
 }
 
+export interface WireReasoningItem {
+    type: "reasoning";
+    summary: WireContentPart[];
+    id?: string;
+    encrypted_content?: string | null;
+    status?: string;
+    [key: string]: unknown;
+}
+
 export type WireInputItem =
-    WireInputMessage | WireFunctionCall | WireFunctionCallOutput;
-export type WireOutputItem = WireOutputMessage | WireFunctionCall;
+    | WireInputMessage
+    | WireFunctionCall
+    | WireFunctionCallOutput
+    | WireReasoningItem;
+export type WireOutputItem =
+    WireOutputMessage | WireFunctionCall | WireReasoningItem;
 
 export type OpenAIResponsesOp =
     | { op: "openai_responses.input"; item: WireInputItem }
@@ -57,6 +70,14 @@ export type OpenAIResponsesOp =
           op: "openai_responses.output_meta";
           item: Partial<WireOutputItem>;
           appliesTo?: "request" | "response";
+      }
+    // Side op of llm.reasoning: `of` names the reasoning op's id. `fields` is
+    // the reasoning item without `type` and without a `summary` that the
+    // reasoning op's content already says (id, encrypted_content, status).
+    | {
+          op: "openai_responses.reasoning_item";
+          of: string;
+          fields: Record<string, unknown>;
       }
     | {
           op: "openai_responses.tool_meta";

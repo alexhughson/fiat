@@ -61,6 +61,13 @@ export type AnthropicMessagesOp =
           role?: "user" | "assistant";
           appliesTo?: "response";
       }
+    // Side op of llm.reasoning: `of` names the reasoning op's id. A
+    // redacted_thinking block is a reasoning with empty content plus its data.
+    | {
+          op: "anthropic_messages.redacted_thinking";
+          of: string;
+          data: string;
+      }
     | {
           op: "anthropic_messages.system_block";
           block: WireBlock;

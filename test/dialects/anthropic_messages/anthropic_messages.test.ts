@@ -1031,7 +1031,7 @@ describe("anthropic_messages responses", () => {
         expect(AnthropicTranslator.toResponse(program)).toEqual(wireResponse);
     });
 
-    test("thinking response blocks survive as anthropic residuals and round-trip before text", () => {
+    test("thinking response blocks raise to llm.reasoning and round-trip before text", () => {
         const response = {
             id: "msg_thinking",
             type: "message",
@@ -1050,21 +1050,19 @@ describe("anthropic_messages responses", () => {
         };
 
         const program = AnthropicTranslator.fromResponse(response);
-        expect(program).toContainEqual({
-            op: "anthropic_messages.content_block",
-            block: {
-                type: "thinking",
-                thinking: "",
-                signature: "sig_1",
+        expect(program.slice(0, 2)).toEqual([
+            {
+                op: "llm.reasoning",
+                id: "reasoning_1",
+                content: "",
+                signature: { dialect: "anthropic_messages", value: "sig_1" },
             },
-            role: "assistant",
-            appliesTo: "response",
-        });
-        expect(program).toContainEqual({
-            op: "llm.text",
-            role: "assistant",
-            content: "The answer is 42.",
-        });
+            {
+                op: "llm.text",
+                role: "assistant",
+                content: "The answer is 42.",
+            },
+        ]);
         expect(AnthropicTranslator.toResponse(program)).toEqual(response);
     });
 

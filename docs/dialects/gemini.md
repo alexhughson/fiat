@@ -49,8 +49,13 @@ path. Code: `src/dialects/gemini/`.
 
 ## Thinking and signatures
 
+A `thought: true` text part raises to `llm.reasoning`. When the part has a
+`thoughtSignature`, the op holds it as
+`signature: { dialect: "gemini", value }`.
+
 Gemini thinking continuity is carried by encrypted `thoughtSignature` fields
-on parts, not by a core thinking content block.
+on parts. On a `functionCall` or answer text part, `thoughtSignature` stays in
+`gemini.part_meta`.
 
 When a Gemini response program is appended to the next Gemini request, lowering
 reattaches the exact `thoughtSignature` to the historical `functionCall` part.
@@ -111,4 +116,4 @@ when they are not portable core images.
 ## Out of scope
 
 Streaming, Interactions API, multiple candidates, cache/batch/countTokens,
-response media core ops, and provider-neutral thinking content.
+and response media core ops.
