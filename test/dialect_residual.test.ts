@@ -126,6 +126,16 @@ const cases: Case[] = [
         },
     },
     {
+        label: "anthropic_messages request metadata user_id",
+        fn: "fromBody",
+        input: {
+            model: "claude-sonnet-4-6",
+            max_tokens: 100,
+            metadata: { user_id: "user_123" },
+            messages: [{ role: "user", content: "hi" }],
+        },
+    },
+    {
         label: "anthropic_messages response text answer, usage, stop reason",
         fn: "fromResponse",
         input: {
@@ -1356,12 +1366,16 @@ const cases: Case[] = [
     },
 ];
 
-// A unit names one leaf of wire data a dialect op still carries. A bare op
-// name, or a unit that stops at the first nesting level, lets a new
+// A unit names one leaf of wire data a dialect op still carries, and says
+// which input left it. A bare op name, a unit that stops at the first
+// nesting level, or one unit string shared by several inputs lets a new
 // provider-only field hide behind an existing row, so the walk goes to full
-// depth through every object and array the op holds. A unit string is the op
-// name, the wire slot, the object's tag where it has one, and the path to
-// the leaf, with every array level written `[]`:
+// depth through every object and array the op holds, and each unit is
+// prefixed by the kind of input that produced it. A unit string is the input
+// kind — `request`, `response`, or `stream` plus, for a stream event that has
+// one, the event's wire `type` — then the op name, the wire slot, the
+// object's tag where it has one, and the path to the leaf, with every array
+// level written `[]`:
 // - a keyed op (body_field, event_param, response_param,
 //   stream_choice_param, sampling) starts from `op:key`;
 // - an op holding a whole wire object (output_meta, item_meta, part_meta,
@@ -1369,31 +1383,37 @@ const cases: Case[] = [
 // - an op holding a record of wire fields (usage, generation_config,
 //   candidate_meta) starts from `op`;
 // - the path then names each leaf, e.g.
-//   `openai_responses.output_meta:message.content[].text`.
-// The walk is by shape, not op name: an op the test has never seen is walked
-// the same way, so a new dialect op cannot slip through unsplit. A new key
-// at any depth is a new unit; new array elements reuse the same unit.
+//   `stream:response.done:openai_realtime.event_param:type`.
+// openai_chat and gemini chunks have no wire `type`, so their stream units
+// start with `stream` alone. The walk is by shape, not op name: an op the
+// test has never seen is walked the same way, so a new dialect op cannot
+// slip through unsplit. A new key at any depth is a new unit; new array
+// elements reuse the same unit. The input prefix splits units by input, so
+// cleaning one event or one body kind stales its own row.
 //
 // The walk stops at values that hold caller-defined JSON. Those values are
 // the caller's data, not the provider's wire shape, so the keys inside them
 // are not wire data and do not open units. A stop below names either a
-// field (stops anywhere in any op, when the value is an object) or one
+// field (stops in the dialects listed, when the value is an object) or one
 // exact unit (a field name other ops carry as wire, stopped only where it
 // holds caller data). The stop still emits the unit for the field itself,
-// so its presence on the wire stays checked.
-const stopPaths: Record<string, string> = {
-    // The tool caller's arguments as an object: anthropic_messages
-    // tool_use `input`, gemini functionCall `args`.
-    input: "caller's tool call arguments",
-    args: "caller's tool call arguments",
-    // A tool's JSON Schema: anthropic_messages `input_schema`, OpenAI
-    // `parameters`, openai_chat response_format `schema`.
-    input_schema: "caller's tool schema",
-    parameters: "caller's tool schema",
-    schema: "caller's tool schema",
+// so its presence on the wire stays checked. Every stop must be reached by
+// some corpus case; the test fails on an unreached stop, so a stop cannot
+// silently protect data nothing exercises. Main's raises lift tool
+// arguments and tool schemas to core ops before any dialect op can hold
+// them, so no stop exists for them: if a future raise leaves such JSON in
+// a dialect op, each caller key opens a unit and must be classified or
+// given a justified stop with a corpus case.
+const stopPaths: Record<string, string | string[]> = {
     // A free-form key-value map the caller set on the request, echoed back
-    // by the provider.
-    metadata: "caller's free-form metadata",
+    // by the provider. The anthropic_messages request `metadata` is a
+    // provider-defined object (`user_id`), so it is walked there.
+    metadata: [
+        "openai_chat",
+        "openai_responses",
+        "openai_realtime",
+        "caller's free-form metadata",
+    ],
     // The gemini functionResponse payload, kept raw for round-trip. Every
     // other `response` field (openai_realtime event_param, openai_responses
     // body_field) holds a provider response object and is walked.
@@ -1401,18 +1421,44 @@ const stopPaths: Record<string, string> = {
         "caller's tool result payload",
 };
 
-function isStopField(name: string, value: unknown): boolean {
-    return (
-        !name.includes(":") &&
-        Object.hasOwn(stopPaths, name) &&
-        typeof value === "object" &&
-        value !== null &&
-        !Array.isArray(value)
-    );
+function stopApplies(name: string, dialect: string): boolean {
+    if (!Object.hasOwn(stopPaths, name)) return false;
+    const stop = stopPaths[name]!;
+    // A list names the dialects the stop applies to; its last element is
+    // the comment.
+    return Array.isArray(stop) ? stop.includes(dialect) : true;
 }
 
-function isStopUnit(unit: string): boolean {
-    return Object.hasOwn(stopPaths, unit);
+function stopComment(name: string): string {
+    const stop = stopPaths[name]!;
+    return Array.isArray(stop) ? stop[stop.length - 1]! : stop;
+}
+
+// Stop paths the corpus actually exercised. The walk records a stop when
+// it stops there; the test fails when a listed stop path is never reached,
+// because a stop nothing exercises protects nothing.
+const reachedStops = new Set<string>();
+
+function isStopField(name: string, value: unknown, dialect: string): boolean {
+    const applies =
+        !name.includes(":") &&
+        stopApplies(name, dialect) &&
+        typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value);
+    if (applies) reachedStops.add(name);
+    return applies;
+}
+
+function isStopUnit(unit: string, input: string): boolean {
+    // The walk builds units with the input prefix in front; strip it to
+    // compare against the exact-unit stop paths.
+    const unprefixed = unit.startsWith(input)
+        ? unit.slice(input.length + 1)
+        : unit;
+    const applies = Object.hasOwn(stopPaths, unprefixed);
+    if (applies) reachedStops.add(unprefixed);
+    return applies;
 }
 
 // Op mechanics, not wire data: they never open a unit. `of` names the op a
@@ -1426,13 +1472,27 @@ const opMechanics = new Set([
     "of",
 ]);
 
-function unitsOf(op: Op): string[] {
+// The input prefix names the kind of input that produced the ops, so a unit
+// raised from a request, a complete response, and one stream event is three
+// rows, not one. For a stream event with a wire `type` the prefix carries
+// that type too, so every stream row names one event kind.
+function inputPrefixOf(c: Case): string {
+    if (c.fn === "fromBody") return "request";
+    if (c.fn === "fromResponse") return "response";
+    const type = (c.input as Record<string, unknown>).type;
+    if (typeof type === "string") return `stream:${type}`;
+    // openai_chat and gemini chunks carry no `type`.
+    return "stream";
+}
+
+function unitsOf(op: Op, input: string, dialect: string): string[] {
     const data = op as unknown as Record<string, unknown>;
     const units: string[] = [];
+    const root = `${input}:${op.op}`;
     if (typeof data.key === "string" && "value" in data) {
         // Keyed op: the key names the wire slot.
-        const prefix = `${op.op}:${data.key}`;
-        if (isStopField(data.key, data.value)) units.push(prefix);
+        const prefix = `${root}:${data.key}`;
+        if (isStopField(data.key, data.value, dialect)) units.push(prefix);
         else walk(prefix, data.value, "");
         return units;
     }
@@ -1446,9 +1506,9 @@ function unitsOf(op: Op): string[] {
             (typeof value === "object" && value !== null) ||
             Array.isArray(value)
         ) {
-            walk(op.op, value, "");
+            walk(root, value, "");
         } else {
-            walk(op.op, value, field);
+            walk(root, value, field);
         }
     }
     return units;
@@ -1483,7 +1543,10 @@ function unitsOf(op: Op): string[] {
             for (const [key, childValue] of entries) {
                 const child = path === "" ? key : `${path}.${key}`;
                 const unit = `${ownPrefix}:${child}`;
-                if (isStopField(key, childValue) || isStopUnit(unit)) {
+                if (
+                    isStopField(key, childValue, dialect) ||
+                    isStopUnit(unit, input)
+                ) {
                     units.push(unit);
                     continue;
                 }
@@ -1500,6 +1563,7 @@ describe("dialect residual allowlist", () => {
         const seen = new Set<string>();
         const violations: string[] = [];
         const skipped: string[] = [];
+        reachedStops.clear();
 
         for (const unit of Object.keys(providerOnly)) {
             if (baseline.includes(unit)) {
@@ -1513,6 +1577,7 @@ describe("dialect residual allowlist", () => {
         for (const c of cases) {
             const dialect = c.label.split(" ")[0]!;
             const translator = translators[dialect]!;
+            const input = inputPrefixOf(c);
             let program: Program;
             try {
                 program = translator[c.fn](c.input);
@@ -1532,7 +1597,7 @@ describe("dialect residual allowlist", () => {
             for (const op of program) {
                 const namespace = op.op.split(".")[0]!;
                 if (!Object.hasOwn(translators, namespace)) continue;
-                for (const unit of unitsOf(op)) {
+                for (const unit of unitsOf(op, input, dialect)) {
                     seen.add(unit);
                     if (
                         !Object.hasOwn(providerOnly, unit) &&
@@ -1547,6 +1612,16 @@ describe("dialect residual allowlist", () => {
                         );
                     }
                 }
+            }
+        }
+
+        for (const name of Object.keys(stopPaths)) {
+            if (!reachedStops.has(name)) {
+                violations.push(
+                    `stop path "${name}" (${allowlistFile}) was reached by ` +
+                        `no corpus case — extend the corpus or remove the ` +
+                        `stop path`,
+                );
             }
         }
 
