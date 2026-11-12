@@ -276,7 +276,9 @@ describe("openai_realtime requests", () => {
             ),
         ).toEqual(body);
         expect(() =>
-            OpenAIChatTranslator.toBody(OpenAIRealtimeTranslator.fromBody(body)),
+            OpenAIChatTranslator.toBody(
+                OpenAIRealtimeTranslator.fromBody(body),
+            ),
         ).toThrow(
             'cannot drop content-bearing foreign op "openai_realtime.item"',
         );

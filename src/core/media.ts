@@ -22,7 +22,8 @@ export function documentSourceFromUrl(
     value: string,
     context: string,
 ): DocumentSource {
-    if (value.startsWith("data:")) return parseMediaDataUrl(value, context, "document");
+    if (value.startsWith("data:"))
+        return parseMediaDataUrl(value, context, "document");
     if (/^https?:\/\//.test(value)) return { type: "url", url: value };
     throw new Error(`${context}: expected an http(s) URL or base64 data URL`);
 }
@@ -82,7 +83,8 @@ export function assertDocumentSource(
     if (source.type === "base64" && !source.data) {
         throw new Error(`${context}: expected non-empty base64 data`);
     }
-    if (source.mediaType != null) assertMediaType("document", source.mediaType, context);
+    if (source.mediaType != null)
+        assertMediaType("document", source.mediaType, context);
 }
 
 export function assertVideoSource(source: VideoSource, context: string): void {
@@ -103,7 +105,9 @@ export function assertMediaType(
     context: string,
 ): void {
     if (mediaKindForType(mediaType) !== kind) {
-        throw new Error(`${context}: expected ${expectedMediaType(kind)} media type`);
+        throw new Error(
+            `${context}: expected ${expectedMediaType(kind)} media type`,
+        );
     }
 }
 
@@ -133,7 +137,12 @@ export function urlSource(
         throw new Error(`${context}: expected an http(s) URL`);
     }
     if (mediaType != null) assertMediaType("document", mediaType, context);
-    return { type: "url", url, ...(mediaType ? { mediaType } : {}), ...(filename ? { filename } : {}) };
+    return {
+        type: "url",
+        url,
+        ...(mediaType ? { mediaType } : {}),
+        ...(filename ? { filename } : {}),
+    };
 }
 
 function expectedMediaType(kind: MediaKind): string {

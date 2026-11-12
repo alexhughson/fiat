@@ -5,16 +5,16 @@ Anthropic Messages (`POST /v1/messages`). Code:
 
 ## Direct mappings
 
-| wire                                        | core                    |
-| ------------------------------------------- | ----------------------- |
-| `model`                                     | `llm.model`             |
-| `temperature`                               | `llm.temperature`       |
-| `max_tokens`                                | `llm.max_output_tokens` |
-| `system`                                    | system `llm.text`       |
-| ordinary tools                              | `llm.tool`              |
-| canonical web search / code execution tools | `llm.server_tool`       |
-| `tool_choice`                               | `llm.tool_choice`       |
-| `image` blocks with url/base64 sources      | `llm.image`             |
+| wire                                         | core                    |
+| -------------------------------------------- | ----------------------- |
+| `model`                                      | `llm.model`             |
+| `temperature`                                | `llm.temperature`       |
+| `max_tokens`                                 | `llm.max_output_tokens` |
+| `system`                                     | system `llm.text`       |
+| ordinary tools                               | `llm.tool`              |
+| canonical web search / code execution tools  | `llm.server_tool`       |
+| `tool_choice`                                | `llm.tool_choice`       |
+| `image` blocks with url/base64 sources       | `llm.image`             |
 | PDF `document` blocks with url/base64 source | `llm.document`          |
 
 Anthropic has no system message. System text lowers to the top-level `system`

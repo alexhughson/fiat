@@ -114,7 +114,10 @@ export function lowerReasoning(program: Program, target?: Target): Program {
     return out;
 }
 
-export function dropStreamReasoning(program: Program, target?: Target): Program {
+export function dropStreamReasoning(
+    program: Program,
+    target?: Target,
+): Program {
     return program.filter((op) => {
         if (op.op !== "llm.reasoning") return true;
         reasoning.warnDropped(
@@ -376,7 +379,10 @@ export function lowerRequestDocuments(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "llm.document") return [op];
         const document = op as OpOf<"llm.document">;
-        assertDocumentSource(document.source, "gemini request lower llm.document");
+        assertDocumentSource(
+            document.source,
+            "gemini request lower llm.document",
+        );
         if (document.source.type !== "base64") {
             throw new LintError(
                 "gemini request lower: llm.document URL sources require provider file upload before generateContent",

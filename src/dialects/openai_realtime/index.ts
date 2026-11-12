@@ -34,7 +34,6 @@ export const OpenAIRealtimeDialect = {
     },
 } satisfies Dialect;
 
-
 export const OpenAIRealtimeTranslator = makeTranslator(OpenAIRealtimeDialect);
 export { raiseStages } from "./raise.js";
 export {

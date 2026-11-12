@@ -216,13 +216,12 @@ function raiseMessage(
                 if (isFileBackedInputImage(part)) return undefined;
                 out.push(raiseImagePart(role, part));
                 break;
-            case "input_file":
-                {
-                    const document = raiseFilePart(role, part);
-                    if (!document) return undefined;
-                    out.push(document);
-                    break;
-                }
+            case "input_file": {
+                const document = raiseFilePart(role, part);
+                if (!document) return undefined;
+                out.push(document);
+                break;
+            }
             default:
                 throw new LintError(
                     `openai_responses message: unsupported content part type ${JSON.stringify(part.type)}`,

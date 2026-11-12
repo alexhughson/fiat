@@ -1,7 +1,12 @@
 // lower IR -> core IR, as a pipeline of stages. Shared between requests and
 // responses. Extend by appending a stage to `raiseStages`.
 
-import { opData, type Op, type Program, type StopReason } from "../../core/ops.js";
+import {
+    opData,
+    type Op,
+    type Program,
+    type StopReason,
+} from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
@@ -149,14 +154,14 @@ function raiseOutput(item: WireOutputItem): Op[] {
             return [
                 ...raiseMessage({ ...item, role: "assistant" }, false),
                 {
-                  op: "openai_realtime.output_meta",
-                  item: needsOutputTemplate(item)
-                      ? item
-                      : simpleOutputMeta(item),
-                  appliesTo: "response",
-                  ...(required ? { preservesContent: true } : {}),
-              },
-          ];
+                    op: "openai_realtime.output_meta",
+                    item: needsOutputTemplate(item)
+                        ? item
+                        : simpleOutputMeta(item),
+                    appliesTo: "response",
+                    ...(required ? { preservesContent: true } : {}),
+                },
+            ];
         }
         case "function_call": {
             return [
