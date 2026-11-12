@@ -1,10 +1,8 @@
 # stripHostOps
 
-A program that fiat reads from a response holds ops that describe that
-response, such as `response.stop` and `response.usage`. A caller adds a message
-to the same program to send the next request, and a request body has no field
-for those ops: without `stripHostOps`, fiat throws an error such as
-`no serialization for op "response.stop"` and returns no request body.
+If responses are appended to a prompt, the prompt will contain response
+specific ops like `response.stop` and `response.usage`, which are invalid.
+`stripHostOps` is used to remove those ops when compiling a request body.
 
 `stripHostOps(kind, program)` is in `src/core/pipeline.ts`. `lowerToWire` and
 `lowerStreamResponseProgram` call `stripHostOps` first, before the
