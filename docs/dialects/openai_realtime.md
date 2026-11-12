@@ -7,16 +7,22 @@ events, optionally with top-level call/session fields such as `model`.
 
 ## Direct mappings
 
-| wire                                    | core                    |
-| --------------------------------------- | ----------------------- |
-| `response.create.response.instructions` | system `llm.text`       |
-| text conversation items                 | `llm.text`              |
-| `response.create.response.tools[]`      | `llm.tool`              |
-| `response.create.response.tool_choice`  | `llm.tool_choice`       |
-| numeric `max_output_tokens`             | `llm.max_output_tokens` |
-| top-level request `model`               | `llm.model`             |
-| `response.done.response.model`          | `response.model`        |
-| `response.done.response.id`             | `response.id`           |
+| wire                                                    | core                    |
+| ------------------------------------------------------- | ----------------------- |
+| `response.create.response.instructions`                 | system `llm.text`       |
+| text conversation items                                 | `llm.text`              |
+| `response.create.response.tools[]`                      | `llm.tool`              |
+| `response.create.response.tool_choice`                  | `llm.tool_choice`       |
+| numeric `max_output_tokens`                             | `llm.max_output_tokens` |
+| top-level request `model`                               | `llm.model`             |
+| `response.done.response.model` of a whole response body | `response.model`        |
+| `response.done.response.id`                             | `response.id`           |
+
+The `RealtimeResponse` type of OpenAI's SDK `openai-node`, which is the type of
+`response.done.response`, lists no `model`. fiat raises `response.model` from
+`response.done.response.model` when a whole response body holds that field,
+and writes `response.model` there. For a stream event, fiat raises no
+`response.model` and writes none.
 
 ## Dialect ops
 

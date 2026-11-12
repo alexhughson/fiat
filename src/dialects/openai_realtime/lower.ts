@@ -48,11 +48,12 @@ export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
 
-// OpenAI's Realtime reference lists no model field in any stream event that
-// this codec writes: the response object of response.done has none, and a
-// delta event or an output item event has no response object. The reference
-// names the model in the session object. So response.model is removed from
-// every program that builds a Realtime stream event.
+// The Realtime types of OpenAI's SDK openai-node list no model field in any
+// stream event that this codec writes: RealtimeResponse, the type of the
+// response object of response.done, has none, and a delta event or an output
+// item event has no response object. The SDK's types name the model in the
+// session object. So response.model is removed from every program that builds
+// a Realtime stream event.
 export function dropResponseModelFromStreamEvents(program: Program): Program {
     return program.filter((op) => op.op !== "response.model");
 }

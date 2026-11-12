@@ -5,23 +5,23 @@ OpenAI Responses (`POST /v1/responses`). Code:
 
 ## Direct mappings
 
-| wire                                        | core                                |
-| ------------------------------------------- | ----------------------------------- |
-| request `model`                             | `llm.model`                         |
-| response `model`, terminal stream events    | `response.model`                    |
-| response `id`                               | `response.id`                       |
-| `instructions`                              | system `llm.text`                   |
-| `temperature`                               | `llm.temperature`                   |
-| `max_output_tokens`                         | `llm.max_output_tokens`             |
-| `reasoning.effort`                          | `llm.thinking`                      |
-| text input/output items                     | `llm.text`                          |
-| `reasoning` input/output items              | `llm.reasoning`                     |
-| `input_image.image_url`                     | `llm.image`                         |
-| `input_file.file_url` / `file_data`         | `llm.document` for PDFs             |
-| function-call items                         | `llm.tool_call` / `llm.tool_result` |
-| function tools                              | `llm.tool`                          |
-| minimal web search / code interpreter tools | `llm.server_tool`                   |
-| portable tool choice                        | `llm.tool_choice`                   |
+| wire                                                          | core                                |
+| ------------------------------------------------------------- | ----------------------------------- |
+| request `model`                                               | `llm.model`                         |
+| response `model`; `response.model` of a terminal stream event | `response.model`                    |
+| response `id`                                                 | `response.id`                       |
+| `instructions`                                                | system `llm.text`                   |
+| `temperature`                                                 | `llm.temperature`                   |
+| `max_output_tokens`                                           | `llm.max_output_tokens`             |
+| `reasoning.effort`                                            | `llm.thinking`                      |
+| text input/output items                                       | `llm.text`                          |
+| `reasoning` input/output items                                | `llm.reasoning`                     |
+| `input_image.image_url`                                       | `llm.image`                         |
+| `input_file.file_url` / `file_data`                           | `llm.document` for PDFs             |
+| function-call items                                           | `llm.tool_call` / `llm.tool_result` |
+| function tools                                                | `llm.tool`                          |
+| minimal web search / code interpreter tools                   | `llm.server_tool`                   |
+| portable tool choice                                          | `llm.tool_choice`                   |
 
 Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 

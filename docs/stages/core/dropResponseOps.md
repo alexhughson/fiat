@@ -58,7 +58,7 @@ of Anthropic's API, not a body recorded from the API.
         "appliesTo": "response"
     },
     {
-        "op": "llm.model",
+        "op": "response.model",
         "model": "claude-sonnet-4-5"
     },
     {
@@ -108,10 +108,6 @@ of Anthropic's API, not a body recorded from the API.
         "content": "hello"
     },
     {
-        "op": "llm.model",
-        "model": "claude-sonnet-4-5"
-    },
-    {
         "op": "llm.text",
         "role": "user",
         "content": "thanks"
@@ -119,10 +115,10 @@ of Anthropic's API, not a body recorded from the API.
 ]
 ```
 
-`dropResponseOps` removed the `response.id` op, the `response.stop` op, the
-`response.usage` op, and the two `anthropic_messages.body_field` ops whose
-`appliesTo` param is `"response"`, so none of those ops reaches the request
-body.
+`dropResponseOps` removed the `response.id` op, the `response.model` op, the
+`response.stop` op, the `response.usage` op, and the two
+`anthropic_messages.body_field` ops whose `appliesTo` param is `"response"`, so
+none of those ops reaches the request body.
 
 ## What the function removes
 
