@@ -20,9 +20,10 @@ function exampleOf(page: string): { input: Program; output: Program } {
 
 test("docs/stages/core/dropResponseOps.md shows what dropResponseOps returns", () => {
     const { input, output } = exampleOf("core/dropResponseOps.md");
-    // dropResponseOps is not exported. The page's input holds no meta.* op, so
-    // dropMetaOps changes nothing and beforeLower receives the return value of
-    // dropResponseOps.
+    // dropResponseOps is not exported. beforeLower receives its return value.
+    // dropMetaOps runs before dropResponseOps, so dropResponseOps receives the
+    // page's input only when the input holds no meta.* op.
+    expect(input.filter((op) => op.op.startsWith("meta."))).toEqual([]);
     let afterDrop: Program | undefined;
     AnthropicTranslator.toBody(input, {
         beforeLower: (program) => {
