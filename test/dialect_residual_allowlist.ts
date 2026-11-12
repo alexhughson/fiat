@@ -11,8 +11,9 @@
 // baseline: the residuals that main has today. A row is the unit string
 // only, and makes no claim about other providers. Each row is backlog: a
 // later pull request raises its data to a core op, or moves the row to
-// providerOnly with a reason. A later pull request may only remove rows
-// from baseline.
+// providerOnly with a reason. A later pull request removes rows from
+// baseline and adds none, with one exception: a new corpus case for an input
+// that main already raises adds the rows that the case produces.
 //
 // A change under src that leaves a new unit in a raised program must either
 // raise the data to a core op or add a providerOnly row with a reason. A row
@@ -176,14 +177,29 @@ export const baseline: string[] = [
     "response:openai_responses.usage:total_tokens",
 
     // anthropic_messages
+    "stream:message_delta:anthropic_messages.usage:cache_creation_input_tokens",
+    "stream:message_delta:anthropic_messages.usage:cache_read_input_tokens",
     "stream:message_stop:anthropic_messages.stream_event:message_stop:type",
 
     // gemini
     "stream:gemini.body_field:modelVersion",
+    "stream:gemini.body_field:promptFeedback:blockReason",
+    "stream:gemini.body_field:promptFeedback:safetyRatings[].category",
+    "stream:gemini.body_field:promptFeedback:safetyRatings[].probability",
     "stream:gemini.body_field:responseId",
+    "stream:gemini.candidate_meta:citationMetadata.citationSources[].endIndex",
+    "stream:gemini.candidate_meta:citationMetadata.citationSources[].startIndex",
+    "stream:gemini.candidate_meta:citationMetadata.citationSources[].uri",
+    "stream:gemini.candidate_meta:groundingMetadata.groundingChunks[].web.title",
+    "stream:gemini.candidate_meta:groundingMetadata.groundingChunks[].web.uri",
+    "stream:gemini.candidate_meta:groundingMetadata.webSearchQueries[]",
     "stream:gemini.candidate_meta:index",
     "stream:gemini.candidate_meta:safetyRatings[].category",
     "stream:gemini.candidate_meta:safetyRatings[].probability",
+    "stream:gemini.part_meta:functionCall:id",
+    "stream:gemini.part_meta:functionCall:index",
+    "stream:gemini.part_meta:functionCall:kind",
+    "stream:gemini.part_meta:functionCall:meta.thoughtSignature",
     "stream:gemini.part_meta:text:index",
     "stream:gemini.part_meta:text:kind",
     "stream:gemini.part_meta:text:meta.thought",
@@ -210,12 +226,18 @@ export const baseline: string[] = [
     "stream:response.completed:openai_responses.body_field:response:metadata",
     "stream:response.completed:openai_responses.body_field:response:model",
     "stream:response.completed:openai_responses.body_field:response:object",
+    "stream:response.completed:openai_responses.body_field:response:output[].arguments",
+    "stream:response.completed:openai_responses.body_field:response:output[].call_id",
     "stream:response.completed:openai_responses.body_field:response:output[].content[].annotations[]",
     "stream:response.completed:openai_responses.body_field:response:output[].content[].text",
     "stream:response.completed:openai_responses.body_field:response:output[].content[].type",
+    "stream:response.completed:openai_responses.body_field:response:output[].encrypted_content",
     "stream:response.completed:openai_responses.body_field:response:output[].id",
+    "stream:response.completed:openai_responses.body_field:response:output[].name",
     "stream:response.completed:openai_responses.body_field:response:output[].role",
     "stream:response.completed:openai_responses.body_field:response:output[].status",
+    "stream:response.completed:openai_responses.body_field:response:output[].summary[].text",
+    "stream:response.completed:openai_responses.body_field:response:output[].summary[].type",
     "stream:response.completed:openai_responses.body_field:response:output[].type",
     "stream:response.completed:openai_responses.body_field:response:parallel_tool_calls",
     "stream:response.completed:openai_responses.body_field:response:previous_response_id",
@@ -257,6 +279,10 @@ export const baseline: string[] = [
     "stream:response.done:openai_realtime.event_param:response:output[].type",
     "stream:response.done:openai_realtime.event_param:response:status",
     "stream:response.done:openai_realtime.event_param:response:status_details",
+    "stream:response.done:openai_realtime.event_param:response:status_details.error.code",
+    "stream:response.done:openai_realtime.event_param:response:status_details.error.type",
+    "stream:response.done:openai_realtime.event_param:response:status_details.reason",
+    "stream:response.done:openai_realtime.event_param:response:status_details.type",
     "stream:response.done:openai_realtime.event_param:type",
     "stream:response.done:openai_realtime.usage:total_tokens",
     "stream:response.failed:openai_responses.body_field:response:created_at",
@@ -348,6 +374,10 @@ export const baseline: string[] = [
     "stream:response.output_item.added:openai_responses.body_field:item:message:role",
     "stream:response.output_item.added:openai_responses.body_field:item:message:status",
     "stream:response.output_item.added:openai_responses.body_field:item:message:type",
+    "stream:response.output_item.added:openai_responses.body_field:item:reasoning:encrypted_content",
+    "stream:response.output_item.added:openai_responses.body_field:item:reasoning:id",
+    "stream:response.output_item.added:openai_responses.body_field:item:reasoning:summary[]",
+    "stream:response.output_item.added:openai_responses.body_field:item:reasoning:type",
     "stream:response.output_item.added:openai_responses.body_field:output_index",
     "stream:response.output_item.added:openai_responses.body_field:sequence_number",
     "stream:response.output_item.added:openai_responses.body_field:type",
@@ -380,6 +410,11 @@ export const baseline: string[] = [
     "stream:response.output_item.done:openai_responses.body_field:item:message:role",
     "stream:response.output_item.done:openai_responses.body_field:item:message:status",
     "stream:response.output_item.done:openai_responses.body_field:item:message:type",
+    "stream:response.output_item.done:openai_responses.body_field:item:reasoning:encrypted_content",
+    "stream:response.output_item.done:openai_responses.body_field:item:reasoning:id",
+    "stream:response.output_item.done:openai_responses.body_field:item:reasoning:summary[].text",
+    "stream:response.output_item.done:openai_responses.body_field:item:reasoning:summary[].type",
+    "stream:response.output_item.done:openai_responses.body_field:item:reasoning:type",
     "stream:response.output_item.done:openai_responses.body_field:output_index",
     "stream:response.output_item.done:openai_responses.body_field:sequence_number",
     "stream:response.output_item.done:openai_responses.body_field:type",

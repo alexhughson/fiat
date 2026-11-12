@@ -91,6 +91,9 @@ const expectedSkips = [
     "anthropic_messages stream content_block_stop",
     "anthropic_messages stream ping",
     "anthropic_messages stream error",
+    "anthropic_messages stream content_block_start redacted_thinking",
+    "anthropic_messages stream content_block_start server_tool_use",
+    "anthropic_messages stream citations_delta",
     "openai_responses stream response.created",
     "openai_responses stream response.in_progress",
     "openai_responses stream response.content_part.added",
@@ -98,6 +101,7 @@ const expectedSkips = [
     "openai_responses stream response.output_text.done",
     "openai_responses stream response.function_call_arguments.done",
     "openai_responses stream response.reasoning_summary_text.delta",
+    "gemini stream inlineData part",
     "openai_realtime stream response.created",
     "openai_realtime stream response.content_part.added",
 ];
@@ -361,6 +365,62 @@ const cases: Case[] = [
             error: { type: "overloaded_error", message: "Overloaded" },
         },
     },
+    {
+        label: "anthropic_messages stream usage with cache counts",
+        fn: "fromStreamResponse",
+        input: {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn", stop_sequence: null },
+            usage: {
+                input_tokens: 3,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 2,
+                output_tokens: 5,
+            },
+        },
+    },
+    {
+        label: "anthropic_messages stream content_block_start redacted_thinking",
+        fn: "fromStreamResponse",
+        input: {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "redacted_thinking", data: "EmwKAhgB" },
+        },
+    },
+    {
+        label: "anthropic_messages stream content_block_start server_tool_use",
+        fn: "fromStreamResponse",
+        input: {
+            type: "content_block_start",
+            index: 1,
+            content_block: {
+                type: "server_tool_use",
+                id: "srvtoolu_1",
+                name: "web_search",
+                input: {},
+            },
+        },
+    },
+    {
+        label: "anthropic_messages stream citations_delta",
+        fn: "fromStreamResponse",
+        input: {
+            type: "content_block_delta",
+            index: 0,
+            delta: {
+                type: "citations_delta",
+                citation: {
+                    type: "char_location",
+                    cited_text: "The grass is green.",
+                    document_index: 0,
+                    document_title: "Facts",
+                    start_char_index: 0,
+                    end_char_index: 19,
+                },
+            },
+        },
+    },
     // openai_chat
     {
         label: "openai_chat request text, image, system prompt",
@@ -619,6 +679,23 @@ const cases: Case[] = [
                 },
             ],
             obfuscation: "abc",
+        },
+    },
+    {
+        label: "openai_chat stream refusal delta",
+        fn: "fromStreamResponse",
+        input: {
+            id: "chatcmpl-1",
+            object: "chat.completion.chunk",
+            created: 123,
+            model: "gpt-4o",
+            choices: [
+                {
+                    index: 0,
+                    delta: { refusal: "I can't help with that." },
+                    finish_reason: null,
+                },
+            ],
         },
     },
     // openai_responses
@@ -1147,6 +1224,72 @@ const cases: Case[] = [
             delta: "hmm",
         },
     },
+    {
+        label: "openai_responses stream output item added, reasoning",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.output_item.added",
+            sequence_number: 2,
+            output_index: 0,
+            item: {
+                id: "rs_1",
+                type: "reasoning",
+                summary: [],
+                encrypted_content: "enc",
+            },
+        },
+    },
+    {
+        label: "openai_responses stream output item done, reasoning",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.output_item.done",
+            sequence_number: 5,
+            output_index: 0,
+            item: {
+                id: "rs_1",
+                type: "reasoning",
+                summary: [{ type: "summary_text", text: "hmm" }],
+                encrypted_content: "enc",
+            },
+        },
+    },
+    {
+        label: "openai_responses stream completed with reasoning item and function call",
+        fn: "fromStreamResponse",
+        input: {
+            type: "response.completed",
+            sequence_number: 12,
+            response: {
+                id: "resp_1",
+                object: "response",
+                created_at: 1741386163,
+                status: "completed",
+                model: "o3",
+                output: [
+                    {
+                        id: "rs_1",
+                        type: "reasoning",
+                        summary: [{ type: "summary_text", text: "hmm" }],
+                        encrypted_content: "enc",
+                    },
+                    {
+                        id: "fc_1",
+                        type: "function_call",
+                        status: "completed",
+                        call_id: "call_1",
+                        name: "get_weather",
+                        arguments: '{"city":"Paris"}',
+                    },
+                ],
+                usage: {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    total_tokens: 15,
+                },
+            },
+        },
+    },
     // gemini
     // fiat's fromBody takes the endpoint's `model` path parameter as a
     // "model" key in the body; the REST endpoint itself puts model in the
@@ -1467,6 +1610,99 @@ const cases: Case[] = [
                             probability: "NEGLIGIBLE",
                         },
                     ],
+                },
+            ],
+        },
+    },
+    {
+        label: "gemini stream tool call with id and thoughtSignature",
+        fn: "fromStreamResponse",
+        input: {
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            {
+                                functionCall: {
+                                    id: "call_1",
+                                    name: "get_weather",
+                                    args: { city: "Paris" },
+                                },
+                                thoughtSignature: "EqQBCg==",
+                            },
+                        ],
+                    },
+                    index: 0,
+                },
+            ],
+        },
+    },
+    {
+        label: "gemini stream grounding and citation metadata",
+        fn: "fromStreamResponse",
+        input: {
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "hello" }] },
+                    index: 0,
+                    groundingMetadata: {
+                        webSearchQueries: ["weather in Paris"],
+                        groundingChunks: [
+                            {
+                                web: {
+                                    uri: "https://example.com/weather",
+                                    title: "Weather",
+                                },
+                            },
+                        ],
+                    },
+                    citationMetadata: {
+                        citationSources: [
+                            {
+                                startIndex: 0,
+                                endIndex: 5,
+                                uri: "https://example.com/weather",
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    },
+    {
+        label: "gemini stream prompt feedback",
+        fn: "fromStreamResponse",
+        input: {
+            promptFeedback: {
+                blockReason: "SAFETY",
+                safetyRatings: [
+                    {
+                        category: "HARM_CATEGORY_HARASSMENT",
+                        probability: "HIGH",
+                    },
+                ],
+            },
+        },
+    },
+    {
+        label: "gemini stream inlineData part",
+        fn: "fromStreamResponse",
+        input: {
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            {
+                                inlineData: {
+                                    mimeType: "image/png",
+                                    data: "iVBORw0KGgo=",
+                                },
+                            },
+                        ],
+                    },
+                    index: 0,
                 },
             ],
         },
@@ -1883,6 +2119,57 @@ const cases: Case[] = [
             },
         },
     },
+    {
+        label: "openai_realtime stream done, incomplete",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e10",
+            type: "response.done",
+            response: {
+                id: "resp_1",
+                object: "realtime.response",
+                status: "incomplete",
+                status_details: {
+                    type: "incomplete",
+                    reason: "max_output_tokens",
+                },
+                output: [],
+            },
+        },
+    },
+    {
+        label: "openai_realtime stream done, cancelled",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e10",
+            type: "response.done",
+            response: {
+                id: "resp_1",
+                object: "realtime.response",
+                status: "cancelled",
+                status_details: { type: "cancelled", reason: "turn_detected" },
+                output: [],
+            },
+        },
+    },
+    {
+        label: "openai_realtime stream done, failed",
+        fn: "fromStreamResponse",
+        input: {
+            event_id: "e10",
+            type: "response.done",
+            response: {
+                id: "resp_1",
+                object: "realtime.response",
+                status: "failed",
+                status_details: {
+                    type: "failed",
+                    error: { type: "server_error", code: "server_error" },
+                },
+                output: [],
+            },
+        },
+    },
 ];
 
 // A unit names one leaf of provider data that a raise leaves outside the core
@@ -1926,6 +2213,8 @@ const cases: Case[] = [
 //   the same unit.
 // - The walk does not read an op whose name is in coreOpNames, so a field
 //   that a raise adds to such an op opens no unit.
+// - The test sees only the inputs in its corpus. A raise that leaves data in
+//   a dialect-specific op for an input that no case holds passes the test.
 
 // The walk stops at an object that holds JSON the provider does not define:
 // the keys inside are chosen by whoever built the request, so they are not
