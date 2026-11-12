@@ -69,14 +69,20 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 `fromStreamResponse` parses one SSE event; each event type maps to ops. One
 wire event can raise several ops:
 
-| wire event                                       | raised ops                                                       |
-| ------------------------------------------------ | ---------------------------------------------------------------- |
-| `response.output_text.delta`                     | one `body_field` op per event field + `response.text_delta`      |
-| `response.function_call_arguments.delta`         | one `body_field` op per event field + `response.tool_call_delta` |
-| `response.content_part.added` (`output_text`)    | `openai_responses.stream_event_meta` + `response.text_start`     |
-| `response.content_part.done` (`output_text`)     | `openai_responses.stream_event_meta` + `response.block_stop`     |
-| `response.output_item.added` / `.done`           | one `body_field` op per event field, plus the item               |
-| `response.completed` / `.incomplete` / `.failed` | one `body_field` op per event field, plus usage                  |
+| wire event                                         | raised ops                                                                                |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `response.output_text.delta`                       | `openai_responses.stream_event_meta` + `response.text_delta`                              |
+| `response.function_call_arguments.delta`           | `openai_responses.stream_event_meta` + `response.tool_call_delta`                         |
+| `response.content_part.added` (`output_text`)      | `openai_responses.stream_event_meta` + `response.text_start`                              |
+| `response.content_part.done` (`output_text`)       | `openai_responses.stream_event_meta` + `response.block_stop`                              |
+| `response.output_text.done`                        | `openai_responses.stream_event_meta` only                                                 |
+| `response.function_call_arguments.done`            | `openai_responses.stream_event_meta` only                                                 |
+| `response.output_item.added` (`function_call`)     | `openai_responses.stream_event_meta` + `response.tool_call_delta`                         |
+| `response.output_item.done` (`function_call`)      | `openai_responses.stream_event_meta` + `response.tool_call_delta` + `response.block_stop` |
+| `response.output_item.added` / `.done` (`message`) | `openai_responses.stream_event_meta` only                                                 |
+| `response.created`                                 | `llm.model` + `openai_responses.stream_event_meta`                                        |
+| `response.in_progress`                             | `openai_responses.stream_event_meta` only                                                 |
+| `response.completed` / `.incomplete` / `.failed`   | one `body_field` op per event field, plus usage                                           |
 
 `response.content_part.added`:
 
@@ -135,8 +141,66 @@ op, so lowering writes the type back in both events. A part other than
 `output_text`, such as a refusal, still throws, until a refusal has a core
 op.
 
-Other stream events (`response.created`, `response.in_progress`,
-`response.output_text.done`) are not raised yet and still throw.
+The delta events raise the same way: `response.output_text.delta` becomes one
+`stream_event_meta` op (holding `item_id`, `content_index`, `sequence_number`,
+and `logprobs`) plus a `response.text_delta` op whose `index` is the event's
+`output_index`, and `response.function_call_arguments.delta` becomes one
+`stream_event_meta` op plus a `response.tool_call_delta` op. The event's
+`type` repeats what the core op already says, so it does not raise.
+
+`response.created` states the model, which raises to `llm.model`; the rest of
+the envelope (id, status, request echoes, and the `output` list, which
+repeats the items the item events already carried) stays in the meta op.
+
+```json
+{
+    "type": "response.created",
+    "sequence_number": 2,
+    "response": {
+        "id": "resp_123",
+        "object": "response",
+        "created_at": 1700000000,
+        "status": "in_progress",
+        "model": "gpt-4o",
+        "output": []
+    }
+}
+```
+
+raised:
+
+```json
+[
+    {
+        "op": "llm.model",
+        "model": "gpt-4o"
+    },
+    {
+        "op": "openai_responses.stream_event_meta",
+        "event": {
+            "type": "response.created",
+            "sequence_number": 2,
+            "response": {
+                "id": "resp_123",
+                "object": "response",
+                "created_at": 1700000000,
+                "status": "in_progress",
+                "output": []
+            }
+        },
+        "appliesTo": "response"
+    }
+]
+```
+
+`response.in_progress` and `response.output_text.done` only repeat facts
+that earlier events stated, so each stays whole in one meta op.
+`response.output_item.done` of a `function_call` item ends the tool call
+block, so it raises a `response.block_stop` beside its meta op and
+`response.tool_call_delta`; a `message` item has no core op yet, so the whole
+event stays in the meta op.
+
+The `error` stream event still throws; a core error op does not exist yet.
 
 ## Out of scope
 

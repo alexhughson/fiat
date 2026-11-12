@@ -404,18 +404,30 @@ export function streamResponseFromWire(wire: unknown): Program {
     const event = asRecord(wire, "openai_responses stream response event");
     const type = asString(event.type, "stream event.type");
     switch (type) {
+        // The fields beside the delta (item_id, content_index,
+        // sequence_number, logprobs) stay together in one meta op beside the
+        // core op; output_index is the core op's index, and `type` repeats
+        // what the core op already says.
         case "response.output_text.delta":
             return [
-                ...streamEventParams(event, ["delta"]),
+                streamEventMeta(event, ["type", "delta", "output_index"]),
                 {
                     op: "response.text_delta",
+                    ...(event.output_index != null
+                        ? {
+                              index: asNumber(
+                                  event.output_index,
+                                  "stream event.output_index",
+                              ),
+                          }
+                        : {}),
                     role: "assistant",
                     content: asString(event.delta, "stream event.delta"),
                 },
             ];
         case "response.function_call_arguments.delta":
             return [
-                ...streamEventParams(event, ["delta"]),
+                streamEventMeta(event, ["type", "delta", "output_index"]),
                 {
                     op: "response.tool_call_delta",
                     ...(event.output_index != null
@@ -429,9 +441,23 @@ export function streamResponseFromWire(wire: unknown): Program {
                     arguments: asString(event.delta, "stream event.delta"),
                 },
             ];
+        // output_text.done repeats the text the text_delta ops already
+        // carried, and function_call_arguments.done repeats the arguments the
+        // tool_call_delta ops already carried; neither states a new fact, so
+        // the whole event stays in the meta op.
+        case "response.output_text.done":
+        case "response.function_call_arguments.done":
+            return [streamEventMeta(event, [])];
         case "response.output_item.added":
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
+        // response.created states the model once, so the model raises and
+        // the rest of the envelope (id, status, request echoes) stays in the
+        // meta op. response.in_progress only repeats facts and stays whole.
+        case "response.created":
+            return streamCreatedEvent(event);
+        case "response.in_progress":
+            return [streamEventMeta(event, [])];
         // The part opens empty and its text arrives as output_text.delta
         // events, so the meta op drops part.type (the core op names the text
         // block) and the empty part.text; the keys only openai_responses has
@@ -501,16 +527,20 @@ export function streamResponseToWire(program: Program): unknown {
     const toolDeltas: OpOf<"response.tool_call_delta">[] = [];
     let finishReason: string | undefined;
     let usage: Record<string, unknown> | undefined;
+    let model: string | undefined;
     const event: Record<string, unknown> = {};
     let sawTextDelta = false;
 
     for (const op of program) {
         switch (op.op) {
-            case "response.text_delta":
+            case "response.text_delta": {
+                const delta = op as OpOf<"response.text_delta">;
                 sawTextDelta = true;
-                text += (op as OpOf<"response.text_delta">).content;
+                text += delta.content;
                 event.type ??= "response.output_text.delta";
+                if (delta.index != null) event.output_index = delta.index;
                 break;
+            }
             case "response.text_start":
                 event.type ??= "response.content_part.added";
                 event.output_index = (op as OpOf<"response.text_start">).index;
@@ -540,6 +570,9 @@ export function streamResponseToWire(program: Program): unknown {
             case "response.tool_call_delta":
                 toolDeltas.push(op as OpOf<"response.tool_call_delta">);
                 event.type ??= "response.function_call_arguments.delta";
+                break;
+            case "llm.model":
+                model = (op as OpOf<"llm.model">).model;
                 break;
             case "openai_responses.finish_reason":
                 finishReason = opData<{ reason: string }>(op).reason;
@@ -608,12 +641,15 @@ export function streamResponseToWire(program: Program): unknown {
         return event;
     }
 
+    // A finish reason closes the response; the model raised from
+    // response.created folds back into the envelope the same way.
     event.type ??= terminalEventType(finishReason);
-    if (usage || finishReason != null) {
+    if (usage || finishReason != null || model != null) {
         const response = asRecord(
             event.response ?? {},
             "stream event.response",
         );
+        if (model != null) response.model = model;
         response.status ??=
             finishReason === "max_tokens" || finishReason === "content_filter"
                 ? "incomplete"
@@ -681,15 +717,16 @@ function streamOutputItemEvent(
     event: Record<string, unknown>,
     type: string,
 ): Program {
-    const program = streamEventParams(event, ["item"]);
     const item = asRecord(event.item, "stream event.item");
-    program.push({
-        op: "openai_responses.body_field",
-        key: "item",
-        value: item,
-        appliesTo: "response",
-    });
-    if (item.type !== "function_call") return program;
+    if (item.type !== "function_call") {
+        // A message item has no core op yet, so the whole event stays in the
+        // meta op and round-trips.
+        return [streamEventMeta(event, [])];
+    }
+    // The meta op keeps `type` (no core op says added from done) and `item`
+    // (which repeats the call id, name, and arguments the tool_call_delta op
+    // carries). output_index raises to the core ops' index.
+    const program: Program = [streamEventMeta(event, ["output_index"])];
     program.push({
         op: "response.tool_call_delta",
         ...(event.output_index != null
@@ -715,7 +752,38 @@ function streamOutputItemEvent(
               }
             : {}),
     });
+    // The done event ends the tool call block; output_index names it.
+    if (type === "response.output_item.done") {
+        program.push({
+            op: "response.block_stop",
+            index: asNumber(event.output_index, "stream event.output_index"),
+        });
+    }
     return program;
+}
+
+// The envelope states the model once, from its first event; the rest (id,
+// status, request echoes, and the `output` list, which repeats the items the
+// item events already carried) stays in the meta op. The response.id op
+// raises the id in this branch's rebase after row 46 merges.
+function streamCreatedEvent(event: Record<string, unknown>): Program {
+    const response =
+        event.response == null
+            ? undefined
+            : asRecord(event.response, "stream event.response");
+    const model =
+        response?.model == null
+            ? undefined
+            : asString(response.model, "stream event.response.model");
+    const out: Op[] = [];
+    if (model != null) out.push({ op: "llm.model", model });
+    if (response != null) {
+        const { model: _model, ...rest } = response;
+        out.push(streamEventMeta({ ...event, response: rest }, []));
+    } else {
+        out.push(streamEventMeta(event, []));
+    }
+    return out;
 }
 
 function streamTerminalEvent(event: Record<string, unknown>): Program {

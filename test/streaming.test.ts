@@ -137,30 +137,19 @@ describe("stream response conversion", () => {
         expect(OpenAIResponsesTranslator.fromStreamResponse(textEvent)).toEqual(
             [
                 {
-                    op: "openai_responses.body_field",
-                    key: "type",
-                    value: "response.output_text.delta",
+                    op: "openai_responses.stream_event_meta",
+                    event: {
+                        item_id: "msg_1",
+                        content_index: 0,
+                    },
                     appliesTo: "response",
                 },
                 {
-                    op: "openai_responses.body_field",
-                    key: "item_id",
-                    value: "msg_1",
-                    appliesTo: "response",
+                    op: "response.text_delta",
+                    index: 0,
+                    role: "assistant",
+                    content: "hi",
                 },
-                {
-                    op: "openai_responses.body_field",
-                    key: "output_index",
-                    value: 0,
-                    appliesTo: "response",
-                },
-                {
-                    op: "openai_responses.body_field",
-                    key: "content_index",
-                    value: 0,
-                    appliesTo: "response",
-                },
-                { op: "response.text_delta", role: "assistant", content: "hi" },
             ],
         );
         expect(
@@ -333,6 +322,303 @@ describe("stream response conversion", () => {
             type: "response.content_part.done",
             output_index: 0,
         });
+    });
+
+    test("response.created raises the model and keeps the envelope in one meta op", () => {
+        const event = {
+            type: "response.created",
+            sequence_number: 2,
+            response: {
+                id: "resp_123",
+                object: "response",
+                created_at: 1700000000,
+                status: "in_progress",
+                model: "gpt-4o",
+                output: [],
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            { op: "llm.model", model: "gpt-4o" },
+            {
+                op: "openai_responses.stream_event_meta",
+                event: {
+                    type: "response.created",
+                    sequence_number: 2,
+                    response: {
+                        id: "resp_123",
+                        object: "response",
+                        created_at: 1700000000,
+                        status: "in_progress",
+                        output: [],
+                    },
+                },
+                appliesTo: "response",
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("response.in_progress raises to one meta op and round-trips", () => {
+        const event = {
+            type: "response.in_progress",
+            sequence_number: 4,
+            response: { status: "in_progress" },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event,
+                appliesTo: "response",
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("response.output_text.done raises to one meta op and round-trips", () => {
+        const event = {
+            type: "response.output_text.done",
+            sequence_number: 8,
+            item_id: "msg_123",
+            output_index: 0,
+            content_index: 0,
+            text: "Hello",
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event,
+                appliesTo: "response",
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("response.function_call_arguments.done raises to one meta op and round-trips", () => {
+        const event = {
+            type: "response.function_call_arguments.done",
+            sequence_number: 9,
+            item_id: "fc_123",
+            output_index: 0,
+            arguments: '{"x":"1"}',
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event,
+                appliesTo: "response",
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("a function_call output_item.done ends its block with response.block_stop", () => {
+        const event = {
+            type: "response.output_item.done",
+            sequence_number: 10,
+            output_index: 0,
+            item: {
+                type: "function_call",
+                id: "fc_1",
+                call_id: "call_1",
+                name: "lookup",
+                arguments: '{"x":"1"}',
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event: {
+                    type: "response.output_item.done",
+                    sequence_number: 10,
+                    item: {
+                        type: "function_call",
+                        id: "fc_1",
+                        call_id: "call_1",
+                        name: "lookup",
+                        arguments: '{"x":"1"}',
+                    },
+                },
+                appliesTo: "response",
+            },
+            {
+                op: "response.tool_call_delta",
+                index: 0,
+                id: "call_1",
+                name: "lookup",
+                arguments: '{"x":"1"}',
+            },
+            { op: "response.block_stop", index: 0 },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("a message output_item event keeps the whole event in the meta op", () => {
+        const event = {
+            type: "response.output_item.added",
+            sequence_number: 3,
+            output_index: 0,
+            item: {
+                type: "message",
+                role: "assistant",
+                status: "in_progress",
+                content: [],
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event,
+                appliesTo: "response",
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("a whole openai responses text stream raises from its first event to its last", () => {
+        const events = [
+            {
+                type: "response.created",
+                sequence_number: 1,
+                response: {
+                    id: "resp_1",
+                    status: "in_progress",
+                    model: "gpt-4o",
+                },
+            },
+            {
+                type: "response.in_progress",
+                sequence_number: 2,
+                response: { status: "in_progress" },
+            },
+            {
+                type: "response.output_item.added",
+                sequence_number: 3,
+                output_index: 0,
+                item: {
+                    type: "message",
+                    role: "assistant",
+                    status: "in_progress",
+                    content: [],
+                },
+            },
+            {
+                type: "response.content_part.added",
+                sequence_number: 4,
+                item_id: "msg_1",
+                output_index: 0,
+                content_index: 0,
+                part: {
+                    type: "output_text",
+                    text: "",
+                    annotations: [],
+                    logprobs: [],
+                },
+            },
+            {
+                type: "response.output_text.delta",
+                sequence_number: 5,
+                item_id: "msg_1",
+                output_index: 0,
+                content_index: 0,
+                delta: "He",
+            },
+            {
+                type: "response.output_text.delta",
+                sequence_number: 6,
+                item_id: "msg_1",
+                output_index: 0,
+                content_index: 0,
+                delta: "llo",
+            },
+            {
+                type: "response.output_text.done",
+                sequence_number: 7,
+                item_id: "msg_1",
+                output_index: 0,
+                content_index: 0,
+                text: "Hello",
+            },
+            {
+                type: "response.content_part.done",
+                sequence_number: 8,
+                item_id: "msg_1",
+                output_index: 0,
+                content_index: 0,
+                part: {
+                    type: "output_text",
+                    text: "Hello",
+                    annotations: [],
+                    logprobs: [],
+                },
+            },
+            {
+                type: "response.output_item.done",
+                sequence_number: 9,
+                output_index: 0,
+                item: {
+                    type: "message",
+                    role: "assistant",
+                    status: "completed",
+                    content: [],
+                },
+            },
+            {
+                type: "response.completed",
+                sequence_number: 10,
+                response: {
+                    status: "completed",
+                    usage: { input_tokens: 3, output_tokens: 2 },
+                },
+            },
+        ];
+
+        const raised = events.flatMap((event) =>
+            OpenAIResponsesTranslator.fromStreamResponse(event),
+        );
+        // The stream raises without throwing, its model name is a core op,
+        // and every event lower back to itself.
+        expect(raised).toContainEqual({ op: "llm.model", model: "gpt-4o" });
+        for (const event of events) {
+            expect(
+                OpenAIResponsesTranslator.toStreamResponse(
+                    OpenAIResponsesTranslator.fromStreamResponse(event),
+                ),
+            ).toEqual(event);
+        }
+    });
+
+    test("an error stream event still throws until a core error op exists", () => {
+        expect(() =>
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "error",
+                code: "server_error",
+                message: "nope",
+            }),
+        ).toThrow();
     });
 
     test("openai responses failed terminal events warn and drop cross-provider metadata", () => {
