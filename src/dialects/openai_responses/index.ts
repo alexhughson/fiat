@@ -36,7 +36,6 @@ export const OpenAIResponsesDialect = {
     },
 } satisfies Dialect;
 
-
 export const OpenAIResponsesTranslator = makeTranslator(OpenAIResponsesDialect);
 export { raiseStages } from "./raise.js";
 export {
@@ -44,4 +43,8 @@ export {
     lowerResponseStages,
     lowerStreamResponseStages,
 } from "./lower.js";
-export type { OpenAIResponsesOp, WireInputItem, WireOutputItem } from "./ops.js";
+export type {
+    OpenAIResponsesOp,
+    WireInputItem,
+    WireOutputItem,
+} from "./ops.js";

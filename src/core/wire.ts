@@ -57,10 +57,7 @@ export function asStringArray(value: unknown, what: string): string[] {
     );
 }
 
-export function asThinkingEffort(
-    value: unknown,
-    what: string,
-): ThinkingEffort {
+export function asThinkingEffort(value: unknown, what: string): ThinkingEffort {
     if (
         value === "low" ||
         value === "medium" ||

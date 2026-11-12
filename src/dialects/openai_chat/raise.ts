@@ -259,10 +259,16 @@ function raiseAudioPart(
             `openai_chat input_audio part: unsupported role ${JSON.stringify(role)}`,
         );
     }
-    assertOnlyKeys(part, ["type", "input_audio"], "openai_chat input_audio part");
+    assertOnlyKeys(
+        part,
+        ["type", "input_audio"],
+        "openai_chat input_audio part",
+    );
     const audio = part.input_audio;
     if (!audio || typeof audio !== "object" || Array.isArray(audio)) {
-        throw new LintError("openai_chat input_audio part: missing input_audio");
+        throw new LintError(
+            "openai_chat input_audio part: missing input_audio",
+        );
     }
     assertOnlyKeys(audio, ["data", "format"], "openai_chat input_audio");
     if (typeof audio.data !== "string") {
@@ -299,7 +305,10 @@ function raiseFilePart(
     if (typeof file.file_data !== "string") {
         throw new LintError("openai_chat file.file_data: expected a string");
     }
-    const source = documentSourceFromUrl(file.file_data, "openai_chat file.file_data");
+    const source = documentSourceFromUrl(
+        file.file_data,
+        "openai_chat file.file_data",
+    );
     return {
         op: "llm.document",
         role: "user",

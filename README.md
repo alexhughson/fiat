@@ -91,24 +91,23 @@ There are a few example tools using fiat in the `examples/` folder.
 
 ### Anthropic do no Evil router
 
-Inspired by the safeguards around Fable, `examples/anthropic-evil-router.ts` exposes an Anthropic compatible endpoint.  It passes requests straight through to Anthropic _unless_ there is any mention of evil.  Requests that mention evil are served by Google Gemini, which should do a much worse job of whatever evil task is being asked.
+Inspired by the safeguards around Fable, `examples/anthropic-evil-router.ts` exposes an Anthropic compatible endpoint. It passes requests straight through to Anthropic _unless_ there is any mention of evil. Requests that mention evil are served by Google Gemini, which should do a much worse job of whatever evil task is being asked.
 
 ### OpenAI realtime over completions
 
-`examples/openai-realtime-chat-server.ts` exposes an OpenAI completions endpoint, but allows you to use OpenAIs realtime models.  I built it because I was wondering if the realtime models could get below the 1s minimum execution time on major LLM APIs.  They can't.
+`examples/openai-realtime-chat-server.ts` exposes an OpenAI completions endpoint, but allows you to use OpenAIs realtime models. I built it because I was wondering if the realtime models could get below the 1s minimum execution time on major LLM APIs. They can't.
 
 ### Anthropic OpenAI proxy
 
-`examples/anthropic-openai-proxy.ts` is a super simple server which exposes the Anthropic APi but is backed by gpt-5.5.  It works with Claude code, and is pretty simple.
+`examples/anthropic-openai-proxy.ts` is a super simple server which exposes the Anthropic APi but is backed by gpt-5.5. It works with Claude code, and is pretty simple.
 
 ### CLI Chat
 
 There is a small CLI chat app in `examples/cli-chat.ts`
 
-
 ## API Specific concepts
 
-Some concepts exist only in one API, or cannot be converted losslessly between different APIs.  In those cases Fiat includes endpoint specific operations.  
+Some concepts exist only in one API, or cannot be converted losslessly between different APIs. In those cases Fiat includes endpoint specific operations.
 
 So for Anthropic cache control on a message, there is a modifier operation:
 
@@ -130,18 +129,17 @@ When you convert this payload to a non anthropic endpoint, the anthropic cache c
 
 As much as possible, fiat will try to map `llm.*` operations to the best possible match for a given model/endpoint.
 
-So where there are a million different ways of expressing thinking effort, fiat will attempt to map the `none`, `minimal`, `low`, `medium`, `high`, `xhigh` gradiant as closely as possible to what the model supports. 
-
+So where there are a million different ways of expressing thinking effort, fiat will attempt to map the `none`, `minimal`, `low`, `medium`, `high`, `xhigh` gradiant as closely as possible to what the model supports.
 
 ## Available translator wrappers:
 
-| Export                      | Wire dialect             | 
-| --------------------------- | ------------------------ | 
-| `OpenAIChatTranslator`      | OpenAI Chat Completions  | 
-| `OpenAIResponsesTranslator` | OpenAI Responses         | 
-| `OpenAIRealtimeTranslator`  | OpenAI Realtime          | 
-| `AnthropicTranslator`       | Anthropic Messages       | 
-| `GeminiTranslator`          | Gemini `generateContent` | 
+| Export                      | Wire dialect             |
+| --------------------------- | ------------------------ |
+| `OpenAIChatTranslator`      | OpenAI Chat Completions  |
+| `OpenAIResponsesTranslator` | OpenAI Responses         |
+| `OpenAIRealtimeTranslator`  | OpenAI Realtime          |
+| `AnthropicTranslator`       | Anthropic Messages       |
+| `GeminiTranslator`          | Gemini `generateContent` |
 
 Each wrapper exposes the same conversion methods:
 
@@ -159,7 +157,7 @@ Translator.toStreamResponses(program); // core IR -> stream event/chunk list
 
 If you've built an LLM backed app, I am sure that you have built some system to allow you to route the same LLM prompt to different providers.
 
-There are plenty of libraries that try to abstract the whole inference system, but I find that they take too much control away.  They bound you by what the library abstracts.  The goal of Fiat is to give you the tools to convert payloads, but let you do what you like with that data.
+There are plenty of libraries that try to abstract the whole inference system, but I find that they take too much control away. They bound you by what the library abstracts. The goal of Fiat is to give you the tools to convert payloads, but let you do what you like with that data.
 
 Fiat:
 
@@ -167,11 +165,10 @@ Fiat:
 - Is a tool rather than an abstraction, so if there is something truly weird you want to do, you can just do it.
 - Has an explicit way of adding provider specific data, so you can have full fidelity calls to particular providers, and best effort porting to another if you want.
 
-
 This gives us some nice benefits:
 
 - You can write pure transforms against the fiat format, and apply them to prompts against any LLM provider
-- You can build endpoints that accept and return the signature of any llm provider, backed by your own routing and transformation logic.  Build your own LiteLLM 
+- You can build endpoints that accept and return the signature of any llm provider, backed by your own routing and transformation logic. Build your own LiteLLM
 - Responses can be directly appended to existing requests, so mutations read a lot more simple
 
 ## Install

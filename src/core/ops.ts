@@ -35,9 +35,7 @@ export type UrlMediaSource = {
     mediaType?: string;
     filename?: string;
 };
-export type ImageSource =
-    | { type: "url"; url: string }
-    | Base64MediaSource;
+export type ImageSource = { type: "url"; url: string } | Base64MediaSource;
 export type AudioSource = Base64MediaSource;
 export type DocumentSource = UrlMediaSource | Base64MediaSource;
 export type VideoSource = Base64MediaSource;
