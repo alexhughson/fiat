@@ -216,7 +216,8 @@ export const baseline: string[] = [
     "stream:openai_chat.stream_choice_param:logprobs",
     "stream:openai_chat.usage:total_tokens",
 
-    // response
+    // openai_realtime and openai_responses: a stream unit of either dialect
+    // starts with the event's wire type, so their rows sort together
     "stream:response.completed:openai_responses.body_field:response:created_at",
     "stream:response.completed:openai_responses.body_field:response:error",
     "stream:response.completed:openai_responses.body_field:response:id",
