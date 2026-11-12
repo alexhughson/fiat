@@ -242,11 +242,13 @@ function streamEventResidual(event: WireAnthropicStreamEvent): Op {
     };
 }
 
-// The message envelope's model and input usage are the same fields the
-// non-stream response raises; the rest of the envelope (id, role, empty
-// content, stop_reason, stop_sequence) is bookkeeping with no core op and
-// stays in the residual. lowerStreamMessageStart folds the raised ops back
-// into the event.
+// The message envelope's model, id, and input usage raise to core ops
+// (llm.model, response.id, response.usage). A message_start also always
+// carries role "assistant", type "message", an empty content list, and null
+// stop_reason and stop_sequence; lowerStreamMessageStart writes those back.
+// Any key whose value differs from what lowerStreamMessageStart writes, or
+// that the raiser does not know, stays in the stream_event residual, and the
+// residual exists only when such a key is present.
 function raiseMessageStart(event: WireAnthropicStreamEvent): Op[] {
     const message = asRecord(
         event.message,
@@ -255,6 +257,9 @@ function raiseMessageStart(event: WireAnthropicStreamEvent): Op[] {
     const out: Op[] = [];
     if (typeof message.model === "string") {
         out.push({ op: "llm.model", model: message.model });
+    }
+    if (typeof message.id === "string") {
+        out.push({ op: "response.id", id: message.id });
     }
     if (message.usage != null) {
         out.push(
@@ -270,9 +275,56 @@ function raiseMessageStart(event: WireAnthropicStreamEvent): Op[] {
             ]),
         );
     }
-    const { model: _model, usage: _usage, ...rest } = message;
-    out.push(streamEventResidual({ ...event, message: rest }));
+    const rest = dropWrittenBackKeys(message);
+    if (Object.keys(rest).length > 0) {
+        out.push(streamEventResidual({ ...event, message: rest }));
+    }
     return out;
+}
+
+// The keys whose values lowerStreamMessageStart writes back unchanged: the
+// constants a message_start always carries, and the keys raised to core ops.
+// Returns a shallow copy of message without those keys; a key that differs
+// from its written-back value stays in the returned object.
+function dropWrittenBackKeys(message: Record<string, unknown>) {
+    const writtenBack: Record<string, unknown> = {
+        model: typeof message.model === "string" ? message.model : undefined,
+        id: typeof message.id === "string" ? message.id : undefined,
+        usage: message.usage,
+        role: "assistant",
+        type: "message",
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+    };
+    const rest: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(message)) {
+        if (!(key in writtenBack) || !deepEqual(value, writtenBack[key])) {
+            rest[key] = value;
+        }
+    }
+    return rest;
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+    if (a === b) return true;
+    if (typeof a !== "object" || a === null) return false;
+    if (typeof b !== "object" || b === null) return false;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    const ka = Object.keys(a as object);
+    const kb = Object.keys(b as object);
+    if (ka.length !== kb.length) return false;
+    for (const key of ka) {
+        if (
+            !deepEqual(
+                (a as Record<string, unknown>)[key],
+                (b as Record<string, unknown>)[key],
+            )
+        ) {
+            return false;
+        }
+    }
+    return true;
 }
 
 function raiseContentBlockDelta(event: WireAnthropicStreamEvent): Op {

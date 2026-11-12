@@ -98,7 +98,8 @@ response program can be appended to the next request program.
 `response.id` holds the id that a provider's API gave to one complete
 response. A dialect raises the op from the id field of a complete response
 body, and writes the op's `id` into the same field when it lowers a program to
-a complete response body.
+a complete response body. The `anthropic_messages` stream codec raises the
+same op from `message_start.message.id`.
 
 ```ts
 {
@@ -121,9 +122,12 @@ ops, the last one is written. When a program holds none, four dialects invent
 an id and `gemini` writes no `responseId`.
 
 Lowering a program to a request body removes `response.id`, like every other
-`response.*` op. Among the stream codecs, only the `anthropic_messages` one
-that lowers a complete response to stream events reads the op: it writes the
-id into `message_start.message.id`.
+`response.*` op. The `anthropic_messages` stream codec reads the op in two
+places: the complete-response lowerer writes it into
+`message_start.message.id`, and `lowerStreamMessageStart` folds it into a
+`message_start` event, so an anthropic stream round-trips with its id and a
+program from another dialect that holds `response.id` gets its
+`message_start` event.
 
 ## Host ops
 

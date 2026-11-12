@@ -787,17 +787,21 @@ export function lowerStreamBlockStops(program: Program): Program {
     });
 }
 
-// Folds the ops raised from a message_start event (llm.model, usage) back
-// into that event, so a raised stream lowers back to the same wire event.
-// The raised ops sit immediately before the message_start residual, in both
-// a per-event and a whole-stream program. Without a message_start residual,
-// the held ops pass through to the stages that use them.
+// Folds the ops raised from a message_start event (llm.model, response.id,
+// usage) back into that event, so a raised stream lowers back to the same
+// wire event. The raiser emits a message_start residual only for a key it
+// does not write back, so a plain raised message_start holds no residual;
+// the held ops then become a message_start event themselves, which also
+// gives a program from another dialect that holds response.id its
+// message_start. Usage ops without a response.id (a message_delta raises
+// them) pass through to lowerStreamStopAndUsage.
 export function lowerStreamMessageStart(program: Program): Program {
     const out: Program = [];
     const held: Program = [];
     for (const op of program) {
         if (
             op.op === "llm.model" ||
+            op.op === "response.id" ||
             op.op === "response.usage" ||
             op.op === "anthropic_messages.usage"
         ) {
@@ -813,11 +817,16 @@ export function lowerStreamMessageStart(program: Program): Program {
             held.length = 0;
             continue;
         }
-        out.push(...held, op);
+        out.push(...flushHeldMessageStart(held), op);
         held.length = 0;
     }
-    out.push(...held);
+    out.push(...flushHeldMessageStart(held));
     return out;
+}
+
+function flushHeldMessageStart(held: Program): Program {
+    if (!held.some((op) => op.op === "response.id")) return held;
+    return [synthesizeMessageStart(held)];
 }
 
 function foldMessageStart(residual: Op, held: Program): Op {
@@ -826,11 +835,40 @@ function foldMessageStart(residual: Op, held: Program): Op {
         event.message,
         "anthropic_messages message_start.message",
     );
-    const message = { ...source };
+    return streamEvent({
+        ...event,
+        message: messageStartEnvelope(source, held),
+    });
+}
+
+function synthesizeMessageStart(held: Program): Op {
+    return streamEvent({
+        type: "message_start",
+        message: messageStartEnvelope({}, held),
+    });
+}
+
+// Rebuilds the message of a message_start event: the envelope keys a
+// message_start always carries, the keys the raiser left in the residual
+// (those it does not write back), then the held core ops on top.
+function messageStartEnvelope(
+    source: Record<string, unknown>,
+    held: Program,
+): Record<string, unknown> {
+    const message: Record<string, unknown> = {
+        type: "message",
+        role: "assistant",
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        ...source,
+    };
     let usage: Record<string, unknown> | undefined;
     for (const op of held) {
         if (op.op === "llm.model") {
             message.model = (op as OpOf<"llm.model">).model;
+        } else if (op.op === "response.id") {
+            message.id = (op as OpOf<"response.id">).id;
         } else if (op.op === "response.usage") {
             const counts = op as OpOf<"response.usage">;
             usage = {
@@ -850,7 +888,7 @@ function foldMessageStart(residual: Op, held: Program): Op {
         }
     }
     if (usage != null) message.usage = usage;
-    return streamEvent({ ...event, message });
+    return message;
 }
 
 export function lowerStreamStopAndUsage(program: Program): Program {

@@ -1574,22 +1574,8 @@ describe("anthropic_messages response streams", () => {
         );
         expect(program).toEqual([
             { op: "llm.model", model: "claude-opus-5-5" },
+            { op: "response.id", id: "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY" },
             { op: "response.usage", inputTokens: 25, outputTokens: 1 },
-            {
-                op: "anthropic_messages.stream_event",
-                event: {
-                    type: "message_start",
-                    message: {
-                        id: "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY",
-                        type: "message",
-                        role: "assistant",
-                        content: [],
-                        stop_reason: null,
-                        stop_sequence: null,
-                    },
-                },
-                appliesTo: "response",
-            },
             { op: "response.text_start", index: 0 },
             {
                 op: "anthropic_messages.stream_event",
@@ -1613,7 +1599,7 @@ describe("anthropic_messages response streams", () => {
         // round-trips on its own in the tests above.
     });
 
-    test("message_start raises model and input usage and lowers back to the same event", () => {
+    test("message_start raises model, id, and input usage and lowers back to the same event", () => {
         const event = {
             type: "message_start",
             message: {
@@ -1631,23 +1617,81 @@ describe("anthropic_messages response streams", () => {
         const program = AnthropicTranslator.fromStreamResponse(event);
         expect(program).toEqual([
             { op: "llm.model", model: "claude-opus-5-5" },
+            { op: "response.id", id: "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY" },
+            { op: "response.usage", inputTokens: 25, outputTokens: 1 },
+        ]);
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
+    });
+
+    // The one ruled exception to "message_start raises to core ops only": a
+    // key of message that the raiser does not know stays in a stream_event
+    // residual, and that residual exists only when such a key is present.
+    test("a message_start key the raiser does not know stays in a residual and folds back", () => {
+        const event = {
+            type: "message_start",
+            message: {
+                id: "msg_1",
+                type: "message",
+                role: "assistant",
+                content: [],
+                model: "claude-opus-5-5",
+                stop_reason: null,
+                stop_sequence: null,
+                usage: { input_tokens: 25, output_tokens: 1 },
+                beta_field: true,
+            },
+        };
+
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            { op: "llm.model", model: "claude-opus-5-5" },
+            { op: "response.id", id: "msg_1" },
             { op: "response.usage", inputTokens: 25, outputTokens: 1 },
             {
                 op: "anthropic_messages.stream_event",
                 event: {
                     type: "message_start",
-                    message: {
-                        id: "msg_1nZdL29xx5MUA1yADyHTEsnR8uuvGzszyY",
-                        type: "message",
-                        role: "assistant",
-                        content: [],
-                        stop_reason: null,
-                        stop_sequence: null,
-                    },
+                    message: { beta_field: true },
                 },
                 appliesTo: "response",
             },
         ]);
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
+    });
+
+    // A message_start whose constant keys carry other values (main always
+    // sends role assistant, type message, empty content, null stop_reason and
+    // stop_sequence) keeps those keys in the residual instead of dropping
+    // them, so the event round-trips.
+    test("a message_start with non-constant envelope values keeps them in the residual", () => {
+        const event = {
+            type: "message_start",
+            message: {
+                id: "msg_1",
+                type: "message",
+                role: "user",
+                content: [{ type: "text", text: "kept" }],
+                model: "claude-opus-5-5",
+                stop_reason: "max_tokens",
+                stop_sequence: "\\n\\n",
+                usage: { input_tokens: 25, output_tokens: 1 },
+            },
+        };
+
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toContainEqual({
+            op: "anthropic_messages.stream_event",
+            event: {
+                type: "message_start",
+                message: {
+                    role: "user",
+                    content: [{ type: "text", text: "kept" }],
+                    stop_reason: "max_tokens",
+                    stop_sequence: "\\n\\n",
+                },
+            },
+            appliesTo: "response",
+        });
         expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
     });
 
@@ -1679,28 +1723,32 @@ describe("anthropic_messages response streams", () => {
         expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
     });
 
-    test("message_start lowers to an openai chat chunk with model and usage", () => {
-        const chunk = OpenAIChatTranslator.toStreamResponse(
-            AnthropicTranslator.fromStreamResponse({
-                type: "message_start",
-                message: {
-                    id: "msg_1",
-                    type: "message",
-                    role: "assistant",
-                    content: [],
-                    model: "claude-opus-5-5",
-                    stop_reason: null,
-                    stop_sequence: null,
-                    usage: { input_tokens: 25, output_tokens: 1 },
-                },
-            }),
-        ) as Record<string, unknown>;
+    // message_start now raises the core op response.id. openai_chat stream
+    // lowering has no serialization for response.id (cross-dialect stream
+    // lowering of the id is rows 47-51 of the roadmap), so the chunk test
+    // that lowered an anthropic message_start to openai_chat now throws;
+    // this asserts what the branch actually does.
+    test("message_start raises the id that openai chat stream lowering cannot serialize", () => {
+        const event = {
+            type: "message_start",
+            message: {
+                id: "msg_1",
+                type: "message",
+                role: "assistant",
+                content: [],
+                model: "claude-opus-5-5",
+                stop_reason: null,
+                stop_sequence: null,
+                usage: { input_tokens: 25, output_tokens: 1 },
+            },
+        };
 
-        expect(chunk).toMatchObject({
-            model: "claude-opus-5-5",
-            usage: { prompt_tokens: 25, completion_tokens: 1 },
-            choices: [],
-        });
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toContainEqual({ op: "response.id", id: "msg_1" });
+        expect(() => OpenAIChatTranslator.toStreamResponse(program)).toThrow(
+            'no serialization for op "response.id"',
+        );
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
     });
 
     test("ping stays an anthropic op and round-trips", () => {
