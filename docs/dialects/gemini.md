@@ -49,14 +49,21 @@ path. Code: `src/dialects/gemini/`.
 
 ## Tool results
 
-Gemini requires `functionResponse.response` to be a JSON object. A tool result
-whose content parses to a JSON object lowers into `response` as that object.
-Every other content is text, so it lowers as that string wrapped under the
-`output` key, which Gemini's docs name for function output — including content
-that parses as JSON but is not an object, such as a number, boolean, array,
-or `null`. Text keeps its exact characters: the digit text
-`12345678901234567890` does not become a number that loses digits, and `1.10`
-does not become `1.1`:
+Gemini requires the `functionResponse.response` field of a request body to be
+a JSON object. A tool result whose content parses to a JSON object lowers into
+`response` as that object. Every other content is text, so it lowers as that
+string wrapped under the `output` key, which Gemini's docs name for function
+output — including content that parses as JSON but is not an object, such as a
+number, boolean, array, or `null`. Text keeps its exact characters: the digit
+text `12345678901234567890` does not become a number that loses digits, and
+`1.10` does not become `1.1`.
+
+This section's examples use a proxy which exposes the Gemini API to its
+clients: the proxy raises each request body a client sends into a fiat
+program, edits ops in that program, and lowers the program back into a
+request body to send on to Gemini's API. For text content, the proxy sends
+Gemini's API this `functionResponse.response` object, a part nested inside
+the request body's content:
 
 ```json
 {
@@ -64,11 +71,13 @@ does not become `1.1`:
 }
 ```
 
-Raising turns a response whose only key is `output` back into the wrapped
-value: a string as text, anything else as JSON. A response with `output` among
-other keys raises as the whole object. The number 378 raises to the text
-`"378"`, and lowering writes text as a string under `output`, so a round trip
-through gemini changes the type:
+`GeminiTranslator.fromBody` raises a `response` whose only key is `output`
+back into the wrapped value: a string as text, anything else as JSON. A
+`response` with `output` among other keys raises as the whole object. When
+the proxy's client sends a request whose `response` holds the number 378,
+`GeminiTranslator.fromBody` raises the part to the text `"378"`, and
+`GeminiTranslator.toBody` writes text as a string under `output`, so the
+proxy sends the part on to Gemini's API with the type changed:
 
 ```diff
  {
@@ -83,14 +92,28 @@ through gemini changes the type:
 
 This is the accepted cost of keeping every other kind of text intact.
 
-`gemini.part_meta` for a `functionResponse` part holds the function `name`
-and any provider part extras under `meta`; the type allows no `id`, no
-`response`, and no `index` for that kind. Lowering writes `response` from
-`llm.tool_result.content`, so a transform that edits that op changes the
-gemini body. The result's position is the `llm.tool_result` op's position, so
-the part_meta stores no `index`.
+`gemini.part_meta` with `kind: "functionResponse"` carries the function
+`name`, which Gemini requires on every `functionResponse` part and which
+`llm.tool_result` does not hold, plus any other keys of the wire part under
+`meta`. `GeminiTranslator.fromBody` returns it directly after the
+`llm.tool_result` raised from the same part; the op holds no `id`, no
+`response`, and no `index`, because `llm.tool_result` holds the id, lowering
+writes the `response` from `llm.tool_result.content`, and the result's
+position is the `llm.tool_result` op's position. The op's `part` field holds:
 
-A body with an object under `output` also changes:
+```json
+{
+    "kind": "functionResponse",
+    "name": "<the function the tool result answers>",
+    "meta": {
+        "<any other wire part key>": "<its value>"
+    }
+}
+```
+
+When the proxy's client sends a request body whose `functionResponse.response`
+holds an object under `output`, the proxy sends the part on to Gemini's API
+with the wrapper removed:
 
 ```diff
  {
@@ -106,18 +129,21 @@ A body with an object under `output` also changes:
 ```
 
 The object under the `output` key is the tool result itself, so lowering
-writes it as the response object without the wrapper key, the same body a
-tool result whose content is the JSON text of the object with the single
-key `a` produces from any dialect.
+writes it as the whole `functionResponse.response`, the same response a tool
+result whose content is the JSON text of the object with the single key `a`
+produces from any dialect.
 
-A `functionResponse` with no `response` raises to content `"{}"` and returns
-with `response: {}`, so the body differs from the request.
+When the proxy's client sends a request body whose `functionResponse` part has
+no `response` field, `GeminiTranslator.fromBody` raises the part to content
+`"{}"` and `GeminiTranslator.toBody` writes an empty `response` object, so
+the proxy sends the part back with an empty `response` object written and the
+body differs from the request.
 
 ## Thinking and signatures
 
 A `thought: true` text part raises to `llm.reasoning`. When the part has a
-`thoughtSignature`, the op holds it as
-`signature: { dialect: "gemini", value }`.
+`thoughtSignature`, the op holds it as a `signature` field whose `dialect`
+is `"gemini"` and whose `value` is the signature.
 
 Gemini thinking continuity is carried by encrypted `thoughtSignature` fields
 on parts. On a `functionCall` or answer text part, `thoughtSignature` stays in
