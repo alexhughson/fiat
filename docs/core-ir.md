@@ -18,33 +18,34 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 
 ## Request ops
 
-| op                       | fields                                    | notes                                      |
-| ------------------------ | ----------------------------------------- | ------------------------------------------ |
-| `llm.model`              | `model`                                   | passed through verbatim                    |
-| `llm.temperature`        | `value`                                   | no range normalization                     |
-| `llm.max_output_tokens`  | `value`                                   | provider token-cap field                   |
-| `request.user`           | `value`                                   | provider user/account id when available    |
-| `request.stream`         | `value`                                   | stream request flag                        |
-| `request.stop_sequences` | `value: string[]`                         | provider stop strings                      |
-| `llm.thinking`           | `effort`                                  | portable effort; dialects choose wire form |
-| `llm.text`               | `role`, `content`                         | one text unit                              |
-| `llm.reasoning`          | `id`, `content`                           | model reasoning; see Reasoning below       |
-| `llm.image`              | `role:"user"`, `source`                   | image URL or base64 image data             |
-| `llm.audio`              | `role:"user"`, `source`                   | base64 audio data                          |
-| `llm.document`           | `role:"user"`, `source`                   | PDF URL or base64 PDF data                 |
-| `llm.video`              | `role:"user"`, `source`                   | base64 video data                          |
-| `llm.tool`               | `name`, `description?`, `inputSchema`     | client-executed function tool              |
-| `llm.server_tool`        | `name`, `kind`                            | hosted web search or code execution        |
-| `llm.tool_choice`        | `auto`, `none`, `required`, or `{ name }` | name resolves in the request tool scope    |
-| `llm.tool_call`          | `id`, `name`, `arguments`                 | `arguments` is always a parsed object      |
-| `llm.tool_result`        | `id`, `content`                           | result for a prior tool call               |
-| `llm.output`             | `format:"json_schema"`, `name`, `schema`  | structured output                          |
+| op                       | fields                                             | notes                                      |
+| ------------------------ | -------------------------------------------------- | ------------------------------------------ |
+| `llm.model`              | `model`                                            | passed through verbatim                    |
+| `llm.temperature`        | `value`                                            | no range normalization                     |
+| `llm.max_output_tokens`  | `value`                                            | provider token-cap field                   |
+| `request.user`           | `value`                                            | provider user/account id when available    |
+| `request.stream`         | `value`                                            | stream request flag                        |
+| `request.stop_sequences` | `value: string[]`                                  | provider stop strings                      |
+| `llm.thinking`           | `effort`                                           | portable effort; dialects choose wire form |
+| `llm.text`               | `role`, `content`                                  | one text unit                              |
+| `llm.reasoning`          | `id`, `content`, `signature?`                      | model reasoning; see Reasoning below       |
+| `llm.image`              | `role:"user"`, `source`                            | image URL or base64 image data             |
+| `llm.audio`              | `role:"user"`, `source`                            | base64 audio data                          |
+| `llm.document`           | `role:"user"`, `source`                            | PDF URL or base64 PDF data                 |
+| `llm.video`              | `role:"user"`, `source`                            | base64 video data                          |
+| `llm.tool`               | `name`, `description?`, `inputSchema`              | client-executed function tool              |
+| `llm.server_tool`        | `name`, `kind`                                     | hosted web search or code execution        |
+| `llm.tool_choice`        | `value`: `auto`, `none`, `required`, or `{ name }` | name resolves in the request tool scope    |
+| `llm.tool_call`          | `id`, `name`, `arguments`                          | `arguments` is always a parsed object      |
+| `llm.tool_result`        | `id`, `content`                                    | result for a prior tool call               |
+| `llm.output`             | `format:"json_schema"`, `name`, `schema`           | structured output                          |
 
 Media sources are explicit. Images use `{ type:"url", url }` or
 `{ type:"base64", mediaType, data }` and require `image/*` for base64.
 Audio is base64-only and requires `audio/*`. Documents are PDFs only and use
-either `{ type:"url", url }` or `{ type:"base64", mediaType:"application/pdf",
-data, filename? }`. Video is base64-only and requires `video/*`.
+either `{ type:"url", url, mediaType?, filename? }` or `{ type:"base64",
+mediaType:"application/pdf", data, filename? }`. Video is base64-only and
+requires `video/*`.
 
 Provider-owned file ids, provider file URIs, image detail knobs, tool config,
 usage details, and message metadata stay in dialect residual ops. Residuals
@@ -68,30 +69,62 @@ provider's dialect, placed after the `llm.reasoning` op. The side op's `of`
 field holds the `llm.reasoning` op's `id`, and resolves to the nearest earlier
 `llm.reasoning` op with that id.
 
-| dialect              | reads                        | lowering `llm.reasoning`                                       |
-| -------------------- | ---------------------------- | -------------------------------------------------------------- |
-| `anthropic_messages` | its own `signature`          | `thinking` block; dropped with a warning without its signature |
-| `anthropic_messages` | `redacted_thinking { data }` | `redacted_thinking` block                                      |
-| `openai_responses`   | `reasoning_item { fields }`  | `reasoning` item; dropped with a warning without the side op   |
-| `gemini`             | its own `signature`          | `thought: true` part; dropped with a warning with no text      |
-| `openai_chat`        | nothing                      | dropped with a warning                                         |
-| `openai_realtime`    | nothing                      | dropped with a warning                                         |
+| dialect              | reads                        | lowering `llm.reasoning`                                                   |
+| -------------------- | ---------------------------- | -------------------------------------------------------------------------- |
+| `anthropic_messages` | its own `signature`          | `thinking` block; dropped with a warning without its signature             |
+| `anthropic_messages` | `redacted_thinking { data }` | `redacted_thinking` block                                                  |
+| `openai_responses`   | `reasoning_item { fields }`  | `reasoning` item; dropped with a warning without the side op               |
+| `gemini`             | its own `signature`          | `thought: true` part; dropped with a warning with no text and no signature |
+| `openai_chat`        | nothing                      | dropped with a warning                                                     |
+| `openai_realtime`    | nothing                      | dropped with a warning                                                     |
 
 In strict mode each warning is a `LintError`. Stream events for reasoning are
 not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 
 ## Response ops
 
-| op                         | fields                                 | notes                                     |
-| -------------------------- | -------------------------------------- | ----------------------------------------- |
-| `response.id`              | `id`                                   | the provider's id for a complete response |
-| `response.stop`            | normalized stop reason                 | provider enum values map here             |
-| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                        |
-| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                         |
-| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                    |
+| op                         | fields                                 | notes                                                            |
+| -------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
+| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below |
+| `response.stop`            | `reason`: normalized stop reason       | provider enum values map here                                    |
+| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                                               |
+| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                |
+| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                           |
 
 Assistant responses raise to `llm.text` and `llm.tool_call`. That is why a
 response program can be appended to the next request program.
+
+## Response id
+
+`response.id` holds the id that a provider's API gave to one complete
+response. A dialect raises the op from the id field of a complete response
+body, and writes the op's `id` into the same field when it lowers a program to
+a complete response body.
+
+```ts
+{
+    op: "response.id";
+    id: string;
+}
+```
+
+| dialect              | response body field that holds the id     |
+| -------------------- | ----------------------------------------- |
+| `anthropic_messages` | top-level `id`                            |
+| `openai_chat`        | top-level `id`                            |
+| `openai_responses`   | top-level `id`                            |
+| `gemini`             | top-level `responseId`                    |
+| `openai_realtime`    | `id` in the `response` of `response.done` |
+
+A dialect writes the id unchanged, so an `openai_chat` response body can hold
+an id that Anthropic's API issued. When a program holds several `response.id`
+ops, the last one is written. When a program holds none, four dialects invent
+an id and `gemini` writes no `responseId`.
+
+Lowering a program to a request body removes `response.id`, like every other
+`response.*` op. Among the stream codecs, only the `anthropic_messages` one
+that lowers a complete response to stream events reads the op: it writes the
+id into `message_start.message.id`.
 
 ## Host ops
 
