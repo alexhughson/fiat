@@ -25,19 +25,19 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 
 ## Dialect ops
 
-| op                                   | purpose                                                     |
-| ------------------------------------ | ----------------------------------------------------------- |
-| `openai_responses.input`             | one request `input[]` item                                  |
-| `openai_responses.output`            | one response `output[]` item                                |
-| `openai_responses.output_meta`       | response item ids/status/content metadata                   |
-| `openai_responses.reasoning_item`    | side op of `llm.reasoning`: id, encrypted_content           |
-| `openai_responses.tool`              | provider-specific hosted tools                              |
-| `openai_responses.tool_meta`         | extra function-tool fields such as `strict`                 |
-| `openai_responses.finish_reason`     | response status/incomplete details                          |
-| `openai_responses.usage`             | shared usage plus usage extras                              |
-| `openai_responses.tool_choice`       | provider-specific tool choice                               |
-| `openai_responses.body_field`        | unknown request key or response envelope field              |
-| `openai_responses.stream_event_meta` | fields of a content-part stream event that no core op holds |
+| op                                   | purpose                                                                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `openai_responses.input`             | one request `input[]` item                                                                                                |
+| `openai_responses.output`            | one response `output[]` item                                                                                              |
+| `openai_responses.output_meta`       | response item ids/status/content metadata                                                                                 |
+| `openai_responses.reasoning_item`    | side op of `llm.reasoning`: id, encrypted_content                                                                         |
+| `openai_responses.tool`              | provider-specific hosted tools                                                                                            |
+| `openai_responses.tool_meta`         | extra function-tool fields such as `strict`                                                                               |
+| `openai_responses.finish_reason`     | response status/incomplete details                                                                                        |
+| `openai_responses.usage`             | shared usage plus usage extras                                                                                            |
+| `openai_responses.tool_choice`       | provider-specific tool choice                                                                                             |
+| `openai_responses.body_field`        | unknown request key or response envelope field                                                                            |
+| `openai_responses.stream_event_meta` | the remainder of a stream event after its shared fields raise to core ops; a whole event stays when it only repeats facts |
 
 ## Tool rules
 
@@ -69,20 +69,21 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 `fromStreamResponse` parses one SSE event; each event type maps to ops. One
 wire event can raise several ops:
 
-| wire event                                         | raised ops                                                                                |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `response.output_text.delta`                       | `openai_responses.stream_event_meta` + `response.text_delta`                              |
-| `response.function_call_arguments.delta`           | `openai_responses.stream_event_meta` + `response.tool_call_delta`                         |
-| `response.content_part.added` (`output_text`)      | `openai_responses.stream_event_meta` + `response.text_start`                              |
-| `response.content_part.done` (`output_text`)       | `openai_responses.stream_event_meta` + `response.block_stop`                              |
-| `response.output_text.done`                        | `openai_responses.stream_event_meta` only                                                 |
-| `response.function_call_arguments.done`            | `openai_responses.stream_event_meta` only                                                 |
-| `response.output_item.added` (`function_call`)     | `openai_responses.stream_event_meta` + `response.tool_call_delta`                         |
-| `response.output_item.done` (`function_call`)      | `openai_responses.stream_event_meta` + `response.tool_call_delta` + `response.block_stop` |
-| `response.output_item.added` / `.done` (`message`) | `openai_responses.stream_event_meta` only                                                 |
-| `response.created`                                 | `llm.model` + `openai_responses.stream_event_meta`                                        |
-| `response.in_progress`                             | `openai_responses.stream_event_meta` only                                                 |
-| `response.completed` / `.incomplete` / `.failed`   | one `body_field` op per event field, plus usage                                           |
+| wire event                                                                                     | raised ops                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `response.output_text.delta`                                                                   | `openai_responses.stream_event_meta` + `response.text_delta`                                                                                |
+| `response.function_call_arguments.delta`                                                       | `openai_responses.stream_event_meta` + `response.tool_call_delta`                                                                           |
+| `response.content_part.added` (`output_text`)                                                  | `openai_responses.stream_event_meta` + `response.text_start`                                                                                |
+| `response.content_part.done` (`output_text`)                                                   | `openai_responses.stream_event_meta` + `response.block_stop`                                                                                |
+| `response.output_text.done`                                                                    | `openai_responses.stream_event_meta` only                                                                                                   |
+| `response.function_call_arguments.done`                                                        | `openai_responses.stream_event_meta` only                                                                                                   |
+| `response.output_item.added` (`function_call`)                                                 | `openai_responses.stream_event_meta` + `response.tool_call_delta`                                                                           |
+| `response.output_item.done` (`function_call`)                                                  | `openai_responses.stream_event_meta` + `response.block_stop`                                                                                |
+| `response.output_item.added` / `.done` (any other item type, such as `message` or `reasoning`) | `openai_responses.stream_event_meta` only                                                                                                   |
+| `response.created`                                                                             | `openai_responses.stream_event_meta` + `llm.model`                                                                                          |
+| `response.in_progress`                                                                         | `openai_responses.stream_event_meta` only                                                                                                   |
+| `response.completed` / `.incomplete`                                                           | `openai_responses.stream_event_meta` + `response.stop` + `response.usage` (+ `openai_responses.usage` for extra counts)                     |
+| `response.failed`                                                                              | `openai_responses.stream_event_meta` only; plus `response.usage` (+ `openai_responses.usage` for extra counts) when the event carries usage |
 
 `response.content_part.added`:
 
@@ -148,9 +149,19 @@ and `logprobs`) plus a `response.text_delta` op whose `index` is the event's
 `stream_event_meta` op plus a `response.tool_call_delta` op. The event's
 `type` repeats what the core op already says, so it does not raise.
 
-`response.created` states the model, which raises to `llm.model`; the rest of
-the envelope (id, status, request echoes, and the `output` list, which
-repeats the items the item events already carried) stays in the meta op.
+`response.created` states the model, which raises to `llm.model` after the
+event's meta op. The envelope fields OpenAI always sends with the same value
+on a created response (`status: "in_progress"`, an empty `output` list, a
+null `usage`, `error`, and `incomplete_details`, and the `object` type
+string) are constants: the raiser drops each only when it holds exactly the
+expected value, and lowering writes the dropped values back, so a field
+OpenAI ever sends with another value stays in the meta op and is not lost.
+The fields only openai_responses has in a stream — the response `id` (until
+its core op's row merges), `created_at`, and the request settings the
+envelope echoes (`temperature`, `instructions`, `tools`, and the rest) —
+stay in the meta op. The complete-response path raises and lowers the same
+request echoes as `openai_responses.body_field` ops; the stream path keeps
+them inside the event's meta op instead.
 
 ```json
 {
@@ -162,7 +173,12 @@ repeats the items the item events already carried) stays in the meta op.
         "created_at": 1700000000,
         "status": "in_progress",
         "model": "gpt-4o",
-        "output": []
+        "output": [],
+        "error": null,
+        "incomplete_details": null,
+        "usage": null,
+        "temperature": 1,
+        "metadata": {}
     }
 }
 ```
@@ -172,39 +188,60 @@ raised:
 ```json
 [
     {
-        "op": "llm.model",
-        "model": "gpt-4o"
-    },
-    {
         "op": "openai_responses.stream_event_meta",
         "event": {
             "type": "response.created",
             "sequence_number": 2,
             "response": {
                 "id": "resp_123",
-                "object": "response",
                 "created_at": 1700000000,
-                "status": "in_progress",
-                "output": []
+                "temperature": 1,
+                "metadata": {}
             }
         },
         "appliesTo": "response"
+    },
+    {
+        "op": "llm.model",
+        "model": "gpt-4o"
     }
 ]
 ```
 
 `response.in_progress` and `response.output_text.done` only repeat facts
 that earlier events stated, so each stays whole in one meta op.
-`response.output_item.done` of a `function_call` item ends the tool call
-block, so it raises a `response.block_stop` beside its meta op and
-`response.tool_call_delta`; a `message` item has no core op yet, so the whole
-event stays in the meta op.
+`response.output_item.done` of a `function_call` item repeats the call id,
+name, and full arguments that the added and delta events already stated, so
+the whole event stays in the meta op beside the `response.block_stop` that
+ends the block; a transform that edits the `response.tool_call_delta` ops
+does not change that copy. `response.output_item.added` of a
+`function_call` item states the call id and name once, so they raise into
+the `response.tool_call_delta` op and the meta op's item keeps the rest.
+An output item of any other type — a `message`, a `reasoning` item, or a
+future type — has no core op yet, so the whole event stays in the meta op
+and round-trips.
+
+The terminal events close the stream: a `completed` or `incomplete` event
+raises its finish reason to `openai_responses.finish_reason` (which becomes
+`response.stop` in the raised program) and its usage object to
+`openai_responses.usage` (which becomes `response.usage` plus an
+`openai_responses.usage` residual for the fields only openai_responses
+counts). A `failed` event has no finish reason its status maps to, so it
+raises no stop op; its usage raises when the event carries one. Everything
+else — the response's `status`, `output` list, `error`, and
+`incomplete_details` — stays whole in the event's one meta op, and lowering
+folds the ops back into the same wire event.
 
 The `error` stream event still throws; a core error op does not exist yet.
 
+Stream lowering accepts `llm.model`, so the created event that raised it
+lowers back to the same wire event: the model returns into the response
+envelope.
+
 ## Out of scope
 
-Structured output lowering, streaming output item protocols beyond text/tool
-deltas, audio/video input, image `detail` metadata, and provider-neutral
-representations for MCP, file search, computer use, provider file ids, or image
-generation.
+Structured output lowering, a core op for an output item of a non-function
+type starting or ending in a stream (a `message` or `reasoning` item stays
+whole in the meta op), audio/video input, image `detail` metadata, and
+provider-neutral representations for MCP, file search, computer use,
+provider file ids, or image generation.

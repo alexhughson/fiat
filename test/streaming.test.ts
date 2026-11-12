@@ -157,11 +157,91 @@ describe("stream response conversion", () => {
                 OpenAIResponsesTranslator.fromStreamResponse(textEvent),
             ),
         ).toEqual(textEvent);
+        expect(OpenAIResponsesTranslator.fromStreamResponse(doneEvent)).toEqual(
+            [
+                {
+                    op: "openai_responses.stream_event_meta",
+                    event: {
+                        type: "response.completed",
+                        response: { status: "completed" },
+                    },
+                    appliesTo: "response",
+                },
+                { op: "response.stop", reason: "end_turn" },
+                { op: "response.usage", inputTokens: 3, outputTokens: 2 },
+            ],
+        );
         expect(
             OpenAIResponsesTranslator.toStreamResponse(
                 OpenAIResponsesTranslator.fromStreamResponse(doneEvent),
             ),
         ).toEqual(doneEvent);
+    });
+
+    test("openai responses terminal events keep the whole event in one meta op and round-trip", () => {
+        const incomplete = {
+            type: "response.incomplete",
+            sequence_number: 12,
+            response: {
+                id: "resp_1",
+                status: "incomplete",
+                incomplete_details: { reason: "max_output_tokens" },
+                usage: { input_tokens: 1, output_tokens: 1 },
+            },
+        };
+        const failed = {
+            type: "response.failed",
+            sequence_number: 13,
+            response: {
+                id: "resp_1",
+                status: "failed",
+                error: { code: "server_error", message: "nope" },
+            },
+        };
+
+        const incompleteProgram =
+            OpenAIResponsesTranslator.fromStreamResponse(incomplete);
+        expect(incompleteProgram).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event: {
+                    type: "response.incomplete",
+                    sequence_number: 12,
+                    response: {
+                        id: "resp_1",
+                        status: "incomplete",
+                        incomplete_details: { reason: "max_output_tokens" },
+                    },
+                },
+                appliesTo: "response",
+            },
+            { op: "response.stop", reason: "max_tokens" },
+            { op: "response.usage", inputTokens: 1, outputTokens: 1 },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(incompleteProgram),
+        ).toEqual(incomplete);
+
+        const failedProgram =
+            OpenAIResponsesTranslator.fromStreamResponse(failed);
+        expect(failedProgram).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event: {
+                    type: "response.failed",
+                    sequence_number: 13,
+                    response: {
+                        id: "resp_1",
+                        status: "failed",
+                        error: { code: "server_error", message: "nope" },
+                    },
+                },
+                appliesTo: "response",
+            },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(failedProgram),
+        ).toEqual(failed);
     });
 
     test("openai responses function-call done chunks preserve item identity and event type", () => {
@@ -324,7 +404,7 @@ describe("stream response conversion", () => {
         });
     });
 
-    test("response.created raises the model and keeps the envelope in one meta op", () => {
+    test("response.created raises the model after a meta op without the constant envelope fields", () => {
         const event = {
             type: "response.created",
             sequence_number: 2,
@@ -335,12 +415,14 @@ describe("stream response conversion", () => {
                 status: "in_progress",
                 model: "gpt-4o",
                 output: [],
+                usage: null,
+                error: null,
+                incomplete_details: null,
             },
         };
 
         const program = OpenAIResponsesTranslator.fromStreamResponse(event);
         expect(program).toEqual([
-            { op: "llm.model", model: "gpt-4o" },
             {
                 op: "openai_responses.stream_event_meta",
                 event: {
@@ -348,14 +430,51 @@ describe("stream response conversion", () => {
                     sequence_number: 2,
                     response: {
                         id: "resp_123",
-                        object: "response",
                         created_at: 1700000000,
-                        status: "in_progress",
-                        output: [],
                     },
                 },
                 appliesTo: "response",
             },
+            { op: "llm.model", model: "gpt-4o" },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("response.created keeps a constant field that holds another value", () => {
+        const event = {
+            type: "response.created",
+            sequence_number: 2,
+            response: {
+                id: "resp_123",
+                object: "response",
+                created_at: 1700000000,
+                status: "queued",
+                model: "gpt-4o",
+                output: [],
+                usage: null,
+                error: null,
+                incomplete_details: null,
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event: {
+                    type: "response.created",
+                    sequence_number: 2,
+                    response: {
+                        id: "resp_123",
+                        created_at: 1700000000,
+                        status: "queued",
+                    },
+                },
+                appliesTo: "response",
+            },
+            { op: "llm.model", model: "gpt-4o" },
         ]);
         expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
             event,
@@ -427,7 +546,48 @@ describe("stream response conversion", () => {
         );
     });
 
-    test("a function_call output_item.done ends its block with response.block_stop", () => {
+    test("a function_call output_item.added states the call identity in the core op only", () => {
+        const event = {
+            type: "response.output_item.added",
+            sequence_number: 3,
+            output_index: 0,
+            item: {
+                type: "function_call",
+                id: "fc_1",
+                call_id: "call_1",
+                name: "lookup",
+                arguments: "",
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event: {
+                    type: "response.output_item.added",
+                    sequence_number: 3,
+                    item: {
+                        type: "function_call",
+                        id: "fc_1",
+                        arguments: "",
+                    },
+                },
+                appliesTo: "response",
+            },
+            {
+                op: "response.tool_call_delta",
+                index: 0,
+                id: "call_1",
+                name: "lookup",
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("a function_call output_item.done keeps its whole event and ends its block", () => {
         const event = {
             type: "response.output_item.done",
             sequence_number: 10,
@@ -448,6 +608,7 @@ describe("stream response conversion", () => {
                 event: {
                     type: "response.output_item.done",
                     sequence_number: 10,
+                    output_index: 0,
                     item: {
                         type: "function_call",
                         id: "fc_1",
@@ -458,16 +619,20 @@ describe("stream response conversion", () => {
                 },
                 appliesTo: "response",
             },
-            {
-                op: "response.tool_call_delta",
-                index: 0,
-                id: "call_1",
-                name: "lookup",
-                arguments: '{"x":"1"}',
-            },
             { op: "response.block_stop", index: 0 },
         ]);
         expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+        // The kept event repeats the call's name and full arguments, so a
+        // transform that edits the response.tool_call_delta ops does not
+        // change this copy: lowering the meta op alone returns them intact.
+        const edited = program.map((op) =>
+            op.op === "response.tool_call_delta"
+                ? { ...op, name: "changed", arguments: "{}" }
+                : op,
+        );
+        expect(OpenAIResponsesTranslator.toStreamResponse(edited)).toEqual(
             event,
         );
     });
@@ -505,8 +670,13 @@ describe("stream response conversion", () => {
                 sequence_number: 1,
                 response: {
                     id: "resp_1",
+                    object: "response",
                     status: "in_progress",
                     model: "gpt-4o",
+                    output: [],
+                    usage: null,
+                    error: null,
+                    incomplete_details: null,
                 },
             },
             {
@@ -639,7 +809,7 @@ describe("stream response conversion", () => {
             });
             expect(warn).toHaveBeenCalledWith(
                 expect.stringContaining(
-                    'ignored foreign op "openai_responses.body_field"',
+                    'ignored foreign op "openai_responses.stream_event_meta"',
                 ),
             );
         });

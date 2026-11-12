@@ -451,9 +451,11 @@ export function streamResponseFromWire(wire: unknown): Program {
         case "response.output_item.added":
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
-        // response.created states the model once, so the model raises and
-        // the rest of the envelope (id, status, request echoes) stays in the
-        // meta op. response.in_progress only repeats facts and stays whole.
+        // response.created states the model once, so the model raises to
+        // llm.model after the event's meta op; the envelope's constant fields
+        // do not raise (lowering writes them back) and the rest of the
+        // envelope stays in the meta op. response.in_progress only repeats
+        // facts and stays whole.
         case "response.created":
             return streamCreatedEvent(event);
         case "response.in_progress":
@@ -644,6 +646,17 @@ export function streamResponseToWire(program: Program): unknown {
     // A finish reason closes the response; the model raised from
     // response.created folds back into the envelope the same way.
     event.type ??= terminalEventType(finishReason);
+    // The created event's constant envelope fields were dropped on raise
+    // when they held the expected value; lowering writes them back. A field
+    // the meta op kept (its value differed) is already present, so the
+    // defaults do not overwrite it.
+    if (event.type === "response.created" && event.response != null) {
+        const created = asRecord(event.response, "stream event.response");
+        for (const [key, value] of Object.entries(CREATED_RESPONSE_CONSTANTS)) {
+            created[key] ??= structuredClone(value);
+        }
+        event.response = created;
+    }
     if (usage || finishReason != null || model != null) {
         const response = asRecord(
             event.response ?? {},
@@ -695,22 +708,17 @@ function streamEventMeta(event: Record<string, unknown>, skip: string[]): Op {
     };
 }
 
-function streamEventParams(
-    event: Record<string, unknown>,
-    skip: string[],
-): Program {
-    const skipped = new Set(skip);
-    const program: Program = [];
-    for (const [key, value] of Object.entries(event)) {
-        if (skipped.has(key)) continue;
-        program.push({
-            op: "openai_responses.body_field",
-            key,
-            value,
-            appliesTo: "response",
-        });
+// Deletes keys whose value is undefined, which rest destructuring leaves
+// behind when it removes a key, so JSON comparisons stay exact.
+function omitEmptyKeys(
+    value: Record<string, unknown>,
+): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+        if (entry === undefined) continue;
+        out[key] = entry;
     }
-    return program;
+    return out;
 }
 
 function streamOutputItemEvent(
@@ -723,86 +731,120 @@ function streamOutputItemEvent(
         // meta op and round-trips.
         return [streamEventMeta(event, [])];
     }
-    // The meta op keeps `type` (no core op says added from done) and `item`
-    // (which repeats the call id, name, and arguments the tool_call_delta op
-    // carries). output_index raises to the core ops' index.
-    const program: Program = [streamEventMeta(event, ["output_index"])];
-    program.push({
-        op: "response.tool_call_delta",
-        ...(event.output_index != null
-            ? {
-                  index: asNumber(
-                      event.output_index,
-                      "stream event.output_index",
-                  ),
-              }
-            : {}),
-        ...(item.call_id != null
-            ? { id: asString(item.call_id, "stream event.item.call_id") }
-            : {}),
-        ...(item.name != null
-            ? { name: asString(item.name, "stream event.item.name") }
-            : {}),
-        ...(item.arguments != null && type === "response.output_item.done"
-            ? {
-                  arguments: asString(
-                      item.arguments,
-                      "stream event.item.arguments",
-                  ),
-              }
-            : {}),
-    });
-    // The done event ends the tool call block; output_index names it.
     if (type === "response.output_item.done") {
-        program.push({
-            op: "response.block_stop",
-            index: asNumber(event.output_index, "stream event.output_index"),
-        });
+        // The done event repeats the call id, name, and full arguments that
+        // the added and delta events already stated, so it adds only the
+        // block's ending: the whole event stays in the meta op beside the
+        // core block_stop op, and a transform that edits the tool_call_delta
+        // ops does not change this copy.
+        return [
+            streamEventMeta(event, []),
+            {
+                op: "response.block_stop",
+                index: asNumber(
+                    event.output_index,
+                    "stream event.output_index",
+                ),
+            },
+        ];
     }
-    return program;
+    // The added event states the call id and name once, so they raise to the
+    // tool_call_delta op; the meta op keeps the item without them, and
+    // lowering rebuilds the item from the two ops. output_index raises to
+    // the core op's index.
+    const { call_id: _callId, name: _name, ...itemMeta } = item;
+    return [
+        streamEventMeta({ ...event, item: itemMeta }, ["output_index"]),
+        {
+            op: "response.tool_call_delta",
+            ...(event.output_index != null
+                ? {
+                      index: asNumber(
+                          event.output_index,
+                          "stream event.output_index",
+                      ),
+                  }
+                : {}),
+            ...(item.call_id != null
+                ? { id: asString(item.call_id, "stream event.item.call_id") }
+                : {}),
+            ...(item.name != null
+                ? { name: asString(item.name, "stream event.item.name") }
+                : {}),
+        },
+    ];
 }
 
-// The envelope states the model once, from its first event; the rest (id,
-// status, request echoes, and the `output` list, which repeats the items the
-// item events already carried) stays in the meta op. The response.id op
-// raises the id in this branch's rebase after row 46 merges.
+// A created response opens with a fixed envelope whose values OpenAI always
+// sends the same way; the raiser drops each only when it holds exactly the
+// expected value, and lowering writes the dropped values back.
+const CREATED_RESPONSE_CONSTANTS: Record<string, unknown> = {
+    status: "in_progress",
+    output: [],
+    usage: null,
+    object: "response",
+    error: null,
+    incomplete_details: null,
+};
+
+// The envelope states the model once, so the model raises to llm.model. The
+// id stays in the meta op until the response.id op's row merges (row 46),
+// raised there in this branch's rebase. created_at and the echoed request
+// settings (temperature, instructions, tools, and the rest) are data only
+// openai_responses has in a stream, so they stay in the meta op. The constant
+// envelope fields do not raise; lowering writes them back. The meta op sits
+// directly before the core op it belongs to.
 function streamCreatedEvent(event: Record<string, unknown>): Program {
     const response =
         event.response == null
             ? undefined
             : asRecord(event.response, "stream event.response");
-    const model =
-        response?.model == null
-            ? undefined
-            : asString(response.model, "stream event.response.model");
-    const out: Op[] = [];
-    if (model != null) out.push({ op: "llm.model", model });
+    const out: Program = [];
     if (response != null) {
-        const { model: _model, ...rest } = response;
+        const rest: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(response)) {
+            if (key === "model" && value != null) continue;
+            if (
+                Object.hasOwn(CREATED_RESPONSE_CONSTANTS, key) &&
+                JSON.stringify(CREATED_RESPONSE_CONSTANTS[key]) ===
+                    JSON.stringify(value)
+            ) {
+                continue;
+            }
+            rest[key] = value;
+        }
         out.push(streamEventMeta({ ...event, response: rest }, []));
+        if (response.model != null) {
+            out.push({
+                op: "llm.model",
+                model: asString(response.model, "stream event.response.model"),
+            });
+        }
     } else {
         out.push(streamEventMeta(event, []));
     }
     return out;
 }
 
+// A terminal event closes the stream: its finish reason raises to
+// openai_responses.finish_reason (response.stop after the raise stages)
+// and its usage object to openai_responses.usage, which the raise stages
+// split into response.usage plus any extras. Everything else stays whole
+// in one stream_event_meta op, the same shape as the other events, so
+// lowering folds the ops back into the same wire event.
 function streamTerminalEvent(event: Record<string, unknown>): Program {
-    const program = streamEventParams(event, ["response"]);
     const response =
         event.response == null
             ? undefined
             : asRecord(event.response, "stream event.response");
-    if (response != null) {
-        const { usage: _usage, ...responseMeta } = response;
-        if (Object.keys(responseMeta).length > 0) {
-            program.push({
-                op: "openai_responses.body_field",
-                key: "response",
-                value: responseMeta,
-                appliesTo: "response",
-            });
-        }
-    }
+    const meta =
+        response == null
+            ? event
+            : {
+                  ...event,
+                  response: omitEmptyKeys({ ...response, usage: undefined }),
+              };
+    const program: Program = [streamEventMeta(meta, [])];
     const status =
         response?.status == null
             ? undefined
