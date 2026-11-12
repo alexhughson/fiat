@@ -61,7 +61,12 @@ Gemini's docs name for function output:
 ```
 
 Raising turns a `response` whose only key is `output` back into the wrapped
-value: a string as text, anything else as JSON.
+value: a string as text, anything else as JSON. A response with `output` among
+other keys raises as the whole object.
+
+A body gemini lowering wrote round-trips on the wire: `gemini.part_meta`
+carries the exact `response` object, so lowering the raised program again
+writes the same body.
 
 ## Thinking and signatures
 
