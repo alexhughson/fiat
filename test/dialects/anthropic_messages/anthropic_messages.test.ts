@@ -1242,17 +1242,11 @@ describe("anthropic_messages response streams", () => {
         expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
     });
 
-    test("message_stop raises and lowers as a droppable anthropic residual", () => {
+    test("message_stop raises response.done and lowers back to the same event", () => {
         const event = { type: "message_stop" };
 
         const program = AnthropicTranslator.fromStreamResponse(event);
-        expect(program).toEqual([
-            {
-                op: "anthropic_messages.stream_event",
-                event,
-                appliesTo: "response",
-            },
-        ]);
+        expect(program).toEqual([{ op: "response.done" }]);
         expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
     });
 
@@ -1594,16 +1588,25 @@ describe("anthropic_messages response streams", () => {
             { op: "response.block_stop", index: 0 },
             { op: "response.stop", reason: "end_turn" },
             { op: "response.usage", outputTokens: 15 },
-            {
-                op: "anthropic_messages.stream_event",
-                event: { type: "message_stop" },
-                appliesTo: "response",
-            },
+            { op: "response.done" },
         ]);
-        // Whole-stream lowering is not asserted: lowerStreamStopAndUsage
-        // emits message_delta after message_stop and drops stop_sequence,
-        // a pre-existing main behavior a later row changes. Each event
-        // round-trips on its own in the tests above.
+        // Whole-stream lowering is not asserted in full: message_delta drops
+        // stop_sequence, a pre-existing main behavior a later row changes.
+        // The event order is asserted, including that message_stop, which
+        // response.done lowers to, lands after message_delta.
+        const lowered = AnthropicTranslator.toStreamResponses(program) as {
+            type: string;
+        }[];
+        expect(lowered.map((event) => event.type)).toEqual([
+            "message_start",
+            "content_block_start",
+            "ping",
+            "content_block_delta",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop",
+        ]);
     });
 
     test("message_start raises model and input usage and lowers back to the same event", () => {

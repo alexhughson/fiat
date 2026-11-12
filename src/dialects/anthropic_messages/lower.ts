@@ -67,6 +67,7 @@ export const lowerStreamResponseStages: Stage[] = [
     lowerStreamBlockStops,
     lowerStreamMessageStart,
     lowerStreamStopAndUsage,
+    lowerStreamDone,
 ];
 
 export const lowerStreamResponse: Stage = stagePipeline(
@@ -617,6 +618,11 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                     (op as OpOf<"response.stop">).reason,
                 );
                 break;
+            // The synthesized sequence already ends with message_stop, so the
+            // op adds nothing here; without this case a complete program
+            // holding response.done would throw.
+            case "response.done":
+                break;
             case "response.usage": {
                 const counts = op as OpOf<"response.usage">;
                 usage = {
@@ -1062,4 +1068,18 @@ function lowerStopReason(reason: OpOf<"response.stop">["reason"]): string {
         case "content_filter":
             return "refusal";
     }
+}
+
+// response.done states that the stream of this response has ended, and the
+// anthropic stream ends with a message_stop event. Each op moves to the end
+// of the program, after the message_delta that lowerStreamStopAndUsage
+// appends, so lowering returns message_delta then message_stop, the wire's
+// own order for the last two events of a stream.
+export function lowerStreamDone(program: Program): Program {
+    const out = program.filter((op) => op.op !== "response.done");
+    const doneCount = program.length - out.length;
+    for (let i = 0; i < doneCount; i++) {
+        out.push(streamEvent({ type: "message_stop" }));
+    }
+    return out;
 }

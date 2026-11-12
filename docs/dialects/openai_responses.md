@@ -69,14 +69,14 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 `fromStreamResponse` parses one SSE event; each event type maps to ops. One
 wire event can raise several ops:
 
-| wire event                                       | raised ops                                                       |
-| ------------------------------------------------ | ---------------------------------------------------------------- |
-| `response.output_text.delta`                     | one `body_field` op per event field + `response.text_delta`      |
-| `response.function_call_arguments.delta`         | one `body_field` op per event field + `response.tool_call_delta` |
-| `response.content_part.added` (`output_text`)    | `openai_responses.stream_event_meta` + `response.text_start`     |
-| `response.content_part.done` (`output_text`)     | `openai_responses.stream_event_meta` + `response.block_stop`     |
-| `response.output_item.added` / `.done`           | one `body_field` op per event field, plus the item               |
-| `response.completed` / `.incomplete` / `.failed` | one `body_field` op per event field, plus usage                  |
+| wire event                                       | raised ops                                                                                                                                                                           |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `response.output_text.delta`                     | one `body_field` op per event field + `response.text_delta`                                                                                                                          |
+| `response.function_call_arguments.delta`         | one `body_field` op per event field + `response.tool_call_delta`                                                                                                                     |
+| `response.content_part.added` (`output_text`)    | `openai_responses.stream_event_meta` + `response.text_start`                                                                                                                         |
+| `response.content_part.done` (`output_text`)     | `openai_responses.stream_event_meta` + `response.block_stop`                                                                                                                         |
+| `response.output_item.added` / `.done`           | one `body_field` op per event field, plus the item                                                                                                                                   |
+| `response.completed` / `.incomplete` / `.failed` | one `body_field` op per event field, plus `response.stop` and `response.usage` when the event holds them, an `openai_responses.usage` residual for usage extras, and `response.done` |
 
 `response.content_part.added`:
 
@@ -137,6 +137,16 @@ op.
 
 Other stream events (`response.created`, `response.in_progress`,
 `response.output_text.done`) are not raised yet and still throw.
+
+A terminal event (`response.completed`, `response.incomplete`,
+`response.failed`) states that the stream of this response has ended, so it
+also raises the core op `response.done`, after the `response.stop` and
+`response.usage` ops it holds. `response.failed` maps its status to no stop
+reason, so it raises `response.usage` and `response.done` only. Lowering folds
+`response.done` back into the same one terminal event the `response.stop` and
+`response.usage` ops build, and a program holding only `response.done` lowers
+to a `response.completed` event with an empty response object — the zero-event
+shape of a bare op is what row 66 settles.
 
 ## Out of scope
 

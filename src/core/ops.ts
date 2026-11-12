@@ -111,6 +111,10 @@ export type CoreOp =
     // block_stop ends a text block or a tool call block and carries no text.
     | { op: "response.text_start"; index: number }
     | { op: "response.block_stop"; index: number }
+    // `response.done` states that the stream of this response has ended. It
+    // holds no params: the stop reason is in `response.stop`, the usage in
+    // `response.usage`, and a provider that has no end event raises nothing.
+    | { op: "response.done" }
     | {
           op: "response.tool_call_delta";
           index?: number;

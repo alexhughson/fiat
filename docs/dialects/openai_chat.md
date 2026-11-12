@@ -47,6 +47,10 @@ models lower them as `max_tokens`.
 - Chat has no field for reasoning: `llm.reasoning` is dropped with a warning.
 - Response envelope and usage residuals are response-only and are not resent
   when a response program is appended to a request.
+- A Chat stream has no event that states the stream's end: the last chunk
+  carries the finish_reason. Stream lowering accepts `response.done` and
+  writes no field and no event for it, so a program raised from another
+  dialect's end event lowers to the same chunk as before the op existed.
 - Request image URL parts lower as ordered message content parts. Data URLs
   raise to portable base64 image sources and lower back to data URLs.
 - `input_audio` raises to base64 `llm.audio` for `wav` and `mp3`; other

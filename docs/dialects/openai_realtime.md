@@ -63,4 +63,10 @@ events, optionally with top-level call/session fields such as `model`.
   Lowering writes `response.content_part.added` for `response.text_start`
   and `response.content_part.done` for `response.block_stop`, rebuilding
   `output_index` from the op's `index` and `part.type` as `text`.
+- On the stream edge, a `response.done` event states that the stream of this
+  response has ended, a fact shared with the end events of other providers, so
+  it raises the core op `response.done`, after the `response.stop` and
+  `response.usage` ops raised from the same event. Lowering folds the op back
+  into the same one `response.done` event those ops build. The
+  `response.created` stream event is not raised yet and still throws.
 - WebRTC setup, auth, and live connection management are out of scope.

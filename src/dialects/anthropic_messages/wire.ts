@@ -502,6 +502,11 @@ export function responseToWire(program: Program): unknown {
             case "anthropic_messages.stop_reason":
                 body.stop_reason = opData<{ value: string }>(op).value;
                 break;
+            // A complete body states the stream's end only by existing; the
+            // op adds no field. Without this case, a program raised from a
+            // stream terminal event would throw when lowered as one body.
+            case "response.done":
+                break;
             // Mapped counts from lower plus any vendor detail residual merge
             // into one wire usage object.
             case "anthropic_messages.usage":

@@ -237,6 +237,11 @@ export function responseToWire(program: Program): unknown {
                 body[param.key] = param.value;
                 break;
             }
+            // A complete body states the stream's end only by existing; the
+            // op adds no field. This is the complete-response toWire, not the
+            // stream edge.
+            case "response.done":
+                break;
             default:
                 throw new LintError(
                     `gemini response toWire: no serialization for op "${op.op}"`,

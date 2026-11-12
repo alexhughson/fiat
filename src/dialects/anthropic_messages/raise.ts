@@ -223,6 +223,7 @@ function raiseStreamEvent(event: WireAnthropicStreamEvent): Op[] {
         case "message_start":
             return raiseMessageStart(event);
         case "message_stop":
+            return [{ op: "response.done" }];
         // ping keeps the connection open and carries no other meaning; only
         // anthropic sends it, so it stays a dialect op.
         case "ping":

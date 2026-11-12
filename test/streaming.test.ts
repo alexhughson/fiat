@@ -667,3 +667,217 @@ describe("stream response conversion", () => {
         ).toEqual(delta);
     });
 });
+
+describe("response.done across dialects", () => {
+    const doneEvent = {
+        type: "message_stop",
+    };
+
+    test("an anthropic message_stop raises to response.done and lowers home", () => {
+        expect(AnthropicTranslator.fromStreamResponse(doneEvent)).toEqual([
+            { op: "response.done" },
+        ]);
+        expect(
+            AnthropicTranslator.toStreamResponse(
+                AnthropicTranslator.fromStreamResponse(doneEvent),
+            ),
+        ).toEqual(doneEvent);
+    });
+
+    test("openai responses terminal events raise response.done beside stop and usage", () => {
+        const completed = {
+            type: "response.completed",
+            response: {
+                id: "resp_1",
+                status: "completed",
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+        };
+        expect(OpenAIResponsesTranslator.fromStreamResponse(completed)).toEqual(
+            [
+                {
+                    op: "openai_responses.body_field",
+                    key: "type",
+                    value: "response.completed",
+                    appliesTo: "response",
+                },
+                {
+                    op: "openai_responses.body_field",
+                    key: "response",
+                    value: { id: "resp_1", status: "completed" },
+                    appliesTo: "response",
+                },
+                { op: "response.stop", reason: "end_turn" },
+                { op: "response.usage", inputTokens: 3, outputTokens: 2 },
+                { op: "response.done" },
+            ],
+        );
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(
+                OpenAIResponsesTranslator.fromStreamResponse(completed),
+            ),
+        ).toEqual(completed);
+    });
+
+    test("an openai responses response.failed raises response.done beside usage only", () => {
+        const failed = {
+            type: "response.failed",
+            response: {
+                id: "resp_1",
+                status: "failed",
+                error: { code: "server_error", message: "nope" },
+            },
+        };
+        expect(OpenAIResponsesTranslator.fromStreamResponse(failed)).toEqual([
+            {
+                op: "openai_responses.body_field",
+                key: "type",
+                value: "response.failed",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "response",
+                value: {
+                    id: "resp_1",
+                    status: "failed",
+                    error: { code: "server_error", message: "nope" },
+                },
+                appliesTo: "response",
+            },
+            { op: "response.done" },
+        ]);
+    });
+
+    test("openai realtime response.done raises the core op beside stop and usage", () => {
+        const realtimeDone = {
+            type: "response.done",
+            response: {
+                id: "resp_1",
+                status: "completed",
+                status_details: null,
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+        };
+        expect(
+            OpenAIRealtimeTranslator.fromStreamResponse(realtimeDone),
+        ).toEqual([
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.done",
+                key: "type",
+                value: "response.done",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.done",
+                key: "response",
+                value: {
+                    id: "resp_1",
+                    status: "completed",
+                    status_details: null,
+                },
+                appliesTo: "response",
+            },
+            { op: "response.usage", inputTokens: 3, outputTokens: 2 },
+            { op: "response.stop", reason: "end_turn" },
+            { op: "response.done" },
+        ]);
+        expect(
+            OpenAIRealtimeTranslator.toStreamResponse(
+                OpenAIRealtimeTranslator.fromStreamResponse(realtimeDone),
+            ),
+        ).toEqual(realtimeDone);
+    });
+
+    test("a raised terminal event lowers to message_delta then message_stop in one plural call", () => {
+        const completed = {
+            type: "response.completed",
+            response: {
+                id: "resp_1",
+                status: "completed",
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+        };
+        const events = AnthropicTranslator.toStreamResponses(
+            OpenAIResponsesTranslator.fromStreamResponse(completed),
+        ) as Record<string, unknown>[];
+        expect(events).toEqual([
+            {
+                type: "message_delta",
+                delta: { stop_reason: "end_turn" },
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+            { type: "message_stop" },
+        ]);
+    });
+
+    test("the singular call throws for a program that lowers to two events", () => {
+        const completed = {
+            type: "response.completed",
+            response: {
+                id: "resp_1",
+                status: "completed",
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+        };
+        expect(() =>
+            AnthropicTranslator.toStreamResponse(
+                OpenAIResponsesTranslator.fromStreamResponse(completed),
+            ),
+        ).toThrow(
+            "anthropic_messages stream response toWire: expected exactly 1 event op, got 2",
+        );
+    });
+
+    test("a raised message_stop lowers to no event in openai_chat and gemini plural calls", () => {
+        const raised = AnthropicTranslator.fromStreamResponse({
+            type: "message_stop",
+        });
+        expect(OpenAIChatTranslator.toStreamResponses(raised)).toEqual([]);
+        expect(GeminiTranslator.toStreamResponses(raised)).toEqual([]);
+    });
+
+    test("a raised terminal event keeps lowering to the same openai chat chunk as before the op", () => {
+        const completed = {
+            type: "response.completed",
+            response: {
+                id: "resp_1",
+                status: "completed",
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+        };
+        const chunk = OpenAIChatTranslator.toStreamResponse(
+            OpenAIResponsesTranslator.fromStreamResponse(completed),
+        ) as Record<string, unknown>;
+        expect(chunk).toMatchObject({
+            object: "chat.completion.chunk",
+            choices: [{ delta: {}, finish_reason: "stop", logprobs: null }],
+            usage: { prompt_tokens: 3, completion_tokens: 2 },
+        });
+    });
+
+    test("a raised terminal event keeps lowering to the same realtime response.done event", () => {
+        const completed = {
+            type: "response.completed",
+            response: {
+                id: "resp_1",
+                status: "completed",
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+        };
+        expect(
+            OpenAIRealtimeTranslator.toStreamResponse(
+                OpenAIResponsesTranslator.fromStreamResponse(completed),
+            ),
+        ).toEqual({
+            type: "response.done",
+            response: {
+                status: "completed",
+                status_details: null,
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+        });
+    });
+});

@@ -274,6 +274,11 @@ export function responseToWire(program: Program): unknown {
                     event[param.key] = param.value;
                 break;
             }
+            // A complete body states the stream's end only by existing; the
+            // op adds no field. This is the complete-response toWire, not the
+            // stream edge.
+            case "response.done":
+                break;
             default:
                 throw new LintError(
                     `openai_realtime response toWire: no serialization for op "${op.op}"`,
@@ -438,6 +443,12 @@ export function streamResponseToWire(program: Program): unknown {
                     ...opData<{ usage: Record<string, unknown> }>(op).usage,
                 };
                 eventType ??= "response.done";
+                break;
+            // A raised response.done event also holds the stop and usage it
+            // arrived with. The op adds no field: the terminal event is built
+            // from the finish_reason and usage beside it, and the tail below
+            // defaults the event type when the program holds neither.
+            case "response.done":
                 break;
             case "openai_realtime.event_param": {
                 const param = opData<{
@@ -664,6 +675,7 @@ function streamDoneEvent(event: Record<string, unknown>): Program {
 
     const reason = finishReason(status, statusDetails, false);
     if (reason) program.push({ op: "openai_realtime.finish_reason", reason });
+    program.push({ op: "response.done" });
     return program;
 }
 

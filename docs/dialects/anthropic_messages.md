@@ -72,7 +72,8 @@ ops:
 | `content_block_delta` (text_delta)       | `response.text_delta`                                                   |
 | `content_block_delta` (input_json_delta) | `response.tool_call_delta`                                              |
 | `content_block_stop`                     | `response.block_stop`                                                   |
-| `ping`, `message_stop`                   | `stream_event` residual                                                 |
+| `ping`                                   | `stream_event` residual                                                 |
+| `message_stop`                           | `response.done`                                                         |
 | `message_delta`                          | `response.stop` + `response.usage`                                      |
 
 `message_start`:
@@ -133,11 +134,19 @@ residual, so each event lowers back to the same wire event, with one loss: a
 `message_delta` event loses `stop_sequence: null`, on `main` and here.
 Residual events pass through `toStreamResponse` untouched; lowering to another
 dialect drops them with a warning. Lowering a whole stream at once moves the
-rebuilt `message_delta` event after `message_stop`, also a `main` behavior;
-each event lowered on its own keeps its order.
+rebuilt `message_delta` event after `message_stop` on `main`; here
+`response.done` lowers to a `message_stop` event placed after the rebuilt
+`message_delta`, so a whole stream lowers to `message_delta` then
+`message_stop`, and the singular `toStreamResponse` throws for a program that
+lowers to more than one event. The `toStreamResponses` call returns the full
+sequence.
 
 `ping` keeps the connection open and carries no other meaning; only Anthropic
 sends it, so it stays an `anthropic_messages.stream_event` op.
+
+`message_stop` states that the stream of this response has ended, a fact every
+provider with an end event shares, so it raises to the core op `response.done`
+and leaves no `stream_event` op behind.
 
 `content_block_stop` ends a text block or a tool call block and raises to
 `response.block_stop` with the block's index, carrying no text.
