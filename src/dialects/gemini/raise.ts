@@ -451,10 +451,11 @@ function pushPartMeta(
     appliesTo?: "request" | "response",
 ): void {
     const meta = partExtras(part);
+    const hasIdSource = base.kind === "functionCall" && base.idSource != null;
     if (
         Object.keys(meta).length > 0 ||
         base.kind === "functionResponse" ||
-        base.idSource === "synthesized"
+        hasIdSource
     ) {
         out.push({
             op: "gemini.part_meta",

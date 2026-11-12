@@ -273,14 +273,16 @@ export function lowerStructuredOutput(program: Program): Program {
 
 // functionResponse needs the tool's name, which the core op doesn't carry —
 // it comes from the functionResponse gemini.part_meta that raising places
-// directly after its llm.tool_result, or from the matching llm.tool_call
-// earlier in the program. The response object always comes from
+// directly after its llm.tool_result, or from an llm.tool_call with the same
+// id. The response object always comes from
 // llm.tool_result.content, so a transform that edits that op changes the
 // gemini body. A functionResponse part_meta separated from its tool_result
 // is not consumed here and applyRequestPartMeta throws on it.
 // Whole-program stage for that reason; it also consumes (deletes) the
 // functionResponse part_meta residuals it reads. Runs before lowerToolCalls
 // so the llm.tool_call ops it scans for names are still present.
+// The tool_call scan collects every call by id, so when a later call reuses
+// an id, that later call's name wins; the scan is not nearest-earlier.
 export function lowerToolResults(program: Program): Program {
     const callNames = new Map<string, string>();
     for (const op of program) {
@@ -799,13 +801,14 @@ function collectResponsePartMeta(
             part: GeminiPartMeta;
             appliesTo?: "request" | "response";
         }>(op);
-        if (meta.appliesTo === "request" || meta.part.index == null) continue;
-        if (!meta.part.meta && meta.part.idSource !== "synthesized") continue;
-        byIndex.set(meta.part.index, {
-            ...(meta.part.meta ? { meta: meta.part.meta } : {}),
-            ...(meta.part.idSource === "synthesized"
-                ? { omitFunctionCallId: true }
-                : {}),
+        const part = meta.part;
+        if (meta.appliesTo === "request" || part.index == null) continue;
+        const omitFunctionCallId =
+            part.kind === "functionCall" && part.idSource === "synthesized";
+        if (!part.meta && !omitFunctionCallId) continue;
+        byIndex.set(part.index, {
+            ...(part.meta ? { meta: part.meta } : {}),
+            ...(omitFunctionCallId ? { omitFunctionCallId: true } : {}),
         });
     }
     return byIndex;
@@ -820,7 +823,8 @@ function withPartMeta(
 
 function applyPartMeta(part: WirePart, meta: GeminiPartMeta): WirePart {
     const withMeta = meta.meta ? { ...part, ...meta.meta } : { ...part };
-    if (meta.idSource !== "synthesized") return withMeta;
+    if (meta.kind !== "functionCall" || meta.idSource !== "synthesized")
+        return withMeta;
     if (!withMeta.functionCall) return withMeta;
     const { id: _id, ...functionCall } = withMeta.functionCall;
     return { ...withMeta, functionCall };
@@ -837,7 +841,10 @@ function assertPartMetaMatchesPart(meta: GeminiPartMeta, part: WirePart): void {
 }
 
 function partMetaHasWireEffect(meta: GeminiPartMeta): boolean {
-    return !!meta.meta || meta.idSource === "synthesized";
+    return (
+        !!meta.meta ||
+        (meta.kind === "functionCall" && meta.idSource === "synthesized")
+    );
 }
 
 function wirePartKind(part: WirePart): GeminiPartMeta["kind"] | undefined {

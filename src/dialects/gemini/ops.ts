@@ -34,14 +34,25 @@ export interface WireFunctionDeclaration {
 
 export type WireTool = Record<string, unknown>;
 
-export interface GeminiPartMeta {
-    kind: "text" | "functionCall" | "functionResponse";
-    index?: number;
-    id?: string;
-    idSource?: "synthesized";
-    name?: string;
-    meta?: Record<string, unknown>;
-}
+export type GeminiPartMeta =
+    | {
+          kind: "text";
+          index?: number;
+          meta?: Record<string, unknown>;
+      }
+    | {
+          kind: "functionCall";
+          index?: number;
+          id?: string;
+          idSource?: "synthesized";
+          meta?: Record<string, unknown>;
+      }
+    | {
+          kind: "functionResponse";
+          index?: number;
+          name: string;
+          meta?: Record<string, unknown>;
+      };
 
 export type GeminiOp =
     | {

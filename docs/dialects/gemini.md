@@ -66,8 +66,8 @@ value: a string as text, anything else as JSON. A response with `output` among
 other keys raises as the whole object.
 
 `gemini.part_meta` for a `functionResponse` part holds the part `index` and
-the function `name` only; the call id and the response object are the
-`llm.tool_result`'s own data. Lowering writes `response` from
+the function `name` only; the dialect op's type allows nothing else for that
+kind. Lowering writes `response` from
 `llm.tool_result.content`, so a transform that edits that op changes the
 gemini body.
 
@@ -102,7 +102,8 @@ string.
 
 The object under the `output` key is the tool result itself, so lowering
 writes it as the response object without the wrapper key, the same body a
-tool result whose content is `{"a": 1}` produces from any dialect.
+tool result whose content is the JSON text of the object with the single
+key `a` produces from any dialect.
 
 A `functionResponse` with no `response` raises to content `"{}"` and returns
 with `response: {}`, the same in both cases.
