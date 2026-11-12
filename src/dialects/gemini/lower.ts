@@ -272,49 +272,59 @@ export function lowerStructuredOutput(program: Program): Program {
 }
 
 // functionResponse needs the tool's name, which the core op doesn't carry —
-// it comes from the matching llm.tool_call earlier in the program, or from a
-// gemini.part_meta residual when the program was raised from gemini wire.
+// it comes from the functionResponse gemini.part_meta that raising places
+// directly after its llm.tool_result, or from the matching llm.tool_call
+// earlier in the program. The response object always comes from
+// llm.tool_result.content, so a transform that edits that op changes the
+// gemini body. A functionResponse part_meta separated from its tool_result
+// is not consumed here and applyRequestPartMeta throws on it.
 // Whole-program stage for that reason; it also consumes (deletes) the
 // functionResponse part_meta residuals it reads. Runs before lowerToolCalls
 // so the llm.tool_call ops it scans for names are still present.
 export function lowerToolResults(program: Program): Program {
-    const metaById = new Map<string, GeminiPartMeta>();
     const callNames = new Map<string, string>();
     for (const op of program) {
         if (op.op === "llm.tool_call") {
             const call = op as OpOf<"llm.tool_call">;
             callNames.set(call.id, call.name);
         }
-        if (op.op === "gemini.part_meta") {
-            const meta = opData<{ part: GeminiPartMeta }>(op).part;
-            if (meta.kind === "functionResponse" && meta.id)
-                metaById.set(meta.id, meta);
-        }
     }
 
-    return program.flatMap((op) => {
-        if (op.op === "gemini.part_meta") {
-            return opData<{ part: GeminiPartMeta }>(op).part.kind ===
-                "functionResponse"
-                ? []
-                : [op];
+    const out: Program = [];
+    for (let i = 0; i < program.length; i++) {
+        const op = program[i]!;
+        if (op.op !== "llm.tool_result") {
+            out.push(op);
+            continue;
         }
-        if (op.op !== "llm.tool_result") return [op];
         const result = op as OpOf<"llm.tool_result">;
-        const meta = metaById.get(result.id);
-        const name = meta?.name ?? callNames.get(result.id);
-        if (!name) {
+        const next = program[i + 1];
+        let metaName: string | undefined;
+        if (next?.op === "gemini.part_meta") {
+            const meta = opData<{ part: GeminiPartMeta }>(next).part;
+            if (meta.kind === "functionResponse") {
+                i++;
+                metaName = meta.name;
+            }
+        }
+        const resolvedName = metaName ?? callNames.get(result.id);
+        if (!resolvedName) {
             throw new LintError(
                 `gemini tool_result ${result.id}: cannot serialize without a functionResponse.name`,
             );
         }
-        const response = meta?.response ?? parseToolResultObject(result);
-        return [
+        const response = parseToolResultObject(result);
+        out.push(
             contentOp("user", {
-                functionResponse: { name, response, id: result.id },
+                functionResponse: {
+                    name: resolvedName,
+                    response,
+                    id: result.id,
+                },
             }),
-        ];
-    });
+        );
+    }
+    return out;
 }
 
 export function lowerRequestTexts(program: Program): Program {

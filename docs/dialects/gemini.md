@@ -24,17 +24,17 @@ path. Code: `src/dialects/gemini/`.
 
 ## Dialect ops
 
-| op                         | purpose                                                                     |
-| -------------------------- | --------------------------------------------------------------------------- |
-| `gemini.content`           | one request content or response candidate content                           |
-| `gemini.part_meta`         | part metadata such as `thoughtSignature` and exact function response fields |
-| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects               |
-| `gemini.generation_config` | Gemini-only `generationConfig` fields                                       |
-| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                         |
-| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                  |
-| `gemini.usage`             | shared usage plus `usageMetadata` extras                                    |
-| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                     |
-| `gemini.body_field`        | unknown top-level field                                                     |
+| op                         | purpose                                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `gemini.content`           | one request content or response candidate content                                                             |
+| `gemini.part_meta`         | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name` and part `index` |
+| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                 |
+| `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                         |
+| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                           |
+| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                    |
+| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                      |
+| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                       |
+| `gemini.body_field`        | unknown top-level field                                                                                       |
 
 ## Lints
 
@@ -65,9 +65,47 @@ Raising turns a `response` whose only key is `output` back into the wrapped
 value: a string as text, anything else as JSON. A response with `output` among
 other keys raises as the whole object.
 
-A body gemini lowering wrote round-trips on the wire: `gemini.part_meta`
-carries the exact `response` object, so lowering the raised program again
-writes the same body.
+`gemini.part_meta` for a `functionResponse` part holds the part `index` and
+the function `name` only; the call id and the response object are the
+`llm.tool_result`'s own data. Lowering writes `response` from
+`llm.tool_result.content`, so a transform that edits that op changes the
+gemini body.
+
+A body raised and lowered back to gemini can therefore change:
+
+```diff
+ {
+     "name": "get_population",
+     "response": {
+-        "output": "378"
++        "output": 378
+     },
+     "id": "call_pop"
+ }
+```
+
+`"378"` parses as JSON, so lowering writes the number 378 instead of the
+string.
+
+```diff
+ {
+     "name": "get_population",
+     "response": {
+-        "output": {
+-            "a": 1
+-        }
++        "a": 1
+     },
+     "id": "call_pop"
+ }
+```
+
+The object under the `output` key is the tool result itself, so lowering
+writes it as the response object without the wrapper key, the same body a
+tool result whose content is `{"a": 1}` produces from any dialect.
+
+A `functionResponse` with no `response` raises to content `"{}"` and returns
+with `response: {}`, the same in both cases.
 
 ## Thinking and signatures
 

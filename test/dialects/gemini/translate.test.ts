@@ -519,10 +519,112 @@ describe("gemini translation", () => {
         const lowered = GeminiTranslator.toBody(program) as {
             contents: { role: string; parts: unknown[] }[];
         };
-        // The functionResponse part round-trips exactly; the thoughtSignature
-        // Gemini lowering injects on the functionCall part is pre-existing
-        // behavior for core tool history without a Gemini response.
-        expect(lowered.contents[2]!.parts).toEqual(body.contents[2]!.parts);
+        // "361" parses as a JSON number, so lowering writes the number back
+        // instead of the string the body had. The thoughtSignature Gemini
+        // lowering injects on the functionCall part is pre-existing behavior
+        // for core tool history without a Gemini response.
+        expect(lowered.contents[2]!.parts).toEqual([
+            {
+                functionResponse: {
+                    name: "calc",
+                    response: { output: 361 },
+                    id: "call_math",
+                },
+            },
+        ]);
+    });
+
+    test("a transform that edits llm.tool_result.content changes the gemini body", () => {
+        const body = {
+            model: "models/gemini-3.5-flash",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "calc",
+                                response: { output: 378 },
+                                id: "call_math",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        const edited = GeminiTranslator.fromBody(body).map((op) =>
+            op.op === "llm.tool_result" ? { ...op, content: "999" } : op,
+        );
+
+        expect(GeminiTranslator.toBody(edited)).toEqual({
+            model: "models/gemini-3.5-flash",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "calc",
+                                // "999" parses as a JSON number, so the
+                                // edit reaches the body as the number.
+                                response: { output: 999 },
+                                id: "call_math",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("a functionResponse body raised and lowered back to gemini", () => {
+        const roundTrip = (
+            response: Record<string, unknown> | undefined,
+        ): Record<string, unknown> => {
+            const body = {
+                model: "models/gemini-3.5-flash",
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            {
+                                functionResponse: {
+                                    name: "calc",
+                                    ...(response == null ? {} : { response }),
+                                    id: "call_math",
+                                },
+                            },
+                        ],
+                    },
+                ],
+            };
+            const lowered = GeminiTranslator.toBody(
+                GeminiTranslator.fromBody(body),
+            ) as typeof body;
+            return lowered.contents[0]!.parts[0]!.functionResponse;
+        };
+
+        // The string "378" parses as a JSON number, so it comes back as 378.
+        expect(roundTrip({ output: "378" })).toEqual({
+            name: "calc",
+            response: { output: 378 },
+            id: "call_math",
+        });
+        // The object under the output key is the tool result itself, so it
+        // comes back as the response object without the wrapper key.
+        expect(roundTrip({ output: { a: 1 } })).toEqual({
+            name: "calc",
+            response: { a: 1 },
+            id: "call_math",
+        });
+        // A functionResponse with no response comes back with response: {},
+        // the same empty struct the tool result content "{}" lowers to.
+        expect(roundTrip(undefined)).toEqual({
+            name: "calc",
+            response: {},
+            id: "call_math",
+        });
     });
 
     test("an anthropic response id lowers into the gemini responseId", () => {

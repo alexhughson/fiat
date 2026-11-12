@@ -41,7 +41,6 @@ export interface GeminiPartMeta {
     idSource?: "synthesized";
     name?: string;
     meta?: Record<string, unknown>;
-    response?: Record<string, unknown>;
 }
 
 export type GeminiOp =
