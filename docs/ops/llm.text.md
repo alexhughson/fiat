@@ -15,9 +15,12 @@ or output of the model (`assistant`), and `content` is the text.
 Both params are required.
 
 Each example below is one run of the code. It shows a request body, the program
-that the body raises to, the program after lowering to the target
-[lower dialect](../higher-and-lower-dialects.md), and the request body that
-fiat writes from the lower program.
+that the body raises to, the program after lowering to the
+[lower dialect](../higher-and-lower-dialects.md) of the API that receives the
+request, and the request body that fiat writes from the lower program. A
+translator's `toBody` function lowers the program and writes the request body in
+one call, so the program after lowering is read through the `afterLower` hook of
+`toBody`.
 
 The runs are for two proxies:
 
@@ -80,7 +83,9 @@ that request body.
 ```
 
 **Lower**: the whole program that the lower step of `AnthropicTranslator.toBody`
-returns for the raised program, read through the `afterLower` hook of `toBody`.
+returns for the raised program. That lower step leaves the `system` text as an
+`llm.text` op. `toWire`, the step of `toBody` that writes the request body,
+writes the content of that op to `system`, as the **Out** block shows.
 
 ```json
 [
@@ -135,10 +140,11 @@ API.
 }
 ```
 
-## Example 2: `system` and `user` text, to OpenAI's Chat Completions API
+## Example 2: `system`, `user`, and `assistant` text, to OpenAI's Chat Completions API
 
 **In**: the whole request body that the client of the Anthropic-to-Chat proxy
-sends to that proxy.
+sends to that proxy. The message with role `assistant` is a reply that the model
+gave earlier in the conversation.
 
 ```json
 {
@@ -152,6 +158,24 @@ sends to that proxy.
                 {
                     "type": "text",
                     "text": "hi"
+                }
+            ]
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "salut"
+                }
+            ]
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "and in German?"
                 }
             ]
         }
@@ -181,13 +205,22 @@ that request body.
         "op": "llm.text",
         "role": "user",
         "content": "hi"
+    },
+    {
+        "op": "llm.text",
+        "role": "assistant",
+        "content": "salut"
+    },
+    {
+        "op": "llm.text",
+        "role": "user",
+        "content": "and in German?"
     }
 ]
 ```
 
 **Lower**: the whole program that the lower step of
-`OpenAIChatTranslator.toBody` returns for the raised program, read through the
-`afterLower` hook of `toBody`.
+`OpenAIChatTranslator.toBody` returns for the raised program.
 
 ```json
 [
@@ -212,6 +245,20 @@ that request body.
             "role": "user",
             "content": "hi"
         }
+    },
+    {
+        "op": "openai_chat.message",
+        "message": {
+            "role": "assistant",
+            "content": "salut"
+        }
+    },
+    {
+        "op": "openai_chat.message",
+        "message": {
+            "role": "user",
+            "content": "and in German?"
+        }
     }
 ]
 ```
@@ -231,25 +278,6 @@ the raised program, and that the Anthropic-to-Chat proxy sends to OpenAI's API.
         {
             "role": "user",
             "content": "hi"
-        }
-    ]
-}
-```
-
-## Example 3: `assistant` text, to Anthropic's Messages API
-
-**In**: the whole request body that the client of the Chat-to-Anthropic proxy
-sends to that proxy. The second message is a reply that the model gave earlier
-in the conversation.
-
-```json
-{
-    "model": "claude-sonnet-4-5",
-    "max_tokens": 100,
-    "messages": [
-        {
-            "role": "user",
-            "content": "hi"
         },
         {
             "role": "assistant",
@@ -258,129 +286,6 @@ in the conversation.
         {
             "role": "user",
             "content": "and in German?"
-        }
-    ]
-}
-```
-
-**Raised**: the whole program that `OpenAIChatTranslator.fromBody` returns for
-that request body.
-
-```json
-[
-    {
-        "op": "llm.model",
-        "model": "claude-sonnet-4-5"
-    },
-    {
-        "op": "llm.max_output_tokens",
-        "value": 100
-    },
-    {
-        "op": "llm.text",
-        "role": "user",
-        "content": "hi"
-    },
-    {
-        "op": "llm.text",
-        "role": "assistant",
-        "content": "salut"
-    },
-    {
-        "op": "llm.text",
-        "role": "user",
-        "content": "and in German?"
-    }
-]
-```
-
-**Lower**: the whole program that the lower step of `AnthropicTranslator.toBody`
-returns for the raised program, read through the `afterLower` hook of `toBody`.
-
-```json
-[
-    {
-        "op": "llm.model",
-        "model": "claude-sonnet-4-5"
-    },
-    {
-        "op": "llm.max_output_tokens",
-        "value": 100
-    },
-    {
-        "op": "anthropic_messages.message",
-        "message": {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "hi"
-                }
-            ]
-        }
-    },
-    {
-        "op": "anthropic_messages.message",
-        "message": {
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "salut"
-                }
-            ]
-        }
-    },
-    {
-        "op": "anthropic_messages.message",
-        "message": {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "and in German?"
-                }
-            ]
-        }
-    }
-]
-```
-
-**Out**: the whole request body that `AnthropicTranslator.toBody` returns for
-the raised program, and that the Chat-to-Anthropic proxy sends to Anthropic's
-API.
-
-```json
-{
-    "model": "claude-sonnet-4-5",
-    "max_tokens": 100,
-    "messages": [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "hi"
-                }
-            ]
-        },
-        {
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "salut"
-                }
-            ]
-        },
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": "and in German?"
-                }
-            ]
         }
     ]
 }

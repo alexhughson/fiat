@@ -11,12 +11,20 @@ import {
 // holds four json blocks from one run: In, Raised, Lower, and Out. The label
 // above each block names the function that returns the block. These tests
 // rerun the named functions and compare every block as text, so that a changed
-// value, a changed key order, and a label that names another translator all
-// fail.
+// value, a changed key order, and a label that names another translator or
+// another proxy all fail.
 const translators: Record<string, Translator> = {
     AnthropicTranslator,
     OpenAIChatTranslator,
 };
+
+// The word that stands for each translator's API in the name of a proxy. The
+// page calls a proxy that receives Chat Completions request bodies and sends
+// Anthropic request bodies "the Chat-to-Anthropic proxy".
+const apiWords = new Map<Translator, string>([
+    [AnthropicTranslator, "Anthropic"],
+    [OpenAIChatTranslator, "Chat"],
+]);
 
 const read = (path: string) =>
     readFileSync(new URL(path, import.meta.url), "utf8");
@@ -52,11 +60,15 @@ function translatorIn(label: string, method: string): Translator {
     return translator;
 }
 
+// The proxy that a label names, such as "Chat-to-Anthropic".
+const proxyIn = (label: string) =>
+    /\bthe\s+(\w+-to-\w+)\s+proxy\b/.exec(label)?.[1];
+
 const examples = examplesOf("llm.text.md");
 
-test("docs/ops/llm.text.md has three examples", () => {
-    expect(examples.map((example) => example.blocks.length)).toEqual([4, 4, 4]);
-    expect(examples.map((example) => example.labels.length)).toEqual([4, 4, 4]);
+test("docs/ops/llm.text.md has two examples", () => {
+    expect(examples.map((example) => example.blocks.length)).toEqual([4, 4]);
+    expect(examples.map((example) => example.labels.length)).toEqual([4, 4]);
 });
 
 for (const { heading, labels, blocks } of examples) {
@@ -70,6 +82,12 @@ for (const { heading, labels, blocks } of examples) {
         const source = translatorIn(raisedLabel!, "fromBody");
         const target = translatorIn(lowerLabel!, "toBody");
         expect(translatorIn(outLabel!, "toBody")).toBe(target);
+
+        // In and Out: each label names the proxy of this example, which
+        // receives the source translator's bodies and sends the target's.
+        const proxy = `${apiWords.get(source)}-to-${apiWords.get(target)}`;
+        expect(proxyIn(inLabel!)).toBe(proxy);
+        expect(proxyIn(outLabel!)).toBe(proxy);
 
         // Raised: what the source translator raises from the In body.
         const raisedProgram = source.fromBody(JSON.parse(body!));
