@@ -260,7 +260,7 @@ function raiseContent(
                     content:
                         responseBody == null
                             ? "{}"
-                            : JSON.stringify(responseBody),
+                            : toolResultContent(responseBody),
                 });
                 pushPartMeta(
                     out,
@@ -427,6 +427,21 @@ function partKind(
         );
     }
     return kinds[0] as GeminiPartMeta["kind"];
+}
+
+// Gemini requires functionResponse.response to be a JSON object, so lowering
+// wraps a tool result that is not an object under the "output" key, which
+// Gemini's docs name for function output. A response body whose only key is
+// "output" raises back to the wrapped value: a string as text, anything else
+// as JSON, so a round trip through Gemini returns the caller's original
+// content.
+function toolResultContent(responseBody: Record<string, unknown>): string {
+    const keys = Object.keys(responseBody);
+    if (keys.length !== 1 || keys[0] !== "output") {
+        return JSON.stringify(responseBody);
+    }
+    const value = responseBody.output;
+    return typeof value === "string" ? value : JSON.stringify(value);
 }
 
 function pushPartMeta(
