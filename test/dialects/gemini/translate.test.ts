@@ -396,4 +396,128 @@ describe("gemini translation", () => {
             });
         });
     });
+
+    test("a tool result whose content is a string lowers to gemini under the output key", () => {
+        const body = GeminiTranslator.toBody(
+            OpenAIChatTranslator.fromBody({
+                model: "gpt-4o-mini",
+                messages: [
+                    { role: "user", content: "what is 19 * 19?" },
+                    {
+                        role: "assistant",
+                        content: null,
+                        tool_calls: [
+                            {
+                                id: "call_math",
+                                type: "function",
+                                function: {
+                                    name: "calc",
+                                    arguments: '{"expression":"19 * 19"}',
+                                },
+                            },
+                        ],
+                    },
+                    { role: "tool", tool_call_id: "call_math", content: "361" },
+                ],
+                tools: [
+                    {
+                        type: "function",
+                        function: {
+                            name: "calc",
+                            parameters: { type: "object" },
+                        },
+                    },
+                ],
+            }),
+        );
+
+        expect(body).toEqual({
+            model: "gpt-4o-mini",
+            contents: [
+                { role: "user", parts: [{ text: "what is 19 * 19?" }] },
+                {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: "calc",
+                                args: { expression: "19 * 19" },
+                                id: "call_math",
+                            },
+                            thoughtSignature:
+                                "skip_thought_signature_validator",
+                        },
+                    ],
+                },
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "calc",
+                                // "361" parses as a JSON number, so the
+                                // wrapped value is the number 361.
+                                response: { output: 361 },
+                                id: "call_math",
+                            },
+                        },
+                    ],
+                },
+            ],
+            tools: [
+                {
+                    functionDeclarations: [
+                        { name: "calc", parameters: { type: "object" } },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("a gemini body with a string tool result raises back to the same content", () => {
+        const body = {
+            model: "models/gemini-3.5-flash",
+            contents: [
+                { role: "user", parts: [{ text: "what is 19 * 19?" }] },
+                {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: "calc",
+                                args: { expression: "19 * 19" },
+                                id: "call_math",
+                            },
+                        },
+                    ],
+                },
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "calc",
+                                response: { output: "361" },
+                                id: "call_math",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        const program = GeminiTranslator.fromBody(body);
+        expect(program).toContainEqual({
+            op: "llm.tool_result",
+            id: "call_math",
+            content: "361",
+        });
+        const lowered = GeminiTranslator.toBody(program) as {
+            contents: { role: string; parts: unknown[] }[];
+        };
+        // The functionResponse part round-trips exactly; the thoughtSignature
+        // Gemini lowering injects on the functionCall part is pre-existing
+        // behavior for core tool history without a Gemini response.
+        expect(lowered.contents[2]!.parts).toEqual(body.contents[2]!.parts);
+    });
 });

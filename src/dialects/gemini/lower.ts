@@ -844,24 +844,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseToolResultObject(
     result: OpOf<"llm.tool_result">,
 ): Record<string, unknown> {
+    // Gemini requires functionResponse.response to be a JSON object, but a
+    // tool result is often a bare string, number, or array. Parse the content
+    // when it is JSON and wrap any non-object value under the "output" key,
+    // which Gemini's docs name for function output. Content that is not JSON
+    // at all is plain text, so it wraps under the same key as a string.
     let parsed: unknown;
     try {
         parsed = JSON.parse(result.content);
     } catch {
-        throw new LintError(
-            `gemini tool_result ${result.id}: content must be a JSON object`,
-        );
+        return { output: result.content };
     }
-    if (
-        typeof parsed !== "object" ||
-        parsed === null ||
-        Array.isArray(parsed)
-    ) {
-        throw new LintError(
-            `gemini tool_result ${result.id}: content must be a JSON object`,
-        );
-    }
-    return parsed as Record<string, unknown>;
+    return isRecord(parsed) ? parsed : { output: parsed };
 }
 
 function parseToolCallDeltaArguments(

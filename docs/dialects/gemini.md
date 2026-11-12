@@ -39,13 +39,29 @@ path. Code: `src/dialects/gemini/`.
 
 - A bare `llm.tool_result` needs a known function name from a prior
   `llm.tool_call` or `gemini.part_meta`.
-- Tool result content must be JSON for `functionResponse.response`.
 - Multiple response candidates are rejected.
 - `toolConfig` with several `allowedFunctionNames` has no core equivalent.
 - Forced server-tool choices throw; Gemini can force function tools only.
 - `llm.output` conflicts with existing native `responseMimeType` or
   `responseSchema`.
 - `gemini.part_meta` must stay adjacent to the lowered part it annotates.
+
+## Tool results
+
+Gemini requires `functionResponse.response` to be a JSON object. A tool result
+whose content parses to a JSON object lowers into `response` as that object; a
+tool result that is anything else — a string, number, array, or text that is
+not JSON — lowers wrapped under the `output` key, which Gemini's docs name for
+function output:
+
+```json
+{
+    "output": "<content>"
+}
+```
+
+Raising turns a `response` that is exactly `{ "output": <string> }` back into
+the string as text.
 
 ## Thinking and signatures
 
