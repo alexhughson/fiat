@@ -301,6 +301,13 @@ function raiseContentBlockStart(event: WireAnthropicStreamEvent): Op {
         event.content_block,
         "anthropic_messages content_block_start.content_block",
     ) as WireBlock;
+    if (block.type === "text") {
+        // The block opens empty and its text arrives as text_delta events.
+        return {
+            op: "response.text_start",
+            index: streamIndex(event),
+        };
+    }
     if (block.type !== "tool_use") {
         throw new LintError(
             `anthropic_messages content_block_start ${JSON.stringify(block.type)} is unsupported`,

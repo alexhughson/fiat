@@ -63,6 +63,75 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 - Media model validation is hard failure even in lenient mode. It never drops
   media.
 
+## Response streams
+
+`fromStreamResponse` parses one SSE event; each event type maps to ops. One
+event in, one event out:
+
+| wire event                                       | raised ops                                                       |
+| ------------------------------------------------ | ---------------------------------------------------------------- |
+| `response.output_text.delta`                     | one `body_field` op per event field + `response.text_delta`      |
+| `response.function_call_arguments.delta`         | one `body_field` op per event field + `response.tool_call_delta` |
+| `response.content_part.added` (`output_text`)    | `openai_responses.stream_event_meta` + `response.text_start`     |
+| `response.output_item.added` / `.done`           | one `body_field` op per event field, plus the item               |
+| `response.completed` / `.incomplete` / `.failed` | one `body_field` op per event field, plus usage                  |
+
+`response.content_part.added`:
+
+```json
+{
+    "type": "response.content_part.added",
+    "sequence_number": 3,
+    "item_id": "msg_123",
+    "output_index": 0,
+    "content_index": 0,
+    "part": {
+        "type": "output_text",
+        "text": "",
+        "annotations": [],
+        "logprobs": []
+    }
+}
+```
+
+raised:
+
+```json
+[
+    {
+        "op": "openai_responses.stream_event_meta",
+        "event": {
+            "type": "response.content_part.added",
+            "sequence_number": 3,
+            "item_id": "msg_123",
+            "content_index": 0,
+            "part": {
+                "type": "output_text",
+                "text": "",
+                "annotations": [],
+                "logprobs": []
+            }
+        },
+        "appliesTo": "response"
+    },
+    {
+        "op": "response.text_start",
+        "index": 0
+    }
+]
+```
+
+`output_index` is the core op's `index`; the fields only OpenAI has
+(`item_id`, `content_index`, `sequence_number`, and the `part` object, whose
+text the `response.text_delta` ops already carry) stay together in one
+`openai_responses.stream_event_meta` op, and lowering folds the two ops back
+into the same wire event. A part other than `output_text` is not raised yet
+and keeps the whole event in the meta op, so it round-trips.
+
+Other stream events (`response.created`, `response.in_progress`,
+`response.output_text.done`, `response.content_part.done`) are not raised
+yet and still throw.
+
 ## Out of scope
 
 Structured output lowering, streaming output item protocols beyond text/tool

@@ -432,6 +432,31 @@ export function streamResponseFromWire(wire: unknown): Program {
         case "response.output_item.added":
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
+        // The part opens empty and its text arrives (and has already raised)
+        // as output_text.delta events. The event fields only openai_responses
+        // has stay in one stream_event_meta op; output_index raises to the
+        // core op's index. A part other than output_text is not raised yet
+        // and keeps the whole event in the meta op, so it round-trips.
+        case "response.content_part.added": {
+            const part = asRecord(event.part, "stream event.part");
+            const program = [
+                streamEventMeta(
+                    event,
+                    part.type === "output_text" ? ["output_index"] : [],
+                ),
+            ];
+            if (part.type !== "output_text") return program;
+            return [
+                ...program,
+                {
+                    op: "response.text_start",
+                    index: asNumber(
+                        event.output_index,
+                        "stream event.output_index",
+                    ),
+                },
+            ];
+        }
         case "response.completed":
         case "response.incomplete":
         case "response.failed":
@@ -458,6 +483,16 @@ export function streamResponseToWire(program: Program): unknown {
                 text += (op as OpOf<"response.text_delta">).content;
                 event.type ??= "response.output_text.delta";
                 break;
+            case "response.text_start":
+                event.type ??= "response.content_part.added";
+                event.output_index = (op as OpOf<"response.text_start">).index;
+                event.part ??= {
+                    type: "output_text",
+                    text: "",
+                    annotations: [],
+                    logprobs: [],
+                };
+                break;
             case "response.tool_call_delta":
                 toolDeltas.push(op as OpOf<"response.tool_call_delta">);
                 event.type ??= "response.function_call_arguments.delta";
@@ -476,6 +511,11 @@ export function streamResponseToWire(program: Program): unknown {
             case "openai_responses.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
                 event[param.key] = param.value;
+                break;
+            }
+            case "openai_responses.stream_event_meta": {
+                const meta = opData<{ event: Record<string, unknown> }>(op);
+                Object.assign(event, meta.event);
                 break;
             }
             default:
@@ -559,6 +599,20 @@ function inputFromWire(input: unknown): Program {
         op: "openai_responses.input",
         item: asRecord(item, "input item") as unknown as WireInputItem,
     }));
+}
+
+function streamEventMeta(event: Record<string, unknown>, skip: string[]): Op {
+    const skipped = new Set(skip);
+    const rest: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(event)) {
+        if (skipped.has(key)) continue;
+        rest[key] = value;
+    }
+    return {
+        op: "openai_responses.stream_event_meta",
+        event: rest,
+        appliesTo: "response",
+    };
 }
 
 function streamEventParams(

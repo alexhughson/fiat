@@ -195,6 +195,99 @@ describe("stream response conversion", () => {
         ).toEqual(event);
     });
 
+    test("openai responses content_part.added raises to response.text_start and round-trips", () => {
+        const event = {
+            type: "response.content_part.added",
+            sequence_number: 3,
+            item_id: "msg_123",
+            output_index: 0,
+            content_index: 0,
+            part: {
+                type: "output_text",
+                text: "",
+                annotations: [],
+                logprobs: [],
+            },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event: {
+                    type: "response.content_part.added",
+                    sequence_number: 3,
+                    item_id: "msg_123",
+                    content_index: 0,
+                    part: {
+                        type: "output_text",
+                        text: "",
+                        annotations: [],
+                        logprobs: [],
+                    },
+                },
+                appliesTo: "response",
+            },
+            { op: "response.text_start", index: 0 },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("openai responses content_part.added of a non-text part stays in the meta op", () => {
+        const event = {
+            type: "response.content_part.added",
+            sequence_number: 3,
+            item_id: "msg_123",
+            output_index: 0,
+            content_index: 0,
+            part: { type: "refusal", refusal: "" },
+        };
+
+        const program = OpenAIResponsesTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            {
+                op: "openai_responses.stream_event_meta",
+                event: {
+                    type: "response.content_part.added",
+                    sequence_number: 3,
+                    item_id: "msg_123",
+                    output_index: 0,
+                    content_index: 0,
+                    part: { type: "refusal", refusal: "" },
+                },
+                appliesTo: "response",
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(program)).toEqual(
+            event,
+        );
+    });
+
+    test("an anthropic text block start translates to an openai responses content_part.added event", () => {
+        const event = {
+            type: "response.content_part.added",
+            output_index: 0,
+            part: {
+                type: "output_text",
+                text: "",
+                annotations: [],
+                logprobs: [],
+            },
+        };
+
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(
+                AnthropicTranslator.fromStreamResponse({
+                    type: "content_block_start",
+                    index: 0,
+                    content_block: { type: "text", text: "" },
+                }),
+            ),
+        ).toEqual(event);
+    });
+
     test("openai responses failed terminal events warn and drop cross-provider metadata", () => {
         withWarnSpy((warn) => {
             const chunk = OpenAIChatTranslator.toStreamResponse(

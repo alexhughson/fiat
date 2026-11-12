@@ -109,4 +109,14 @@ export type OpenAIResponsesOp =
           key: string;
           value: unknown;
           appliesTo?: "request" | "response";
+      }
+    // The remainder of a stream event whose shared part raised to a core op:
+    // `event` is the wire event minus `output_index` (the core op's `index`),
+    // so it holds what only openai_responses has — `content_index`, `item_id`,
+    // `sequence_number`, and the `part` object, which repeats the text the
+    // text_delta ops already carry.
+    | {
+          op: "openai_responses.stream_event_meta";
+          event: Record<string, unknown>;
+          appliesTo?: "request" | "response";
       };
