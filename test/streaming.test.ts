@@ -784,6 +784,16 @@ describe("response.done across dialects", () => {
             },
             { op: "response.done" },
         ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(
+                OpenAIResponsesTranslator.fromStreamResponse(failed),
+            ),
+        ).toEqual(failed);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(
+                OpenAIResponsesTranslator.fromStreamResponse(failed),
+            ),
+        ).toEqual([failed]);
     });
 
     test("openai realtime response.done raises the core op beside stop and usage", () => {
