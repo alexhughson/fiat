@@ -35,9 +35,15 @@ const wordsBetween = [
 // is never the word "response". A possessive "'s" is left out of the word.
 // A dotted name that ends in `.kind` counts as the word "kind".
 const word = /(?<word>\w+(?:\.[\w*]+)*)(?:['’]s\b)?/;
+// Markdown emphasis puts an underscore on each side of a word or a phrase, as
+// in `_kind_`. The underscores at the start and at the end of a word are not
+// part of the word that the rule compares. `response_stream` keeps its
+// underscore.
+const emphasis = /^_+|_+$/g;
 // A clause ends at one of these marks, at a blank line, and at a list marker.
-// A colon does not end a clause: `kind: "request"` is one clause.
-const clauseEnd = /[,;()|.?!]|\n[ \t]*\n|\n[ \t]*[-*+][ \t]/;
+// A colon does not end a clause: `kind: "request"` is one clause. Neither does
+// a `!` directly before `=`: `kind !== "request"` is one clause.
+const clauseEnd = /[,;()|.?]|!(?!=)|\n[ \t]*\n|\n[ \t]*[-*+][ \t]/;
 const token = new RegExp(`${word.source}|${clauseEnd.source}`, "g");
 
 type Finding = { line: number; text: string };
@@ -61,11 +67,15 @@ function kindWordings(markdown: string): Finding[] {
     const findings: Finding[] = [];
     let previous: { isKind: boolean; start: number } | undefined;
     for (const match of prose.matchAll(token)) {
-        const found = match.groups?.word?.toLowerCase();
-        if (found === undefined) {
+        const written = match.groups?.word;
+        if (written === undefined) {
             previous = undefined;
             continue;
         }
+        const found = written.toLowerCase().replace(emphasis, "");
+        // An underscore alone closes an emphasised phrase, as in
+        // "_the `"request"`_ kind", and is no word between the two words.
+        if (found === "") continue;
         // `target.kind` names the same type, so its last part is read.
         const isKind = kindWords.includes(found.split(".").at(-1)!);
         if (!isKind && !bodyWords.includes(found)) {
@@ -75,7 +85,7 @@ function kindWordings(markdown: string): Finding[] {
         if (previous && previous.isKind !== isKind) {
             // The message shows both words with their quotes and backticks.
             const start = /[`"']*$/.exec(prose.slice(0, previous.start))!.index;
-            const end = match.index + found.length;
+            const end = match.index + written.length;
             findings.push({
                 line: prose.slice(0, start).split("\n").length,
                 text: (
@@ -110,30 +120,60 @@ test('the rule matches "kind" next to "request" or "response"', () => {
         ),
     ).toEqual([{ line: 7, text: 'kind `"request"`' }]);
 
-    expect(
-        textsOf('When `kind` is `"response"`, the body is a response.'),
-    ).toEqual(['`kind` is `"response"`']);
-    expect(textsOf('`lowerToWire` checks `kind === "request"` first.')).toEqual(
-        ['`kind === "request"`'],
+    // Each sentence, and the text that the rule matches in the sentence.
+    const rejected: [sentence: string, matched: string][] = [
+        // "kind" first, in prose and in inline code.
+        ['For kind `"request"`, x.', 'kind `"request"`'],
+        ['For the kinds `"request"` and `"response"`, x.', 'kinds `"request"`'],
+        ['For Kind "request", x.', 'Kind "request"'],
+        ["- one list item\n- for Kind REQUEST", "Kind REQUEST"],
+        ["For a program of kind request, x.", "kind request"],
+        ["For the kinds requests and responses, x.", "kinds requests"],
+        ['For request bodies (kind `"request"`), x.', 'kind `"request"`'],
+        ['When `kind === "request"`, x.', '`kind === "request"`'],
+        ['When `kind !== "request"`, x.', '`kind !== "request"`'],
+        ['With `kind: "request"`, x.', '`kind: "request"`'],
+        [
+            'When `target.kind` is `"response_stream"`, x.',
+            '`target.kind` is `"response_stream"`',
+        ],
+        // Each of the words that may stand between the two words.
+        ['When `kind` is `"request"`, x.', '`kind` is `"request"`'],
+        [
+            'The kinds are `"request"` and `"response"`.',
+            'kinds are `"request"`',
+        ],
+        ['When `kind` equals `"response"`, x.', '`kind` equals `"response"`'],
+        [
+            'When the `kind` argument is `"request"`, x.',
+            '`kind` argument is `"request"`',
+        ],
+        ['The `kind` param `"request"`, x.', '`kind` param `"request"`'],
+        [
+            'The `kind` parameter `"request"`, x.',
+            '`kind` parameter `"request"`',
+        ],
+        ['The `kind` value `"request"`, x.', '`kind` value `"request"`'],
+        [
+            'The `Kind` type is `"request" | "response"`.',
+            '`Kind` type is `"request"',
+        ],
+        // The body word first.
+        ['For the `"request"` kind, x.', '`"request"` kind'],
+        ['For the `"request"`\nkind, x.', '`"request"` kind'],
+        ["For request-kind programs, x.", "request-kind"],
+        ["Depending on the request's kind, x.", "request's kind"],
+        ["Depending on the request’s kind, x.", "request’s kind"],
+        ["The request and response kinds differ.", "response kinds"],
+        ["The requests and responses kinds differ.", "responses kinds"],
+        // Markdown emphasis.
+        ['For _kind_ `"request"`, x.', '_kind_ `"request"`'],
+        ["For the _request_ kind, x.", "_request_ kind"],
+        ['For _the `"request"`_ kind, x.', '`"request"`_ kind'],
+    ];
+    expect(rejected.map(([sentence]) => [sentence, textsOf(sentence)])).toEqual(
+        rejected.map(([sentence, matched]) => [sentence, [matched]]),
     );
-    expect(textsOf('When the `kind` argument is `"request"`.')).toEqual([
-        '`kind` argument is `"request"`',
-    ]);
-    expect(
-        textsOf('When `target.kind` is `"response_stream"`, the stage runs.'),
-    ).toEqual(['`target.kind` is `"response_stream"`']);
-    expect(textsOf('A program of the `"request"` kind.')).toEqual([
-        '`"request"` kind',
-    ]);
-    expect(textsOf("The request and response kinds differ.")).toEqual([
-        "response kinds",
-    ]);
-    expect(textsOf("Depending on the request's kind.")).toEqual([
-        "request's kind",
-    ]);
-    expect(textsOf("- one list item\n- for Kind REQUEST")).toEqual([
-        "Kind REQUEST",
-    ]);
 });
 
 test("the rule leaves a param named kind and other uses of the word alone", () => {
@@ -144,18 +184,28 @@ test("the rule leaves a param named kind and other uses of the word alone", () =
         // The word in other senses, and a body word in the next clause.
         "A response keeps every other kind of text intact.",
         "This kind of text stays intact in a response.",
+        "The two kinds of response differ.",
         "Most stages rewrite one op kind. Response ops pass through.",
+        "Every op has one kind; response ops pass through.",
+        "Which kind? Response ops only.",
+        "Only one kind! Response ops pass through.",
         'In a response, `kind` is `"text"`.',
         'A text part in a response (`kind: "text"`) keeps its index.',
+        "Gemini reads each part (by its kind) request by request.",
         "| `kind` | response part |",
         "Every op of one kind: `response.stop`.",
         "Every op of one kind: `response.*`.",
         "`dropResponseOps` removes every op of that kind\n\nResponse bodies keep the ops.",
         "- every op of that kind\n- response ops",
-        // A fenced block.
+        "* every op of that kind\n* response ops",
+        "+ every op of that kind\n+ response ops",
+        // Fenced blocks.
         '```ts\nlow = kind === "request" ? dropResponseOps(low) : dropRequestOps(low);\n```',
+        '~~~ts\nlow = kind === "request" ? dropResponseOps(low) : dropRequestOps(low);\n~~~',
     ];
-    for (const markdown of allowed) expect(textsOf(markdown)).toEqual([]);
+    expect(allowed.filter((markdown) => textsOf(markdown).length > 0)).toEqual(
+        [],
+    );
 });
 
 test('no file under docs/ uses the word "kind" for a request body or a response body', () => {
@@ -164,15 +214,20 @@ test('no file under docs/ uses the word "kind" for a request body or a response 
         .readdirSync(docs, { recursive: true, encoding: "utf8" })
         .filter((path) => path.endsWith(".md"))
         .sort();
-    // A wrong directory would hold no page, and the test would pass.
+    // A wrong directory would hold no page, and a listing of the top directory
+    // only would skip the pages in subdirectories. The test would pass.
     expect(pages).toContain("core-ir.md");
+    expect(pages).toContain("dialects/gemini.md");
 
     const messages = pages.flatMap((page) =>
         kindWordings(fs.readFileSync(new URL(page, docs), "utf8")).map(
             ({ line, text }) =>
                 `docs/${page}:${line}: "${text}" uses the internal type name "kind" for a body. ` +
                 'Write "request body" or "response body", as in ' +
-                '"when `lowerToWire` compiles a request body".',
+                '"when `lowerToWire` compiles a request body". ' +
+                'If "kind" here is a param of an op or the ordinary word, ' +
+                'put a comma or a word such as "of" between "kind" and the body word, ' +
+                'as in "In a response, `kind` is `"text"`" or "the two kinds of response".',
         ),
     );
     if (messages.length > 0) throw new Error(messages.join("\n"));
