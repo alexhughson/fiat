@@ -24,6 +24,24 @@ test("docs/stages/core/dropResponseOps.md shows what dropResponseOps returns", (
     // dropMetaOps runs before dropResponseOps, so dropResponseOps receives the
     // page's input only when the input holds no meta.* op.
     expect(input.filter((op) => op.op.startsWith("meta."))).toEqual([]);
+    // The page says its input comes from a run: the ops raised from these two
+    // bodies, then the page's last op.
+    const requestOps = AnthropicTranslator.fromBody({
+        model: "claude-sonnet-4-5",
+        max_tokens: 100,
+        messages: [{ role: "user", content: "hi" }],
+    });
+    const responseOps = AnthropicTranslator.fromResponse({
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [{ type: "text", text: "hello" }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 8, output_tokens: 2 },
+    });
+    expect(input.slice(0, -1)).toEqual([...requestOps, ...responseOps]);
     let afterDrop: Program | undefined;
     AnthropicTranslator.toBody(input, {
         beforeLower: (program) => {
