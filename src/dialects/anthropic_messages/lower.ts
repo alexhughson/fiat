@@ -618,6 +618,11 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                     (op as OpOf<"response.stop">).reason,
                 );
                 break;
+            // The synthesized sequence already opens with message_start, so
+            // the op adds nothing here; without this case a complete program
+            // holding response.start would throw.
+            case "response.start":
+                break;
             // The synthesized sequence already ends with message_stop, so the
             // op adds nothing here; without this case a complete program
             // holding response.done would throw.
@@ -784,11 +789,13 @@ export function lowerStreamBlockStops(program: Program): Program {
     });
 }
 
-// Folds the ops raised from a message_start event (llm.model, usage) back
-// into that event, so a raised stream lowers back to the same wire event.
-// The raised ops sit immediately before the message_start residual, in both
-// a per-event and a whole-stream program. Without a message_start residual,
-// the held ops pass through to the stages that use them.
+// Folds the ops raised from a message_start event (response.start, llm.model,
+// usage) back into that event, so a raised stream lowers back to the same
+// wire event. The raised ops sit immediately before the message_start
+// residual, in both a per-event and a whole-stream program. Without a
+// message_start residual, a held response.start synthesizes the event from
+// the ops beside it, so a start raised in another dialect lowers to
+// anthropic; held ops with no response.start pass through, as before.
 export function lowerStreamMessageStart(program: Program): Program {
     const out: Program = [];
     const held: Program = [];
@@ -796,7 +803,8 @@ export function lowerStreamMessageStart(program: Program): Program {
         if (
             op.op === "llm.model" ||
             op.op === "response.usage" ||
-            op.op === "anthropic_messages.usage"
+            op.op === "anthropic_messages.usage" ||
+            op.op === "response.start"
         ) {
             held.push(op);
             continue;
@@ -810,11 +818,68 @@ export function lowerStreamMessageStart(program: Program): Program {
             held.length = 0;
             continue;
         }
-        out.push(...held, op);
+        out.push(...flushHeldStart(held));
         held.length = 0;
+        out.push(op);
     }
-    out.push(...held);
+    out.push(...flushHeldStart(held));
     return out;
+}
+
+// Held ops with no response.start pass through unchanged. A held
+// response.start states that the stream of this response has begun, and
+// anthropic states that with a message_start event, so the held ops fold
+// into one synthesized event instead of passing through to stages that
+// cannot serialize them.
+function flushHeldStart(held: Program): Program {
+    if (!held.some((op) => op.op === "response.start")) return held;
+    return [
+        streamEvent({
+            type: "message_start",
+            message: synthesizedMessage(
+                held.filter((op) => op.op !== "response.start"),
+            ),
+        }),
+    ];
+}
+
+// The message shape of a real message_start event, with the model and usage
+// the held ops carry. A source stream that states no model, such as the
+// realtime response.created, leaves the field out rather than inventing one.
+function synthesizedMessage(held: Program): Record<string, unknown> {
+    let model: string | undefined;
+    let usage: Record<string, unknown> | undefined;
+    for (const op of held) {
+        if (op.op === "llm.model") {
+            model = (op as OpOf<"llm.model">).model;
+        } else if (op.op === "response.usage") {
+            const counts = op as OpOf<"response.usage">;
+            usage = {
+                ...usage,
+                ...(counts.inputTokens != null
+                    ? { input_tokens: counts.inputTokens }
+                    : {}),
+                ...(counts.outputTokens != null
+                    ? { output_tokens: counts.outputTokens }
+                    : {}),
+            };
+        } else {
+            usage = {
+                ...usage,
+                ...opData<{ usage: Record<string, unknown> }>(op).usage,
+            };
+        }
+    }
+    return {
+        id: `msg_${crypto.randomUUID().replaceAll("-", "")}`,
+        type: "message",
+        role: "assistant",
+        ...(model != null ? { model } : {}),
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        usage: usage ?? {},
+    };
 }
 
 function foldMessageStart(residual: Op, held: Program): Op {
@@ -826,6 +891,7 @@ function foldMessageStart(residual: Op, held: Program): Op {
     const message = { ...source };
     let usage: Record<string, unknown> | undefined;
     for (const op of held) {
+        if (op.op === "response.start") continue;
         if (op.op === "llm.model") {
             message.model = (op as OpOf<"llm.model">).model;
         } else if (op.op === "response.usage") {

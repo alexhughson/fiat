@@ -109,12 +109,13 @@ omits the synthetic id again.
 - Media model validation is hard failure even in lenient mode. It never drops
   media.
 - Roleless request `contents[]` entries stay residuals.
-- A Gemini stream has no event that states the stream's end: the last chunk
-  carries `finishReason` inside the candidate. Stream lowering accepts
-  `response.done` and writes no field and no event for it, so a program
-  raised from another dialect's end event lowers to the same chunk as before
-  the op existed. The drop emits no warning: the Gemini stream has no end
-  event, so no data is lost.
+- A Gemini stream has no event that states the stream's start or its end: the
+  first chunk carries the model and the last chunk carries `finishReason`
+  inside the candidate. Stream lowering accepts `response.start` and
+  `response.done` and writes no field and no event for them, so a program
+  raised from another dialect's start or end event lowers to the same chunk as
+  before the ops existed. The drop emits no warning: the Gemini stream has
+  neither a start nor an end event, so no data is lost.
 - Image/audio/TTS/video response parts throw today; core has no response media
   op.
 

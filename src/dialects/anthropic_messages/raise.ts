@@ -246,14 +246,16 @@ function streamEventResidual(event: WireAnthropicStreamEvent): Op {
 // The message envelope's model and input usage are the same fields the
 // non-stream response raises; the rest of the envelope (id, role, empty
 // content, stop_reason, stop_sequence) is bookkeeping with no core op and
-// stays in the residual. lowerStreamMessageStart folds the raised ops back
-// into the event.
+// stays in the residual. The event also states that the stream of this
+// response has begun, which every provider with a start event shares, so
+// it raises response.start beside the message_start residual.
+// lowerStreamMessageStart folds the raised ops back into the event.
 function raiseMessageStart(event: WireAnthropicStreamEvent): Op[] {
     const message = asRecord(
         event.message,
         "anthropic_messages message_start.message",
     );
-    const out: Op[] = [];
+    const out: Op[] = [{ op: "response.start" }];
     if (typeof message.model === "string") {
         out.push({ op: "llm.model", model: message.model });
     }

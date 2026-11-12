@@ -502,6 +502,11 @@ export function responseToWire(program: Program): unknown {
             case "anthropic_messages.stop_reason":
                 body.stop_reason = opData<{ value: string }>(op).value;
                 break;
+            // A complete body states the stream's start only by existing; the
+            // op adds no field, so a program raised from a stream start event
+            // lowers as one body without a throw.
+            case "response.start":
+                break;
             // A complete body states the stream's end only by existing; the
             // op adds no field. Without this case, a program raised from a
             // stream terminal event would throw when lowered as one body.

@@ -64,17 +64,17 @@ field.
 op; `raiseStreamEvents` maps each event type. One wire event can raise several
 ops:
 
-| wire event                               | raised ops                                                              |
-| ---------------------------------------- | ----------------------------------------------------------------------- |
-| `message_start`                          | `llm.model` + `response.usage` + a `stream_event` residual for the rest |
-| `content_block_start` (text)             | `response.text_start`                                                   |
-| `content_block_start` (tool_use)         | `response.tool_call_delta` with `id` and `name`                         |
-| `content_block_delta` (text_delta)       | `response.text_delta`                                                   |
-| `content_block_delta` (input_json_delta) | `response.tool_call_delta`                                              |
-| `content_block_stop`                     | `response.block_stop`                                                   |
-| `ping`                                   | `stream_event` residual                                                 |
-| `message_stop`                           | `response.done`                                                         |
-| `message_delta`                          | `response.stop` + `response.usage`                                      |
+| wire event                               | raised ops                                                                    |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `message_start`                          | `response.start` + `llm.model` + `response.usage` + a `stream_event` residual |
+| `content_block_start` (text)             | `response.text_start`                                                         |
+| `content_block_start` (tool_use)         | `response.tool_call_delta` with `id` and `name`                               |
+| `content_block_delta` (text_delta)       | `response.text_delta`                                                         |
+| `content_block_delta` (input_json_delta) | `response.tool_call_delta`                                                    |
+| `content_block_stop`                     | `response.block_stop`                                                         |
+| `ping`                                   | `stream_event` residual                                                       |
+| `message_stop`                           | `response.done`                                                               |
+| `message_delta`                          | `response.stop` + `response.usage`                                            |
 
 `message_start`:
 
@@ -102,6 +102,9 @@ raised:
 ```json
 [
     {
+        "op": "response.start"
+    },
+    {
         "op": "llm.model",
         "model": "claude-opus-5-5"
     },
@@ -128,12 +131,16 @@ raised:
 ]
 ```
 
-On lowering, `lowerStreamMessageStart` folds the `llm.model` and usage ops
-raised from a `message_start` event back into that event's `stream_event`
-residual, so each event lowers back to the same wire event, with one loss: a
+On lowering, `lowerStreamMessageStart` folds the `response.start`, `llm.model`,
+and usage ops raised from a `message_start` event back into that event's
+`stream_event` residual, so each event lowers back to the same wire event, with
+one loss: a
 `message_delta` event loses `stop_sequence: null`, on `main` and here.
 Residual events pass through `toStreamResponse` untouched; lowering to another
-dialect drops them with a warning. Lowering a whole stream at once moves the
+dialect drops them with a warning. A `response.start` op with no
+`message_start` residual beside it — one raised in another dialect — lowers to
+a synthesized `message_start` event that carries the model and usage ops beside
+it, with a generated id. Lowering a whole stream at once moves the
 rebuilt `message_delta` event after `message_stop` on `main`; here
 `response.done` lowers to a `message_stop` event placed after the rebuilt
 `message_delta`, so a whole stream lowers to `message_delta` then
@@ -143,6 +150,11 @@ sequence.
 
 `ping` keeps the connection open and carries no other meaning; only Anthropic
 sends it, so it stays an `anthropic_messages.stream_event` op.
+
+`message_start` states that the stream of this response has begun, a fact every
+provider with a start event shares, so it raises the core op `response.start`
+beside the model and usage ops, keeping the envelope's bookkeeping (id, role,
+empty content, `stop_reason: null`, `stop_sequence: null`) in the residual.
 
 `message_stop` states that the stream of this response has ended, a fact every
 provider with an end event shares, so it raises to the core op `response.done`

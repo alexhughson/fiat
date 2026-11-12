@@ -59,19 +59,22 @@ export const lowerStreamResponseStages: Stage[] = [
     lowerStopReasons,
     lowerUsageCounts,
     collectStreamModelContent,
-    dropStreamDone,
+    dropStreamStartAndDone,
 ];
 
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
 
-// A Gemini stream has no event that states the stream's end: the last chunk
-// carries finishReason inside the candidate. response.done lowers to no
-// field and no event, so a program holding it beside the stop reason lowers
-// to the same chunk as before the op existed.
-export function dropStreamDone(program: Program): Program {
-    return program.filter((op) => op.op !== "response.done");
+// A Gemini stream has no event that states the stream's start or its end:
+// the first chunk carries the model and the last chunk carries finishReason
+// inside the candidate. response.start and response.done lower to no field
+// and no event, so a program raised from another dialect's start or end
+// event lowers to the same chunk as before the ops existed.
+export function dropStreamStartAndDone(program: Program): Program {
+    return program.filter(
+        (op) => op.op !== "response.done" && op.op !== "response.start",
+    );
 }
 
 // Writes a reasoning op in the shape raiseContents produces for a

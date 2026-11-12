@@ -135,8 +135,10 @@ op, so lowering writes the type back in both events. A part other than
 `output_text`, such as a refusal, still throws, until a refusal has a core
 op.
 
-Other stream events (`response.created`, `response.in_progress`,
-`response.output_text.done`) are not raised yet and still throw.
+Other stream events (`response.in_progress`,
+`response.output_text.done`) are not raised yet and still throw. The
+`response.created` event is raised by a later branch that rebases onto this
+one; until then it throws.
 
 A terminal event (`response.completed`, `response.incomplete`,
 `response.failed`) states that the stream of this response has ended, so it
@@ -147,6 +149,11 @@ reason, so it raises `response.usage` and `response.done` only. Lowering folds
 `response.usage` ops build, and a program holding only `response.done` lowers
 to a bare `response.completed` event with no response object — what a call
 returns when no op produces an event is what row 66 settles.
+
+Stream lowering writes `response.created` with `status: "in_progress"` for a
+program that holds `response.start`, with the usage beside it if the program
+holds one; a program holding `response.start` beside a stop reason lowers to
+the terminal event the stop reason builds, unchanged by the start op.
 
 ## Out of scope
 

@@ -372,6 +372,11 @@ export function responseToWire(program: Program): unknown {
                 body[param.key] = param.value;
                 break;
             }
+            // A complete body states the stream's start only by existing; the
+            // op adds no field. This is the complete-response toWire, not the
+            // stream edge.
+            case "response.start":
+                break;
             // A complete body states the stream's end only by existing; the
             // op adds no field. This is the complete-response toWire, not the
             // stream edge.
@@ -508,6 +513,7 @@ export function streamResponseToWire(program: Program): unknown {
     let usage: Record<string, unknown> | undefined;
     const event: Record<string, unknown> = {};
     let sawTextDelta = false;
+    let sawStart = false;
 
     for (const op of program) {
         switch (op.op) {
@@ -563,6 +569,12 @@ export function streamResponseToWire(program: Program): unknown {
             // the program holds neither.
             case "response.done":
                 break;
+            // A program holding response.start lowers to the created event
+            // that opened the source stream. The op adds no field here: the
+            // tail below writes the event with status "in_progress".
+            case "response.start":
+                sawStart = true;
+                break;
             case "openai_responses.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
                 event[param.key] = param.value;
@@ -616,6 +628,20 @@ export function streamResponseToWire(program: Program): unknown {
         event.type ??= "response.function_call_arguments.delta";
         event.output_index ??= tool.index ?? 0;
         event.delta = tool.arguments ?? "";
+        return event;
+    }
+
+    // A program holding response.start and no stop reason lowers to the
+    // created event that opened the source stream, with the usage beside it
+    // if the program holds one.
+    if (sawStart && finishReason == null) {
+        event.type = "response.created";
+        const response = {
+            ...asRecord(event.response ?? {}, "stream event.response"),
+        };
+        response.status ??= "in_progress";
+        response.usage ??= usage ?? null;
+        event.response = response;
         return event;
     }
 

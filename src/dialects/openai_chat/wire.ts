@@ -314,6 +314,11 @@ export function responseToWire(program: Program): unknown {
                 body[param.key] = param.value;
                 break;
             }
+            // A complete body states the stream's start only by existing; the
+            // op adds no field. This is the complete-response toWire, not the
+            // stream edge.
+            case "response.start":
+                break;
             // A complete body states the stream's end only by existing; the
             // op adds no field. This is the complete-response toWire, not the
             // stream edge.

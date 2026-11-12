@@ -274,6 +274,11 @@ export function responseToWire(program: Program): unknown {
                     event[param.key] = param.value;
                 break;
             }
+            // A complete body states the stream's start only by existing; the
+            // op adds no field. This is the complete-response toWire, not the
+            // stream edge.
+            case "response.start":
+                break;
             // A complete body states the stream's end only by existing; the
             // op adds no field. This is the complete-response toWire, not the
             // stream edge.
@@ -382,6 +387,42 @@ export function streamResponseFromWire(wire: unknown): Program {
         }
         case "response.done":
             return streamDoneEvent(event);
+        // A response begins here, a fact every provider with a start event
+        // shares, so the event also raises the core op response.start. The
+        // response object's in_progress status states that same fact, its
+        // usage raises to the usage op, and a null status_details states
+        // nothing, so all three leave the envelope; the keys only
+        // openai_realtime has, such as conversation_id and audio, stay in the
+        // params. The object holds no model ever.
+        case "response.created": {
+            const program = streamEventParams(event, ["response"]);
+            const response = asRecord(event.response, "stream event.response");
+            const responseMeta: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(response)) {
+                if (key === "usage") continue;
+                if (key === "status" && value === "in_progress") continue;
+                if (key === "status_details" && value == null) continue;
+                responseMeta[key] = value;
+            }
+            if (Object.keys(responseMeta).length > 0) {
+                program.push({
+                    op: "openai_realtime.event_param",
+                    eventType: "response.created",
+                    key: "response",
+                    value: responseMeta,
+                    appliesTo: "response",
+                });
+            }
+            if (response.usage != null) {
+                program.push({
+                    op: "openai_realtime.usage",
+                    usage: asRecord(response.usage, "response.usage"),
+                    appliesTo: "response",
+                });
+            }
+            program.push({ op: "response.start" });
+            return program;
+        }
         default:
             throwUnsupportedStreamResponseEvent(type);
     }
@@ -395,6 +436,7 @@ export function streamResponseToWire(program: Program): unknown {
     const event: Record<string, unknown> = {};
     let eventType: string | undefined;
     let sawTextDelta = false;
+    let sawStart = false;
 
     for (const op of program) {
         switch (op.op) {
@@ -449,6 +491,12 @@ export function streamResponseToWire(program: Program): unknown {
             // from the finish_reason and usage beside it, and the tail below
             // defaults the event type when the program holds neither.
             case "response.done":
+                break;
+            // A response starts here, and the realtime stream states that
+            // with a response.created event. The op adds no field: the event
+            // is built in the tail below from the params and usage beside it.
+            case "response.start":
+                sawStart = true;
                 break;
             case "openai_realtime.event_param": {
                 const param = opData<{
@@ -508,6 +556,22 @@ export function streamResponseToWire(program: Program): unknown {
             ...(tool.index != null ? { output_index: tool.index } : {}),
             delta: tool.arguments ?? "",
         };
+    }
+
+    // A response.start op with no finish reason lowers to the created event
+    // that opened the source stream. The envelope params sit in event
+    // already; status, status_details, and usage were raised off the
+    // envelope, so lowering writes them back with the values every created
+    // event holds. The response object is copied before the fields are
+    // written, so an op of the input program keeps its own object.
+    if (sawStart && finishReason == null) {
+        const response = {
+            ...asRecord(event.response ?? {}, "stream event.response"),
+        };
+        response.status ??= "in_progress";
+        response.status_details ??= null;
+        response.usage ??= usage ?? null;
+        return { type: "response.created", ...event, response };
     }
 
     if (

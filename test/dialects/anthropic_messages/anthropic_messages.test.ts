@@ -1560,6 +1560,7 @@ describe("anthropic_messages response streams", () => {
             AnthropicTranslator.fromStreamResponse(event),
         );
         expect(program).toEqual([
+            { op: "response.start" },
             { op: "llm.model", model: "claude-opus-5-5" },
             { op: "response.usage", inputTokens: 25, outputTokens: 1 },
             {
@@ -1626,6 +1627,7 @@ describe("anthropic_messages response streams", () => {
 
         const program = AnthropicTranslator.fromStreamResponse(event);
         expect(program).toEqual([
+            { op: "response.start" },
             { op: "llm.model", model: "claude-opus-5-5" },
             { op: "response.usage", inputTokens: 25, outputTokens: 1 },
             {

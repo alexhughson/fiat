@@ -918,3 +918,183 @@ describe("response.done across dialects", () => {
         });
     });
 });
+
+describe("response.start across dialects", () => {
+    const messageStart = {
+        type: "message_start",
+        message: {
+            id: "msg_1",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-5-5",
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 25, output_tokens: 1 },
+        },
+    };
+
+    const realtimeCreated = {
+        type: "response.created",
+        event_id: "event_1",
+        response: {
+            object: "realtime.response",
+            id: "resp_1",
+            status: "in_progress",
+            status_details: null,
+            output: [],
+            conversation_id: "conv_1",
+            usage: null,
+            metadata: null,
+        },
+    };
+
+    test("an anthropic message_start raises response.start and lowers home", () => {
+        const program = AnthropicTranslator.fromStreamResponse(messageStart);
+        expect(program).toEqual([
+            { op: "response.start" },
+            { op: "llm.model", model: "claude-opus-5-5" },
+            { op: "response.usage", inputTokens: 25, outputTokens: 1 },
+            {
+                op: "anthropic_messages.stream_event",
+                event: {
+                    type: "message_start",
+                    message: {
+                        id: "msg_1",
+                        type: "message",
+                        role: "assistant",
+                        content: [],
+                        stop_reason: null,
+                        stop_sequence: null,
+                    },
+                },
+                appliesTo: "response",
+            },
+        ]);
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual(
+            messageStart,
+        );
+    });
+
+    test("a realtime response.created raises response.start and round-trips", () => {
+        const program =
+            OpenAIRealtimeTranslator.fromStreamResponse(realtimeCreated);
+        expect(program).toEqual([
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.created",
+                key: "type",
+                value: "response.created",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.created",
+                key: "event_id",
+                value: "event_1",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_realtime.event_param",
+                eventType: "response.created",
+                key: "response",
+                value: {
+                    object: "realtime.response",
+                    id: "resp_1",
+                    output: [],
+                    conversation_id: "conv_1",
+                    metadata: null,
+                },
+                appliesTo: "response",
+            },
+            { op: "response.start" },
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponse(program)).toEqual(
+            realtimeCreated,
+        );
+    });
+
+    test("a raised realtime response.created lowers to a synthesized message_start in anthropic", () => {
+        const events = withWarnSpy(() =>
+            AnthropicTranslator.toStreamResponses(
+                OpenAIRealtimeTranslator.fromStreamResponse(realtimeCreated),
+            ),
+        ) as Record<string, unknown>[];
+        expect(events.length).toBe(1);
+        const message = events[0]!.message as Record<string, unknown>;
+        expect(events[0]!.type).toBe("message_start");
+        expect(message.model).toBeUndefined();
+        expect(message.usage).toEqual({});
+        expect(message.id).toMatch(/^msg_[0-9a-f]{32}$/);
+        expect(message.role).toBe("assistant");
+    });
+
+    test("a raised realtime response.created lowers to a response.created event in openai_responses", () => {
+        expect(
+            withWarnSpy(() =>
+                OpenAIResponsesTranslator.toStreamResponse(
+                    OpenAIRealtimeTranslator.fromStreamResponse(
+                        realtimeCreated,
+                    ),
+                ),
+            ),
+        ).toEqual({
+            type: "response.created",
+            response: {
+                status: "in_progress",
+                usage: null,
+            },
+        });
+    });
+
+    test("a raised message_start keeps lowering to the same openai chat chunk as before the op", () => {
+        const chunk = withWarnSpy(() =>
+            OpenAIChatTranslator.toStreamResponse(
+                AnthropicTranslator.fromStreamResponse(messageStart),
+            ),
+        ) as Record<string, unknown>;
+        expect(chunk).toMatchObject({
+            model: "claude-opus-5-5",
+            usage: { prompt_tokens: 25, completion_tokens: 1 },
+            choices: [],
+        });
+    });
+
+    test("a raised message_start keeps lowering to the same gemini chunk as before the op", () => {
+        const chunk = withWarnSpy(() =>
+            GeminiTranslator.toStreamResponse(
+                AnthropicTranslator.fromStreamResponse(messageStart),
+            ),
+        ) as Record<string, unknown>;
+        expect(chunk).toEqual({
+            model: "claude-opus-5-5",
+            usageMetadata: {
+                promptTokenCount: 25,
+                candidatesTokenCount: 1,
+            },
+        });
+    });
+
+    test("a raised message_start with no residual and a model lowers to a synthesized message_start", () => {
+        const events = AnthropicTranslator.toStreamResponses([
+            { op: "response.start" },
+            { op: "llm.model", model: "claude-opus-5-5" },
+        ]) as Record<string, unknown>[];
+        expect(events.length).toBe(1);
+        const message = events[0]!.message as Record<string, unknown>;
+        expect(events[0]!.type).toBe("message_start");
+        expect(message.model).toBe("claude-opus-5-5");
+        expect(message.usage).toEqual({});
+    });
+
+    test("an openai_responses response.created event still throws", () => {
+        expect(() =>
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.created",
+                response: { id: "resp_1", status: "in_progress" },
+            }),
+        ).toThrow(
+            'openai_responses stream response: unsupported event type "response.created"',
+        );
+    });
+});

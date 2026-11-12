@@ -67,6 +67,15 @@ events, optionally with top-level call/session fields such as `model`.
   response has ended, a fact shared with the end events of other providers, so
   it raises the core op `response.done`, after the `response.stop` and
   `response.usage` ops raised from the same event. Lowering folds the op back
-  into the same one `response.done` event those ops build. The
-  `response.created` stream event is not raised yet and still throws.
+  into the same one `response.done` event those ops build.
+- On the stream edge, a `response.created` event states that the stream of this
+  response has begun, a fact shared with the start events of other providers,
+  so it raises the core op `response.start`. The response envelope's
+  `status: "in_progress"`, its null `status_details`, and its null `usage`
+  state nothing beyond that fact, so they leave the envelope; a non-null usage
+  raises to the usage op. The rest of the envelope, such as `conversation_id`
+  and `audio`, and the event's `event_id`, exist only in openai_realtime and
+  stay in the `openai_realtime.event_param` ops. Lowering writes
+  `response.created` for a program that holds `response.start`, rebuilding the
+  `status`, `status_details`, and `usage` fields on the envelope.
 - WebRTC setup, auth, and live connection management are out of scope.
