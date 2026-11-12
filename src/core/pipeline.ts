@@ -46,9 +46,10 @@ export function raiseFromWire(
     return runHookStages(program, opts.afterRaise);
 }
 
-// core -> wire: strip ops that don't address the provider, lower into the
-// target dialect, legalize, drop foreign residuals, serialize. toWire is the
-// final strictness gate: it throws on any target op it has no serialization for.
+// core -> wire: drop meta.* ops, drop response ops from a request or request
+// ops from a response, lower into the target dialect, legalize, drop foreign
+// residuals, serialize. toWire is the final strictness gate: it throws on any
+// target op it has no serialization for.
 export function lowerToWire(
     kind: Kind,
     dialectRef: DialectRef,
@@ -57,7 +58,8 @@ export function lowerToWire(
 ): unknown {
     const dialect = dialectFor(dialectRef);
     const codec = dialect[kind];
-    let low = stripHostOps(kind, program);
+    let low = dropMetaOps(program);
+    low = kind === "request" ? dropResponseOps(low) : dropRequestOps(low);
     low = runHookStages(low, opts.beforeLower);
     low = codec.lower(low, {
         dialect: dialect.name,
@@ -129,7 +131,8 @@ function lowerStreamResponseProgram(
 ): { codec: Codec; low: Program } {
     const dialect = dialectFor(dialectRef);
     const codec = streamCodecFor(dialect);
-    let low = stripHostOps("response", program);
+    let low = dropMetaOps(program);
+    low = dropRequestOps(low);
     low = runHookStages(low, opts.beforeLower);
     low = codec.lower(low, {
         dialect: dialect.name,
@@ -155,21 +158,29 @@ function runHookStages(program: Program, stage: Stage | undefined): Program {
     return stage ? stage(program) : program;
 }
 
-// meta.* ops address the host (tracing, routing), never the provider. In a
-// request, response.* ops are the artifact of appending a response program
-// onto a request for chaining — usage/stop reasons don't get re-sent.
-function stripHostOps(kind: Kind, program: Program): Program {
+// meta.* ops such as meta.trace hold host correlation data, which is not part
+// of any request or response body: toWire in every dialect throws on a meta.*
+// op.
+function dropMetaOps(program: Program): Program {
+    return program.filter((op) => namespaceOf(op) !== "meta");
+}
+
+// If responses are appended to a prompt, the prompt will contain response
+// specific ops like response.stop and response.usage, which are invalid in a
+// request body.
+function dropResponseOps(program: Program): Program {
     return program.filter((op) => {
-        const ns = namespaceOf(op);
-        if (ns === "meta") return false;
-        if (kind === "request" && ns === "response") return false;
-        if (kind !== "request" && ns === "request") return false;
-        if (!isCoreOp(op)) {
-            const dialectOp = opData<DialectOp>(op);
-            if (dialectOp.appliesTo && dialectOp.appliesTo !== kind)
-                return false;
-        }
-        return true;
+        if (namespaceOf(op) === "response") return false;
+        return isCoreOp(op) || opData<DialectOp>(op).appliesTo !== "response";
+    });
+}
+
+// request.* ops such as request.stream are invalid in a response body and in a
+// stream event.
+function dropRequestOps(program: Program): Program {
+    return program.filter((op) => {
+        if (namespaceOf(op) === "request") return false;
+        return isCoreOp(op) || opData<DialectOp>(op).appliesTo !== "request";
     });
 }
 
