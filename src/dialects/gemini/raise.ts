@@ -284,7 +284,11 @@ function mediaPart(
     appliesTo?: "request" | "response",
 ): Op | undefined {
     if (appliesTo === "response") return undefined;
-    const inlineData = part.inline_data;
+    // Gemini's reference names these fields `inlineData` and `mimeType`, and
+    // its curl examples write `inline_data` and `mime_type`. Proto3 JSON
+    // parsing accepts either name for each field on its own.
+    const key = part.inline_data != null ? "inline_data" : "inlineData";
+    const inlineData = part[key];
     if (
         typeof inlineData !== "object" ||
         inlineData === null ||
@@ -294,16 +298,40 @@ function mediaPart(
     }
     if (role !== "user") return undefined;
     const data = inlineData as Record<string, unknown>;
-    const mediaType = asString(data.mime_type, "gemini inline_data.mime_type");
+    const mimeKey =
+        data.mime_type != null
+            ? "mime_type"
+            : data.mimeType != null || key === "inlineData"
+              ? "mimeType"
+              : "mime_type";
+    const mediaType = asString(data[mimeKey], `gemini ${key}.${mimeKey}`);
     const kind = mediaKindForType(mediaType);
     if (!kind) return undefined;
-    assertOnlyKeys(data, ["mime_type", "data"], "gemini inline_data");
-    assertOnlyKeys(part, ["inline_data"], "gemini inline media part");
+    // Gemini's Part sets one member of a union that holds the inline and file
+    // keys, text, and function calls, so a part with two of them is ambiguous.
+    const conflicts = [
+        key === "inline_data" ? "inlineData" : "inline_data",
+        "file_data",
+        "fileData",
+        "text",
+        "functionCall",
+        "functionResponse",
+    ].filter((field) => part[field] != null);
+    if (conflicts.length > 0) {
+        throw new LintError(
+            `gemini inline media part: unsupported fields ${conflicts.join(", ")}`,
+        );
+    }
+    // A part or blob with other fields, such as `videoMetadata` or
+    // `mediaResolution`, stays a gemini.content residual.
+    if (!hasOnlyKeys(data, [mimeKey, "data"]) || !hasOnlyKeys(part, [key])) {
+        return undefined;
+    }
     const source = base64Source(
         mediaType,
-        asString(data.data, "gemini inline_data.data"),
+        asString(data.data, `gemini ${key}.data`),
         kind,
-        "gemini inline_data",
+        `gemini ${key}`,
     );
     switch (kind) {
         case "image":
@@ -483,6 +511,10 @@ function assertOnlyKeys(
     const extra = Object.keys(value).filter((key) => !allowed.has(key));
     if (extra.length > 0)
         throw new LintError(`${what}: unsupported fields ${extra.join(", ")}`);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
+    return Object.keys(value).every((key) => keys.includes(key));
 }
 
 const FINISH_REASON_TO_STOP: Record<string, StopReason> = {
