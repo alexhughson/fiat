@@ -272,49 +272,90 @@ export function lowerStructuredOutput(program: Program): Program {
 }
 
 // functionResponse needs the tool's name, which the core op doesn't carry —
-// it comes from the matching llm.tool_call earlier in the program, or from a
-// gemini.part_meta residual when the program was raised from gemini wire.
-// Whole-program stage for that reason; it also consumes (deletes) the
-// functionResponse part_meta residuals it reads. Runs before lowerToolCalls
-// so the llm.tool_call ops it scans for names are still present.
+// it comes from the functionResponse gemini.part_meta whose `of` holds the
+// result's id, or from an llm.tool_call with the same id. The response
+// object always comes from llm.tool_result.content, so a transform that
+// edits that op changes the gemini body. Each part_meta belongs to the
+// nearest earlier llm.tool_result with its id, or the nearest later one
+// when no earlier result exists; a part_meta's position is free when one
+// result has the id, and when two results reuse one id, each part_meta
+// must sit after its own result and before the next result with that id.
+// Whole-program stage for that reason; it also removes every
+// functionResponse part_meta: a matched one is consumed, and one whose
+// `of` matches no result holds only the name of a part that no longer
+// exists, so it is dropped rather than thrown on.
+// Runs before lowerToolCalls so the llm.tool_call ops it scans for names
+// are still present. The tool_call scan collects every call by id, so when
+// a later call reuses an id, that later call's name wins.
+// When several part_metas bind to one result, the later one's name wins.
 export function lowerToolResults(program: Program): Program {
-    const metaById = new Map<string, GeminiPartMeta>();
     const callNames = new Map<string, string>();
-    for (const op of program) {
+    const resultIndexesById = new Map<string, number[]>();
+    for (let i = 0; i < program.length; i++) {
+        const op = program[i]!;
         if (op.op === "llm.tool_call") {
             const call = op as OpOf<"llm.tool_call">;
             callNames.set(call.id, call.name);
         }
-        if (op.op === "gemini.part_meta") {
-            const meta = opData<{ part: GeminiPartMeta }>(op).part;
-            if (meta.kind === "functionResponse" && meta.id)
-                metaById.set(meta.id, meta);
+        if (op.op === "llm.tool_result") {
+            const id = (op as OpOf<"llm.tool_result">).id;
+            const indexes = resultIndexesById.get(id);
+            if (indexes) indexes.push(i);
+            else resultIndexesById.set(id, [i]);
         }
     }
 
-    return program.flatMap((op) => {
-        if (op.op === "gemini.part_meta") {
-            return opData<{ part: GeminiPartMeta }>(op).part.kind ===
-                "functionResponse"
-                ? []
-                : [op];
+    // metaNameByResultIndex keys a part_meta to the result it answers, so
+    // two results that reuse one id each resolve their own part_meta.
+    const metaNameByResultIndex = new Map<number, string>();
+    for (let i = 0; i < program.length; i++) {
+        const op = program[i]!;
+        if (op.op !== "gemini.part_meta") continue;
+        const meta = opData<{ part: GeminiPartMeta }>(op).part;
+        if (meta.kind !== "functionResponse") continue;
+        const indexes = resultIndexesById.get(meta.of);
+        if (indexes == null) continue;
+        let bound: number | undefined;
+        for (const index of indexes) {
+            if (index < i) bound = index;
+            else break;
         }
-        if (op.op !== "llm.tool_result") return [op];
+        metaNameByResultIndex.set(bound ?? indexes[0]!, meta.name);
+    }
+
+    const out: Program = [];
+    for (let i = 0; i < program.length; i++) {
+        const op = program[i]!;
+        if (op.op === "gemini.part_meta") {
+            const meta = opData<{ part: GeminiPartMeta }>(op).part;
+            if (meta.kind === "functionResponse") continue;
+            out.push(op);
+            continue;
+        }
+        if (op.op !== "llm.tool_result") {
+            out.push(op);
+            continue;
+        }
         const result = op as OpOf<"llm.tool_result">;
-        const meta = metaById.get(result.id);
-        const name = meta?.name ?? callNames.get(result.id);
-        if (!name) {
+        const resolvedName =
+            metaNameByResultIndex.get(i) ?? callNames.get(result.id);
+        if (!resolvedName) {
             throw new LintError(
                 `gemini tool_result ${result.id}: cannot serialize without a functionResponse.name`,
             );
         }
-        const response = meta?.response ?? parseToolResultObject(result);
-        return [
+        const response = parseToolResultObject(result);
+        out.push(
             contentOp("user", {
-                functionResponse: { name, response, id: result.id },
+                functionResponse: {
+                    name: resolvedName,
+                    response,
+                    id: result.id,
+                },
             }),
-        ];
-    });
+        );
+    }
+    return out;
 }
 
 export function lowerRequestTexts(program: Program): Program {
@@ -461,11 +502,8 @@ function reapplyAdjacentPartMeta(program: Program): Program {
 
         if (op.op === "gemini.part_meta") {
             const meta = opData<{ part: GeminiPartMeta }>(op).part;
-            if (meta.kind === "functionResponse") {
-                throw new LintError(
-                    "gemini request lower: unconsumed functionResponse part_meta",
-                );
-            }
+            // lowerToolResults removes every functionResponse part_meta,
+            // matched or not, before this stage runs.
             if (!partMetaHasWireEffect(meta)) {
                 attachable = undefined;
                 continue;
@@ -789,13 +827,15 @@ function collectResponsePartMeta(
             part: GeminiPartMeta;
             appliesTo?: "request" | "response";
         }>(op);
-        if (meta.appliesTo === "request" || meta.part.index == null) continue;
-        if (!meta.part.meta && meta.part.idSource !== "synthesized") continue;
-        byIndex.set(meta.part.index, {
-            ...(meta.part.meta ? { meta: meta.part.meta } : {}),
-            ...(meta.part.idSource === "synthesized"
-                ? { omitFunctionCallId: true }
-                : {}),
+        const part = meta.part;
+        if (part.kind === "functionResponse") continue;
+        if (meta.appliesTo === "request" || part.index == null) continue;
+        const omitFunctionCallId =
+            part.kind === "functionCall" && part.idSource === "synthesized";
+        if (!part.meta && !omitFunctionCallId) continue;
+        byIndex.set(part.index, {
+            ...(part.meta ? { meta: part.meta } : {}),
+            ...(omitFunctionCallId ? { omitFunctionCallId: true } : {}),
         });
     }
     return byIndex;
@@ -810,7 +850,8 @@ function withPartMeta(
 
 function applyPartMeta(part: WirePart, meta: GeminiPartMeta): WirePart {
     const withMeta = meta.meta ? { ...part, ...meta.meta } : { ...part };
-    if (meta.idSource !== "synthesized") return withMeta;
+    if (meta.kind !== "functionCall" || meta.idSource !== "synthesized")
+        return withMeta;
     if (!withMeta.functionCall) return withMeta;
     const { id: _id, ...functionCall } = withMeta.functionCall;
     return { ...withMeta, functionCall };
@@ -827,7 +868,10 @@ function assertPartMetaMatchesPart(meta: GeminiPartMeta, part: WirePart): void {
 }
 
 function partMetaHasWireEffect(meta: GeminiPartMeta): boolean {
-    return !!meta.meta || meta.idSource === "synthesized";
+    return (
+        !!meta.meta ||
+        (meta.kind === "functionCall" && meta.idSource === "synthesized")
+    );
 }
 
 function wirePartKind(part: WirePart): GeminiPartMeta["kind"] | undefined {
@@ -845,17 +889,17 @@ function parseToolResultObject(
     result: OpOf<"llm.tool_result">,
 ): Record<string, unknown> {
     // Gemini requires functionResponse.response to be a JSON object, but a
-    // tool result is often a bare string, number, or array. Parse the content
-    // when it is JSON and wrap any non-object value under the "output" key,
-    // which Gemini's docs name for function output. Content that is not JSON
-    // at all is plain text, so it wraps under the same key as a string.
+    // tool result is usually plain text. Parse the content only to test
+    // whether it is a JSON object; an object is the response itself. Every
+    // other content is text, so it wraps as a string under the "output" key,
+    // which Gemini's docs name for function output.
     let parsed: unknown;
     try {
         parsed = JSON.parse(result.content);
     } catch {
         return { output: result.content };
     }
-    return isRecord(parsed) ? parsed : { output: parsed };
+    return isRecord(parsed) ? parsed : { output: result.content };
 }
 
 function parseToolCallDeltaArguments(
