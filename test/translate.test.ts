@@ -653,62 +653,9 @@ describe("the model that answered", () => {
         expect(fromAnthropic).not.toHaveProperty("model");
     });
 
-    const sevenSettings = [
-        { op: "llm.temperature" as const, value: 0.5 },
-        { op: "llm.max_output_tokens" as const, value: 9 },
-        { op: "llm.thinking" as const, effort: "low" as const },
-        {
-            op: "llm.tool" as const,
-            name: "lookup",
-            inputSchema: { type: "object" },
-        },
-        {
-            op: "llm.server_tool" as const,
-            name: "web_search",
-            kind: "web_search" as const,
-        },
-        { op: "llm.tool_choice" as const, value: "auto" as const },
-        {
-            op: "llm.output" as const,
-            format: "json_schema" as const,
-            name: "answer",
-            schema: { type: "object" },
-        },
-    ];
-    // openai_chat and openai_responses stamp the time of the call
-    const withoutTime = (body: unknown) => {
-        const { created, created_at, ...rest } = body as Record<
-            string,
-            unknown
-        >;
-        return rest;
-    };
-
-    test("a request setting in a response program does not change the response body", () => {
-        // No model op: llm.model in a program without response.model does
-        // change the body, which the tests below cover.
-        const response = [
-            { op: "response.id" as const, id: "id_1" },
-            {
-                op: "llm.text" as const,
-                role: "assistant" as const,
-                content: "hi",
-            },
-            { op: "response.stop" as const, reason: "end_turn" as const },
-        ];
-        for (const target of translators) {
-            for (const setting of sevenSettings) {
-                expect(
-                    withoutTime(target.toResponse([setting, ...response])),
-                ).toEqual(withoutTime(target.toResponse(response)));
-            }
-        }
-    });
-
-    test("content beside request settings stays in the response body", () => {
+    test("content beside llm.model stays in the response body", () => {
         const program = [
             { op: "llm.model" as const, model: "requested-model" },
-            ...sevenSettings,
             { op: "response.id" as const, id: "id_1" },
             { op: "response.model" as const, model: "model-that-answered" },
             {
@@ -726,21 +673,8 @@ describe("the model that answered", () => {
             content: [{ type: "text", text: "hi" }],
             stop_reason: "end_turn",
         });
-        expect(withoutTime(OpenAIChatTranslator.toResponse(program))).toEqual({
-            id: "id_1",
-            object: "chat.completion",
-            model: "model-that-answered",
-            choices: [
-                {
-                    index: 0,
-                    message: { role: "assistant", content: "hi" },
-                    finish_reason: "stop",
-                    logprobs: null,
-                },
-            ],
-        });
-        // A system text is content, not a setting, so response lowering
-        // receives it and rejects it.
+        // A system text is content, so response lowering receives it and
+        // rejects it.
         for (const target of translators) {
             expect(() =>
                 target.toResponse([
@@ -748,6 +682,40 @@ describe("the model that answered", () => {
                     ...program,
                 ]),
             ).toThrow("unexpected system text in a response program");
+        }
+    });
+
+    test("a request setting other than llm.model reaches response lowering, which rejects it", () => {
+        // A Responses response body has a temperature field, so removing
+        // llm.temperature before lowering would lose it without a warning.
+        expect(() =>
+            OpenAIResponsesTranslator.toResponse([
+                { op: "llm.model", model: "gpt-4o" },
+                { op: "llm.temperature", value: 0.5 },
+                ...OpenAIChatTranslator.fromResponse(openaiChatResponse),
+            ]),
+        ).toThrow('no serialization for op "llm.temperature"');
+    });
+
+    test("a raised response lowered as a request, with no request before it, asks for the model that answered last", () => {
+        const again = {
+            op: "llm.text" as const,
+            role: "user" as const,
+            content: "again",
+        };
+        const one = [...AnthropicTranslator.fromResponse(anthropicResponse)];
+        const two = [
+            ...one,
+            again,
+            ...OpenAIChatTranslator.fromResponse(openaiChatResponse),
+        ];
+        for (const target of translators) {
+            expect(target.toBody([...one, again])).toMatchObject({
+                model: "claude-sonnet-4-5-20250929",
+            });
+            expect(target.toBody([...two, again])).toMatchObject({
+                model: "gpt-4o-2024-08-06",
+            });
         }
     });
 
@@ -934,6 +902,27 @@ describe("the model that answered", () => {
         const before = structuredClone(raised);
         OpenAIResponsesTranslator.toStreamResponses(raised);
         expect(raised).toEqual(before);
+    });
+
+    test("a Responses output_item.added event, which holds no response object, is written without a model", () => {
+        const added = {
+            type: "response.output_item.added",
+            sequence_number: 2,
+            output_index: 0,
+            item: {
+                id: "msg_1",
+                type: "message",
+                status: "in_progress",
+                role: "assistant",
+                content: [],
+            },
+        };
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses([
+                ...OpenAIResponsesTranslator.fromStreamResponse(added),
+                { op: "response.model", model: "gpt-4o-mini-2024-07-18" },
+            ]),
+        ).toEqual([added]);
     });
 
     test("a response.failed event of the Responses API, which holds no stop reason and no usage, raises the model and writes it back", () => {

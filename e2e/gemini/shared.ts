@@ -298,8 +298,7 @@ export function artifactFromResponse(
         responseBodyWithDuration.rawResponseBody,
         `${scenario} rawResponseBody`,
     );
-    const responseBody = responseBodyForTranslator(model, rawResponseBody);
-    const responseProgram = GeminiTranslator.fromResponse(responseBody);
+    const responseProgram = GeminiTranslator.fromResponse(rawResponseBody);
     const chained =
         scenario === "multimodal-tool"
             ? chainedToolResultRequest(requestProgram, responseProgram)
@@ -310,7 +309,7 @@ export function artifactFromResponse(
         requestProgram,
         requestBody,
         rawResponseBody,
-        responseBody,
+        responseBody: rawResponseBody,
         responseProgram,
         roundTripResponseBody: GeminiTranslator.toResponse(responseProgram),
         ...(chained
@@ -393,15 +392,6 @@ export function validateArtifactFields(artifact: Artifact): string[] {
     );
     checks.push("saved round-trip matches recomputed round-trip");
     return checks;
-}
-
-function responseBodyForTranslator(
-    model: string,
-    rawResponseBody: Record<string, unknown>,
-): Record<string, unknown> {
-    return rawResponseBody.model == null
-        ? { model, ...rawResponseBody }
-        : { ...rawResponseBody };
 }
 
 function chainedToolResultRequest(

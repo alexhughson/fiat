@@ -3,7 +3,6 @@ import {
     namespaceOf,
     opData,
     type DialectOp,
-    type Op,
     type Program,
 } from "./ops.js";
 import { LintError } from "./lint.js";
@@ -62,20 +61,20 @@ export function lowerToWire(
     let low = dropMetaOps(program);
     low =
         kind === "request"
-            ? dropResponseOps(low)
+            ? dropResponseOps(useResponseModelWhenNoRequestedModel(low))
             : dropRequestOps(useRequestedModelWhenNoResponseModel(low));
     low = runHookStages(low, opts.beforeLower);
     low = codec.lower(low, {
         dialect: dialect.name,
         kind,
-        model: firstOp(low, "llm.model")?.model,
+        model: requestedModel(kind, low),
         strict: opts.strict,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
         dialect: dialect.name,
         kind,
-        model: firstOp(low, "llm.model")?.model,
+        model: requestedModel(kind, low),
         strict: opts.strict,
     };
     for (const legalize of codec.legalizations ?? []) {
@@ -177,28 +176,16 @@ function dropResponseOps(program: Program): Program {
     });
 }
 
-// The llm.* ops that hold a setting of the request. The other llm.* ops hold
-// conversation content (text, tool calls, tool results), which a response
-// also has.
-const REQUEST_SETTING_OPS: ReadonlySet<Op["op"]> = new Set([
-    "llm.model",
-    "llm.temperature",
-    "llm.max_output_tokens",
-    "llm.thinking",
-    "llm.tool",
-    "llm.server_tool",
-    "llm.tool_choice",
-    "llm.output",
-]);
-
 // If a response is lowered from a program that also holds the request, the
-// program contains request.* ops such as request.stream and request settings
-// such as llm.model and llm.temperature, which are invalid in a response body
-// and in a stream event.
+// program contains request.* ops such as request.stream, and llm.model, which
+// names the model the request asked for. Both are invalid in a response body
+// and in a stream event. Every other llm.* op reaches the dialect's lowering:
+// text, tool calls, and tool results are content that a response also has,
+// and the dialect decides what a setting such as llm.temperature becomes.
 function dropRequestOps(program: Program): Program {
     return program.filter((op) => {
         if (namespaceOf(op) === "request") return false;
-        if (REQUEST_SETTING_OPS.has(op.op)) return false;
+        if (op.op === "llm.model") return false;
         return isCoreOp(op) || opData<DialectOp>(op).appliesTo !== "request";
     });
 }
@@ -215,6 +202,28 @@ function useRequestedModelWhenNoResponseModel(program: Program): Program {
     return program.map((op) =>
         op === last ? { op: "response.model", model: last.model } : op,
     );
+}
+
+// If a raised response is lowered as a request with no request program before
+// it, the program holds response.model and no llm.model, and a request body
+// needs a model. The last response.model, the model that answered most
+// recently, takes the place of the missing llm.model. dropResponseOps runs
+// after this and removes every other response.model.
+function useResponseModelWhenNoRequestedModel(program: Program): Program {
+    if (program.some((op) => op.op === "llm.model")) return program;
+    const last = opsOf(program, "response.model").at(-1);
+    if (!last) return program;
+    return program.map((op) =>
+        op === last ? { op: "llm.model", model: last.model } : op,
+    );
+}
+
+// llm.model names the model a request asks for. dropRequestOps removes it
+// from a response program, so only a request has a requested model.
+function requestedModel(kind: Kind, program: Program): string | undefined {
+    return kind === "request"
+        ? firstOp(program, "llm.model")?.model
+        : undefined;
 }
 
 // Foreign dialect ops are transcript remnants for endpoints that know how to
