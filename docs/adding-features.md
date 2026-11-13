@@ -75,6 +75,7 @@ Do not add a core op for a one-provider feature. Keep that data in a residual.
 
 - `bun test`
 - `bunx tsc --noEmit`
+- `bunx prettier . --check`
 - exact round-trip assertions where the home dialect should be lossless
 - no silent drop: map it, preserve it as a residual, warn/drop it as foreign,
   or throw
