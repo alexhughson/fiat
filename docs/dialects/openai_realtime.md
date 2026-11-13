@@ -22,7 +22,10 @@ The `RealtimeResponse` type of OpenAI's SDK `openai-node`, which is the type of
 `response.done.response`, lists no `model`. fiat raises `response.model` from
 `response.done.response.model` when a whole response body holds that field,
 and writes `response.model` there. For a stream event, fiat raises no
-`response.model` and writes none.
+`response.model` and writes none from a `response.model` op. When a stream
+`response.done` event holds a `model`, that `model` stays inside the
+`openai_realtime.event_param` op for `response`, so fiat writes it back when
+it lowers the program to `openai_realtime`, and no other dialect receives it.
 
 ## Dialect ops
 

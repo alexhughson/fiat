@@ -30,16 +30,15 @@ whole `openai_realtime` response body is a batch of events. When the
 `response` of the `response.done` event in that batch holds a `model`, fiat
 raises `response.model` from it, and fiat writes `response.model` to the
 same place. For an `openai_realtime` stream event, fiat raises no
-`response.model` and writes none.
+`response.model` and writes none from a `response.model` op. When a stream
+`response.done` event holds a `model`, that `model` stays inside the
+`openai_realtime.event_param` op for `response`, so fiat writes it back when
+it lowers the program to `openai_realtime`, and no other dialect receives it.
 
 `AnthropicTranslator.fromStreamResponse` throws for a `message_start` event,
 so fiat raises no `response.model` from an Anthropic stream. When a stream
 event has no field for the model, such as a `response.output_text.delta`
 event of `openai_responses`, lowering removes `response.model`.
-
-A response program that holds `llm.model` and no `response.model` is the
-subject of
-[useRequestedModelWhenNoResponseModel](../stages/core/useRequestedModelWhenNoResponseModel.md).
 
 Each example below is one run of the code. Examples 1 and 2 show a response
 body, the program that the body raises to, the program after lowering to the
