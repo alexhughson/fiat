@@ -86,12 +86,8 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "i am checking the invoice and the policy now.",
-                            },
-                        ],
+                        content:
+                            "i am checking the invoice and the policy now.",
                     },
                     {
                         type: "function_call",
@@ -118,12 +114,8 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "the invoice is paid and refundable within 30 days.",
-                            },
-                        ],
+                        content:
+                            "the invoice is paid and refundable within 30 days.",
                     },
                     {
                         type: "message",
@@ -203,12 +195,8 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "invoice inv_1001 was paid twice. i will issue the refund.",
-                            },
-                        ],
+                        content:
+                            "invoice inv_1001 was paid twice. i will issue the refund.",
                     },
                     {
                         type: "function_call",
@@ -226,12 +214,7 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "refund rf_900 is submitted.",
-                            },
-                        ],
+                        content: "refund rf_900 is submitted.",
                     },
                     {
                         type: "message",
@@ -300,12 +283,7 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "i am resolving the office first.",
-                            },
-                        ],
+                        content: "i am resolving the office first.",
                     },
                     {
                         type: "function_call",
@@ -321,12 +299,7 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "office found. now checking the weather.",
-                            },
-                        ],
+                        content: "office found. now checking the weather.",
                     },
                     {
                         type: "function_call",
@@ -342,12 +315,7 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "paris hq is sunny and 21c.",
-                            },
-                        ],
+                        content: "paris hq is sunny and 21c.",
                     },
                     {
                         type: "message",

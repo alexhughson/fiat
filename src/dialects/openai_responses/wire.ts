@@ -682,8 +682,18 @@ function terminalEventType(finishReason: string | undefined): string {
         : "response.completed";
 }
 
-function messageItem(role: "user" | "assistant", text: string): WireInputItem {
-    return { type: "message", role, content: [{ type: "input_text", text }] };
+// An assistant message in `input` takes its text as a string: OpenAI's input
+// schemas allow only input_* parts in a message list, and an output_text part
+// only inside an output message, which requires `id` and `status`.
+export function messageItem(
+    role: "user" | "assistant",
+    text: string,
+): WireInputItem {
+    return {
+        type: "message",
+        role,
+        content: role === "assistant" ? text : [{ type: "input_text", text }],
+    };
 }
 
 function toolFromWire(tool: Record<string, unknown>): Op[] {
