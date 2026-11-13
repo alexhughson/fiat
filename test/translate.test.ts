@@ -719,6 +719,45 @@ describe("the model that answered", () => {
         }
     });
 
+    test("a request lowered after two raised responses holds one requested model, the model that answered last", () => {
+        const again = {
+            op: "llm.text" as const,
+            role: "user" as const,
+            content: "again",
+        };
+        const program = [
+            ...OpenAIChatTranslator.fromResponse({
+                ...openaiChatResponse,
+                model: "o3-mini-2025-01-31",
+            }),
+            again,
+            ...OpenAIChatTranslator.fromResponse(openaiChatResponse),
+            again,
+            { op: "llm.max_output_tokens" as const, value: 50 },
+        ];
+        for (const target of translators) {
+            let requested: unknown[] = [];
+            const readRequestedModels: Stage = (lowered) => {
+                requested = lowered.filter((op) => op.op === "llm.model");
+                return lowered;
+            };
+            target.toBody(program, { beforeLower: readRequestedModels });
+            expect(requested).toEqual([
+                { op: "llm.model", model: "gpt-4o-2024-08-06" },
+            ]);
+        }
+        // openai_chat writes max_completion_tokens for o3-mini and
+        // max_tokens for gpt-4o, so a second requested model that names
+        // o3-mini would change the field.
+        const body = OpenAIChatTranslator.toBody(program) as Record<
+            string,
+            unknown
+        >;
+        expect(body.model).toBe("gpt-4o-2024-08-06");
+        expect(body.max_tokens).toBe(50);
+        expect(body).not.toHaveProperty("max_completion_tokens");
+    });
+
     test("a response program with llm.model and no response.model lowers with the requested model", () => {
         const handBuilt = [
             { op: "llm.model" as const, model: "requested-model" },
