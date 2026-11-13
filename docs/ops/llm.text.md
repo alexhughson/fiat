@@ -8,7 +8,7 @@
 }
 ```
 
-## Example 1: `system` and `user` text, to Anthropic's Messages API
+## Example 1: `system` and `user` text
 
 A Chat Completions request sent on to Anthropic's Messages API.
 
@@ -109,7 +109,7 @@ A Chat Completions request sent on to Anthropic's Messages API.
 }
 ```
 
-## Example 2: `system`, `user`, and `assistant` text, to OpenAI's Chat Completions API
+## Example 2: `system`, `user`, and `assistant` text
 
 An Anthropic Messages request sent on to OpenAI's Chat Completions API.
 

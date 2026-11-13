@@ -42,9 +42,7 @@ test("docs/ops/llm.text.md has two examples of four json blocks", () => {
 
 for (const [index, { heading, blocks }] of examples.entries()) {
     test(`docs/ops/llm.text.md ${heading}: every json block matches the run`, () => {
-        const run = runs[index];
-        expect(run).toBeDefined();
-        const { source, target } = run!;
+        const { source, target } = runs[index]!;
         const [body, raised, lower, out] = blocks;
 
         const raisedProgram = source.fromBody(JSON.parse(body!));
