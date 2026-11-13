@@ -119,9 +119,11 @@ export function lowerStreamResponsesToWire(
     if (program.length > 0 && low.length === 0) return [];
     // An empty program still goes through toWire so the codec's own
     // strictness applies (anthropic throws) instead of yielding [] silently.
-    return codec.eventPerOp && low.length > 0
-        ? low.map((op) => codec.toWire([op]))
-        : [codec.toWire(low)];
+    if (codec.eventPerOp && low.length > 0) {
+        return low.map((op) => codec.toWire([op]));
+    }
+    const events = codec.splitEvents ? codec.splitEvents(low) : [low];
+    return events.map((event) => codec.toWire(event));
 }
 
 function lowerStreamResponseProgram(
