@@ -408,6 +408,17 @@ describe("stream response conversion", () => {
                 },
             ]),
         ).toEqual([]);
+        expect(
+            stops([
+                {
+                    type: "response.failed",
+                    response: {
+                        status: "cancelled",
+                        output: [{ ...functionCall, status: "completed" }],
+                    },
+                },
+            ]),
+        ).toEqual([]);
     });
 
     test("openai responses stream terminal events throw on a malformed response.output", () => {
