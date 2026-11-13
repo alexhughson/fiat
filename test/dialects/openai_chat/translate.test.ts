@@ -613,6 +613,25 @@ describe("openai_chat translation", () => {
         expect(openaiResponse.object).toBe("chat.completion");
     });
 
+    test("an anthropic response's prompt cache tokens count in the openai prompt_tokens", () => {
+        const openaiResponse = OpenAIChatTranslator.toResponse(
+            AnthropicTranslator.fromResponse({
+                ...anthropicResponse,
+                usage: {
+                    input_tokens: 20,
+                    cache_read_input_tokens: 3,
+                    cache_creation_input_tokens: 5,
+                    output_tokens: 9,
+                },
+            }),
+        ) as Record<string, unknown>;
+
+        expect(openaiResponse.usage).toEqual({
+            prompt_tokens: 28,
+            completion_tokens: 9,
+        });
+    });
+
     test("a chat response id raises to response.id and lowers into the anthropic id", () => {
         const program = OpenAIChatTranslator.fromResponse({
             id: "chatcmpl-abc",

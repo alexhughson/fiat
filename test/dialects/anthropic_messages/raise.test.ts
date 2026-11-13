@@ -127,7 +127,7 @@ describe("anthropic_messages raise stages", () => {
         ]);
     });
 
-    test("raiseUsage splits cross-provider counts onto response.usage and keeps vendor-specific fields as a droppable residual", () => {
+    test("raiseUsage adds the prompt cache counts into inputTokens and keeps vendor-specific fields as a droppable residual", () => {
         expect(
             raiseUsage([
                 { op: "llm.model", model: "m" },
@@ -137,15 +137,19 @@ describe("anthropic_messages raise stages", () => {
                         input_tokens: 20,
                         output_tokens: 9,
                         cache_read_input_tokens: 3,
+                        cache_creation_input_tokens: 5,
                     },
                 },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
-            { op: "response.usage", inputTokens: 20, outputTokens: 9 },
+            { op: "response.usage", inputTokens: 28, outputTokens: 9 },
             {
                 op: "anthropic_messages.usage",
-                usage: { cache_read_input_tokens: 3 },
+                usage: {
+                    cache_read_input_tokens: 3,
+                    cache_creation_input_tokens: 5,
+                },
             },
         ]);
     });

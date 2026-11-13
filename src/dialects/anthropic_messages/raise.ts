@@ -163,6 +163,15 @@ export function raiseStopReasons(program: Program): Program {
     );
 }
 
+// Anthropic's input_tokens leaves out the tokens read from and written to the
+// prompt cache, which the other providers count in their input count.
+export function cacheTokens(usage: Record<string, unknown>): number {
+    return (
+        ((usage.cache_read_input_tokens as number | null) ?? 0) +
+        ((usage.cache_creation_input_tokens as number | null) ?? 0)
+    );
+}
+
 // Maps the cross-provider counts onto response.usage; any vendor-specific
 // fields (cache counts, ...) stay behind as a droppable residual.
 export function raiseUsage(program: Program): Program {
@@ -177,7 +186,10 @@ export function raiseUsage(program: Program): Program {
             {
                 op: "response.usage",
                 ...(input_tokens != null
-                    ? { inputTokens: input_tokens as number }
+                    ? {
+                          inputTokens:
+                              (input_tokens as number) + cacheTokens(rest),
+                      }
                     : {}),
                 ...(output_tokens != null
                     ? { outputTokens: output_tokens as number }

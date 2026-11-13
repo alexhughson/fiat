@@ -90,6 +90,19 @@ not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 | `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                |
 | `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                           |
 
+`response.usage.inputTokens` counts the request's prompt tokens, including
+the tokens read from and written to the provider's prompt cache. OpenAI's
+input counts and Gemini's `promptTokenCount` include the cache tokens; Gemini's
+`toolUsePromptTokenCount` is not in `promptTokenCount`, so it is not in
+`inputTokens` either. Anthropic's `input_tokens` leaves out
+`cache_read_input_tokens` and `cache_creation_input_tokens`, so the
+`anthropic_messages` raise adds them in, and its lowering subtracts the cache
+counts it reads from every `anthropic_messages.usage` op of the program, a later
+op's field replacing an earlier one's. A program without such an op lowers the
+whole count to `input_tokens`. When the cache counts are larger than
+`inputTokens`, the lowering throws a `LintError` in strict mode, and otherwise
+warns and writes the whole count to `input_tokens`.
+
 Assistant responses raise to `llm.text` and `llm.tool_call`. That is why a
 response program can be appended to the next request program.
 

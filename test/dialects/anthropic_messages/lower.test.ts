@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { LintError } from "../../../src/index";
 import {
     collectAssistantMessage,
     applyTextMeta,
@@ -353,6 +354,71 @@ describe("anthropic_messages lower response stages", () => {
         ]);
     });
 
+    test("lowerUsageCounts subtracts the prompt cache counts of the anthropic_messages.usage op from inputTokens", () => {
+        const cacheCounts = {
+            op: "anthropic_messages.usage",
+            usage: {
+                cache_read_input_tokens: 3,
+                cache_creation_input_tokens: 5,
+            },
+        };
+        expect(
+            lowerUsageCounts([
+                { op: "response.usage", inputTokens: 28, outputTokens: 9 },
+                cacheCounts,
+            ]),
+        ).toEqual([
+            {
+                op: "anthropic_messages.usage",
+                usage: { input_tokens: 20, output_tokens: 9 },
+            },
+            cacheCounts,
+        ]);
+    });
+
+    test("lowerUsageCounts in strict mode throws when the prompt cache counts exceed inputTokens", () => {
+        expect(() =>
+            lowerUsageCounts(
+                [
+                    { op: "response.usage", inputTokens: 100, outputTokens: 9 },
+                    {
+                        op: "anthropic_messages.usage",
+                        usage: {
+                            cache_read_input_tokens: 2000,
+                            cache_creation_input_tokens: 70,
+                        },
+                    },
+                ],
+                {
+                    dialect: "anthropic_messages",
+                    kind: "response",
+                    strict: true,
+                },
+            ),
+        ).toThrow(LintError);
+    });
+
+    test("lowerUsageCounts in lenient mode writes the whole inputTokens when the prompt cache counts exceed it", () => {
+        const cacheCounts = {
+            op: "anthropic_messages.usage",
+            usage: {
+                cache_read_input_tokens: 2000,
+                cache_creation_input_tokens: 70,
+            },
+        };
+        expect(
+            lowerUsageCounts([
+                { op: "response.usage", inputTokens: 2100 },
+                cacheCounts,
+                { op: "response.usage", inputTokens: 500 },
+            ]),
+        ).toEqual([
+            { op: "anthropic_messages.usage", usage: { input_tokens: 30 } },
+            cacheCounts,
+            { op: "anthropic_messages.usage", usage: { input_tokens: 500 } },
+        ]);
+    });
+
     test("collectAssistantMessage collapses response text and tool-call ops into one assistant message", () => {
         expect(
             collectAssistantMessage([
@@ -454,6 +520,35 @@ describe("anthropic_messages lower stream response stages", () => {
         ]);
     });
 
+    test("lowerCompleteResponseToStreamEvents subtracts the prompt cache counts from inputTokens", () => {
+        const program = lowerCompleteResponseToStreamEvents([
+            { op: "llm.model", model: "claude-sonnet-4-5" },
+            { op: "llm.text", role: "assistant", content: "hi" },
+            { op: "response.usage", inputTokens: 28, outputTokens: 1 },
+            {
+                op: "anthropic_messages.usage",
+                usage: {
+                    cache_read_input_tokens: 3,
+                    cache_creation_input_tokens: 5,
+                },
+            },
+        ]);
+
+        expect(program[0]).toMatchObject({
+            event: {
+                type: "message_start",
+                message: {
+                    usage: {
+                        input_tokens: 20,
+                        output_tokens: 1,
+                        cache_read_input_tokens: 3,
+                        cache_creation_input_tokens: 5,
+                    },
+                },
+            },
+        });
+    });
+
     test("lowerStreamTextDeltas maps generic text deltas to Anthropic content_block_delta events", () => {
         expect(
             lowerStreamTextDeltas([
@@ -513,6 +608,36 @@ describe("anthropic_messages lower stream response stages", () => {
                     type: "message_delta",
                     delta: { stop_reason: "max_tokens" },
                     usage: { input_tokens: 3, output_tokens: 1 },
+                },
+                appliesTo: "response",
+            },
+        ]);
+    });
+
+    test("lowerStreamStopAndUsage subtracts the prompt cache counts from inputTokens", () => {
+        expect(
+            lowerStreamStopAndUsage([
+                {
+                    op: "anthropic_messages.usage",
+                    usage: {
+                        cache_read_input_tokens: 3,
+                        cache_creation_input_tokens: 5,
+                    },
+                },
+                { op: "response.usage", inputTokens: 28, outputTokens: 1 },
+            ]),
+        ).toEqual([
+            {
+                op: "anthropic_messages.stream_event",
+                event: {
+                    type: "message_delta",
+                    delta: {},
+                    usage: {
+                        input_tokens: 20,
+                        output_tokens: 1,
+                        cache_read_input_tokens: 3,
+                        cache_creation_input_tokens: 5,
+                    },
                 },
                 appliesTo: "response",
             },

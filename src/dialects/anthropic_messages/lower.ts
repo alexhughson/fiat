@@ -13,7 +13,7 @@ import {
     type OpOf,
     type Program,
 } from "../../core/ops.js";
-import { LintError } from "../../core/lint.js";
+import { LintError, lintOrWarn } from "../../core/lint.js";
 import {
     assertDocumentSource,
     assertImageMediaType,
@@ -25,6 +25,7 @@ import type {
     WireAnthropicStreamEvent,
     WireBlock,
 } from "./ops.js";
+import * as raise from "./raise.js";
 
 export const lowerRequestStages: Stage[] = [
     lowerReasoning,
@@ -526,27 +527,67 @@ export function lowerStopReasons(program: Program): Program {
     );
 }
 
-export function lowerUsageCounts(program: Program): Program {
+export function lowerUsageCounts(program: Program, target?: Target): Program {
     return program.flatMap((op) => {
         if (op.op !== "response.usage") return [op];
-        const counts = op as OpOf<"response.usage">;
         return [
             {
                 op: "anthropic_messages.usage",
-                usage: {
-                    ...(counts.inputTokens != null
-                        ? { input_tokens: counts.inputTokens }
-                        : {}),
-                    ...(counts.outputTokens != null
-                        ? { output_tokens: counts.outputTokens }
-                        : {}),
-                },
+                usage: wireUsageCounts(
+                    op as OpOf<"response.usage">,
+                    program,
+                    target,
+                ),
             },
         ];
     });
 }
 
-export function lowerCompleteResponseToStreamEvents(program: Program): Program {
+// inputTokens counts the prompt cache tokens, and Anthropic's input_tokens
+// leaves them out. The cache counts come from every anthropic_messages.usage
+// op of the program, a later op's field replacing an earlier one's; a program
+// raised from another dialect has none, so input_tokens gets the whole count.
+// Cache counts larger than inputTokens mean the program disagrees with itself,
+// for example after a transform changed inputTokens or when the program holds
+// a second response.usage op.
+function wireUsageCounts(
+    counts: OpOf<"response.usage">,
+    program: Program,
+    target: Target | undefined,
+): Record<string, number> {
+    const residual: Record<string, unknown> = {};
+    for (const op of program) {
+        if (op.op === "anthropic_messages.usage") {
+            Object.assign(
+                residual,
+                opData<{ usage: Record<string, unknown> }>(op).usage,
+            );
+        }
+    }
+    let inputTokens = counts.inputTokens;
+    if (inputTokens != null) {
+        const cache = raise.cacheTokens(residual);
+        if (cache > inputTokens) {
+            lintOrWarn(
+                target?.strict,
+                `anthropic_messages lower: response.usage inputTokens ${inputTokens} is smaller than the prompt cache counts ${cache} of the program's anthropic_messages.usage ops; input_tokens gets the whole count`,
+            );
+        } else {
+            inputTokens -= cache;
+        }
+    }
+    return {
+        ...(inputTokens != null ? { input_tokens: inputTokens } : {}),
+        ...(counts.outputTokens != null
+            ? { output_tokens: counts.outputTokens }
+            : {}),
+    };
+}
+
+export function lowerCompleteResponseToStreamEvents(
+    program: Program,
+    target?: Target,
+): Program {
     const hasCompleteBlocks = program.some(
         (op) =>
             op.op === "llm.text" ||
@@ -620,19 +661,16 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                     (op as OpOf<"response.stop">).reason,
                 );
                 break;
-            case "response.usage": {
-                const counts = op as OpOf<"response.usage">;
+            case "response.usage":
                 usage = {
                     ...usage,
-                    ...(counts.inputTokens != null
-                        ? { input_tokens: counts.inputTokens }
-                        : {}),
-                    ...(counts.outputTokens != null
-                        ? { output_tokens: counts.outputTokens }
-                        : {}),
+                    ...wireUsageCounts(
+                        op as OpOf<"response.usage">,
+                        program,
+                        target,
+                    ),
                 };
                 break;
-            }
             case "anthropic_messages.usage":
                 usage = {
                     ...usage,
@@ -761,7 +799,10 @@ export function lowerStreamToolCallDeltas(program: Program): Program {
     });
 }
 
-export function lowerStreamStopAndUsage(program: Program): Program {
+export function lowerStreamStopAndUsage(
+    program: Program,
+    target?: Target,
+): Program {
     const out: Program = [];
     let stopReason: string | undefined;
     let usage: Record<string, unknown> | undefined;
@@ -778,19 +819,16 @@ export function lowerStreamStopAndUsage(program: Program): Program {
                     (op as OpOf<"response.stop">).reason,
                 );
                 break;
-            case "response.usage": {
-                const counts = op as OpOf<"response.usage">;
+            case "response.usage":
                 usage = {
                     ...usage,
-                    ...(counts.inputTokens != null
-                        ? { input_tokens: counts.inputTokens }
-                        : {}),
-                    ...(counts.outputTokens != null
-                        ? { output_tokens: counts.outputTokens }
-                        : {}),
+                    ...wireUsageCounts(
+                        op as OpOf<"response.usage">,
+                        program,
+                        target,
+                    ),
                 };
                 break;
-            }
             case "anthropic_messages.usage":
                 usage = {
                     ...usage,

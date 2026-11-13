@@ -97,7 +97,9 @@ export type CoreOp =
     | { op: "response.id"; id: string }
     // Only the cross-provider counts live here. Provider-specific usage fields
     // (cache hits, reasoning tokens, totals) stay in the op stream as a
-    // residual on the source dialect's usage op.
+    // residual on the source dialect's usage op. inputTokens counts the
+    // request's prompt tokens, including the tokens read from and written to
+    // the prompt cache; Gemini's toolUsePromptTokenCount is not in it.
     | { op: "response.usage"; inputTokens?: number; outputTokens?: number }
     | { op: "response.stop"; reason: StopReason }
     | {
