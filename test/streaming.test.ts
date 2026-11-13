@@ -195,6 +195,199 @@ describe("stream response conversion", () => {
         ).toEqual(event);
     });
 
+    test("openai responses tool-call stream raises a tool_use stop", () => {
+        const functionCall = {
+            type: "function_call",
+            id: "fc_1",
+            call_id: "call_1",
+            name: "get_weather",
+            arguments: '{"city":"Halifax"}',
+            status: "completed",
+        };
+        const completed = {
+            type: "response.completed",
+            sequence_number: 4,
+            response: {
+                id: "resp_1",
+                object: "response",
+                status: "completed",
+                model: "gpt-4.1",
+                output: [functionCall],
+                usage: { input_tokens: 20, output_tokens: 8 },
+            },
+        };
+        // A real stream also holds response.created, response.in_progress, and
+        // response.function_call_arguments.done; the raise throws on those
+        // three event types, so this stream leaves them out.
+        const stream = [
+            {
+                type: "response.output_item.added",
+                sequence_number: 0,
+                output_index: 0,
+                item: { ...functionCall, arguments: "", status: "in_progress" },
+            },
+            {
+                type: "response.function_call_arguments.delta",
+                sequence_number: 1,
+                item_id: "fc_1",
+                output_index: 0,
+                delta: '{"city":',
+            },
+            {
+                type: "response.function_call_arguments.delta",
+                sequence_number: 2,
+                item_id: "fc_1",
+                output_index: 0,
+                delta: '"Halifax"}',
+            },
+            {
+                type: "response.output_item.done",
+                sequence_number: 3,
+                output_index: 0,
+                item: functionCall,
+            },
+            completed,
+        ];
+
+        expect(
+            stream
+                .flatMap((event) =>
+                    OpenAIResponsesTranslator.fromStreamResponse(event),
+                )
+                .filter((op) => op.op !== "openai_responses.body_field"),
+        ).toEqual([
+            {
+                op: "response.tool_call_delta",
+                index: 0,
+                id: "call_1",
+                name: "get_weather",
+            },
+            { op: "response.tool_call_delta", index: 0, arguments: '{"city":' },
+            {
+                op: "response.tool_call_delta",
+                index: 0,
+                arguments: '"Halifax"}',
+            },
+            {
+                op: "response.tool_call_delta",
+                index: 0,
+                id: "call_1",
+                name: "get_weather",
+                arguments: '{"city":"Halifax"}',
+            },
+            { op: "response.stop", reason: "tool_use" },
+            { op: "response.usage", inputTokens: 20, outputTokens: 8 },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(
+                OpenAIResponsesTranslator.fromStreamResponse(completed),
+            ),
+        ).toEqual(completed);
+        expect(
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.completed",
+                response: {
+                    status: "completed",
+                    output: [
+                        {
+                            type: "message",
+                            id: "msg_1",
+                            status: "completed",
+                            role: "assistant",
+                            content: [
+                                {
+                                    type: "output_text",
+                                    text: "checking",
+                                    annotations: [],
+                                },
+                            ],
+                        },
+                        functionCall,
+                        { type: "reasoning", id: "rs_1", summary: [] },
+                    ],
+                },
+            }).filter((op) => op.op === "response.stop"),
+        ).toEqual([{ op: "response.stop", reason: "tool_use" }]);
+    });
+
+    test("openai responses stream stop stays end_turn or max_tokens without a completed function call", () => {
+        const message = {
+            type: "message",
+            id: "msg_1",
+            status: "completed",
+            role: "assistant",
+            content: [{ type: "output_text", text: "hi", annotations: [] }],
+        };
+        const functionCall = {
+            type: "function_call",
+            id: "fc_1",
+            call_id: "call_1",
+            name: "get_weather",
+            arguments: '{"city":',
+            status: "incomplete",
+        };
+        const stops = (events: unknown[]) =>
+            events
+                .flatMap((event) =>
+                    OpenAIResponsesTranslator.fromStreamResponse(event),
+                )
+                .filter((op) => op.op === "response.stop");
+
+        expect(
+            stops([
+                {
+                    type: "response.output_item.added",
+                    output_index: 0,
+                    item: { ...message, status: "in_progress", content: [] },
+                },
+                {
+                    type: "response.output_text.delta",
+                    item_id: "msg_1",
+                    output_index: 0,
+                    content_index: 0,
+                    delta: "hi",
+                },
+                {
+                    type: "response.output_item.done",
+                    output_index: 0,
+                    item: message,
+                },
+                {
+                    type: "response.completed",
+                    response: { status: "completed", output: [message] },
+                },
+            ]),
+        ).toEqual([{ op: "response.stop", reason: "end_turn" }]);
+        expect(
+            stops([
+                {
+                    type: "response.completed",
+                    response: { status: "completed" },
+                },
+            ]),
+        ).toEqual([{ op: "response.stop", reason: "end_turn" }]);
+        expect(
+            stops([
+                {
+                    type: "response.completed",
+                    response: { status: "completed", output: [] },
+                },
+            ]),
+        ).toEqual([{ op: "response.stop", reason: "end_turn" }]);
+        expect(
+            stops([
+                {
+                    type: "response.incomplete",
+                    response: {
+                        status: "incomplete",
+                        incomplete_details: { reason: "max_output_tokens" },
+                        output: [functionCall],
+                    },
+                },
+            ]),
+        ).toEqual([{ op: "response.stop", reason: "max_tokens" }]);
+    });
+
     test("openai responses failed terminal events warn and drop cross-provider metadata", () => {
         withWarnSpy((warn) => {
             const chunk = OpenAIChatTranslator.toStreamResponse(
