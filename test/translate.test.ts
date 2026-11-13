@@ -618,9 +618,19 @@ describe("the model that answered", () => {
                 },
             ];
             for (const target of translators) {
-                expect(target.toBody(next)).toMatchObject({
+                let requested: unknown[] = [];
+                const readRequestedModels: Stage = (lowered) => {
+                    requested = lowered.filter((op) => op.op === "llm.model");
+                    return lowered;
+                };
+                expect(
+                    target.toBody(next, { beforeLower: readRequestedModels }),
+                ).toMatchObject({
                     model: request.model,
                 });
+                expect(requested).toEqual([
+                    { op: "llm.model", model: request.model },
+                ]);
             }
         },
     );
