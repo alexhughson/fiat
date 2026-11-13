@@ -60,26 +60,20 @@ const REASONING_ITEM = "openai_responses.reasoning_item";
 
 // Among the stream events this codec writes, only a terminal event
 // (response.completed, response.incomplete, response.failed) holds the
-// response object, which names the model. A delta event or an output item
-// event has no model field, so response.model is removed from a program that
-// builds one of those.
+// response object, which names the model. A program that holds response.model
+// and no delta makes streamResponseToWire write a terminal event, so
+// response.model is removed from a program that holds no stop reason, no
+// usage, and no response object, such as the program of the first Chat chunk,
+// which holds only the role. For a program that holds a delta,
+// streamResponseToWire returns the delta event before it reads the model.
 export function keepResponseModelForTerminalEvent(program: Program): Program {
-    const buildsDeltaEvent = program.some(
+    const buildsTerminalEvent = program.some(
         (op) =>
-            op.op === "response.text_delta" ||
-            op.op === "response.tool_call_delta",
+            op.op === "response.stop" ||
+            op.op === "response.usage" ||
+            (op.op === "openai_responses.body_field" &&
+                opData<{ key: string }>(op).key === "response"),
     );
-    const buildsTerminalEvent =
-        !buildsDeltaEvent &&
-        program.some(
-            (op) =>
-                op.op === "response.stop" ||
-                op.op === "response.usage" ||
-                op.op === "openai_responses.finish_reason" ||
-                op.op === "openai_responses.usage" ||
-                (op.op === "openai_responses.body_field" &&
-                    opData<{ key: string }>(op).key === "response"),
-        );
     return buildsTerminalEvent
         ? program
         : program.filter((op) => op.op !== "response.model");

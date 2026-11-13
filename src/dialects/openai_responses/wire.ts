@@ -539,10 +539,11 @@ export function streamResponseToWire(program: Program): unknown {
 
     event.type ??= terminalEventType(finishReason);
     if (usage || finishReason != null || model != null) {
-        const response = asRecord(
-            event.response ?? {},
-            "stream event.response",
-        );
+        // event.response is the value of an input op, so the writes below go
+        // into a copy.
+        const response = {
+            ...asRecord(event.response ?? {}, "stream event.response"),
+        };
         if (model != null) response.model = model;
         response.status ??=
             finishReason === "max_tokens" || finishReason === "content_filter"

@@ -901,19 +901,20 @@ describe("the model that answered", () => {
         ]);
     });
 
+    const completed = {
+        type: "response.completed",
+        sequence_number: 4,
+        response: {
+            id: "resp_1",
+            object: "response",
+            status: "completed",
+            model: "gpt-4o-2024-08-06",
+            output: [],
+            usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+        },
+    };
+
     test("a terminal event of the Responses API raises the model and writes it back", () => {
-        const completed = {
-            type: "response.completed",
-            sequence_number: 4,
-            response: {
-                id: "resp_1",
-                object: "response",
-                status: "completed",
-                model: "gpt-4o-2024-08-06",
-                output: [],
-                usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
-            },
-        };
         const fromResponses =
             OpenAIResponsesTranslator.fromStreamResponse(completed);
         expect(fromResponses).toContainEqual({
@@ -926,6 +927,104 @@ describe("the model that answered", () => {
         expect(
             OpenAIChatTranslator.toStreamResponses(fromResponses)[0],
         ).toMatchObject({ model: "gpt-4o-2024-08-06" });
+    });
+
+    test("lowering a raised response.completed event to the Responses API leaves the raised program unchanged", () => {
+        const raised = OpenAIResponsesTranslator.fromStreamResponse(completed);
+        const before = structuredClone(raised);
+        OpenAIResponsesTranslator.toStreamResponses(raised);
+        expect(raised).toEqual(before);
+    });
+
+    test("a response.failed event of the Responses API, which holds no stop reason and no usage, raises the model and writes it back", () => {
+        const failed = {
+            type: "response.failed",
+            sequence_number: 3,
+            response: {
+                id: "resp_1",
+                object: "response",
+                status: "failed",
+                model: "gpt-4o-2024-08-06",
+                error: { code: "server_error", message: "boom" },
+                output: [],
+            },
+        };
+        const raised = OpenAIResponsesTranslator.fromStreamResponse(failed);
+        expect(raised.filter((op) => op.op.startsWith("response."))).toEqual([
+            { op: "response.model", model: "gpt-4o-2024-08-06" },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponses(raised)).toEqual([
+            failed,
+        ]);
+    });
+
+    test("a Chat usage chunk, which holds usage and no stop reason, lowers to a response.completed event that names the model", () => {
+        const usageChunk = OpenAIChatTranslator.fromStreamResponse({
+            ...chatChunk([]),
+            usage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 },
+        });
+        expect(OpenAIResponsesTranslator.toStreamResponses(usageChunk)).toEqual(
+            [
+                {
+                    type: "response.completed",
+                    response: {
+                        model: "gpt-4o-2024-08-06",
+                        status: "completed",
+                        usage: { input_tokens: 8, output_tokens: 2 },
+                    },
+                },
+            ],
+        );
+    });
+
+    test("a Chat tool call argument chunk lowers to delta events that hold no model", () => {
+        const argumentChunk = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([
+                {
+                    index: 0,
+                    delta: {
+                        tool_calls: [
+                            { index: 0, function: { arguments: '{"city":' } },
+                        ],
+                    },
+                    finish_reason: null,
+                },
+            ]),
+        );
+        expect(argumentChunk.filter((op) => op.op.endsWith(".model"))).toEqual([
+            { op: "response.model", model: "gpt-4o-2024-08-06" },
+        ]);
+        expect(AnthropicTranslator.toStreamResponses(argumentChunk)).toEqual([
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "input_json_delta", partial_json: '{"city":' },
+            },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(argumentChunk),
+        ).toEqual([
+            {
+                type: "response.function_call_arguments.delta",
+                output_index: 0,
+                delta: '{"city":',
+            },
+        ]);
+    });
+
+    test("a Gemini stream chunk raises modelVersion as response.model", () => {
+        const raised = GeminiTranslator.fromStreamResponse({
+            modelVersion: "gemini-2.5-flash",
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "hi" }] },
+                    index: 0,
+                },
+            ],
+        });
+        expect(raised.filter((op) => op.op.endsWith(".model"))).toEqual([
+            { op: "response.model", model: "gemini-2.5-flash" },
+        ]);
     });
 
     test("a recorded Realtime response.done event names no model, and none is raised from it", () => {
