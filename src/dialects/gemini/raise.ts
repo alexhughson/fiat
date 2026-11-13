@@ -262,20 +262,15 @@ function raiseContent(
                             ? "{}"
                             : toolResultContent(responseBody),
                 });
-                pushPartMeta(
-                    out,
-                    part,
-                    {
-                        kind,
-                        index,
-                        id,
-                        name,
-                        ...(responseBody == null
-                            ? {}
-                            : { response: responseBody }),
-                    },
-                    appliesTo,
-                );
+                // Only the function name stays in the dialect op, with the
+                // tool result's id under `of` so lowering can find the
+                // result whatever sits between the two ops — unless a
+                // second result reuses the id, in which case each part_meta
+                // must sit after its own result and before the next result
+                // with that id. The call id lives in the llm.tool_result,
+                // and lowering rebuilds the response object from its
+                // content.
+                pushPartMeta(out, part, { kind, of: id, name }, appliesTo);
                 break;
             }
         }
@@ -430,11 +425,10 @@ function partKind(
 }
 
 // Gemini requires functionResponse.response to be a JSON object, so lowering
-// wraps a tool result that is not an object under the "output" key, which
-// Gemini's docs name for function output. A response body whose only key is
-// "output" raises back to the wrapped value: a string as text, anything else
-// as JSON, so a round trip through Gemini returns the caller's original
-// content.
+// wraps tool result text that is not a JSON object under the "output" key,
+// which Gemini's docs name for function output. A response body whose only
+// key is "output" raises back to the wrapped value: a string as text,
+// anything else as JSON.
 function toolResultContent(responseBody: Record<string, unknown>): string {
     const keys = Object.keys(responseBody);
     if (keys.length !== 1 || keys[0] !== "output") {
@@ -451,10 +445,11 @@ function pushPartMeta(
     appliesTo?: "request" | "response",
 ): void {
     const meta = partExtras(part);
+    const hasIdSource = base.kind === "functionCall" && base.idSource != null;
     if (
         Object.keys(meta).length > 0 ||
         base.kind === "functionResponse" ||
-        base.idSource === "synthesized"
+        hasIdSource
     ) {
         out.push({
             op: "gemini.part_meta",
