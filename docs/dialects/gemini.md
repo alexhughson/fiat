@@ -38,8 +38,9 @@ path. Code: `src/dialects/gemini/`.
 
 ## Lints
 
-- A bare `llm.tool_result` needs a known function name from an
-  `llm.tool_call` or the `gemini.part_meta` that names the result.
+- A bare `llm.tool_result` needs a known function name from the
+  `gemini.part_meta` that names the result or from the nearest earlier
+  `llm.tool_call` with its id; a later call with that id gives no name.
 - Multiple response candidates are rejected.
 - `toolConfig` with several `allowedFunctionNames` has no core equivalent.
 - Forced server-tool choices throw; Gemini can force function tools only.
