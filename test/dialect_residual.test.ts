@@ -2237,8 +2237,6 @@ const stopPaths: Record<string, string> = {
     "openai_responses.body_field:metadata": "free-form metadata map",
     "openai_realtime.response_param:metadata": "free-form metadata map",
     "openai_realtime.body_field:metadata": "free-form metadata map",
-    // The gemini functionResponse payload, kept raw for round-trip.
-    "gemini.part_meta:functionResponse:response": "tool result payload",
 };
 
 // Stops that hid at least one key during the run.

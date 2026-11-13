@@ -42,11 +42,9 @@ export const baseline: string[] = [
     "request:gemini.generation_config:stopSequences[]",
     "request:gemini.generation_config:topK",
     "request:gemini.generation_config:topP",
-    "request:gemini.part_meta:functionResponse:id",
-    "request:gemini.part_meta:functionResponse:index",
     "request:gemini.part_meta:functionResponse:kind",
     "request:gemini.part_meta:functionResponse:name",
-    "request:gemini.part_meta:functionResponse:response",
+    "request:gemini.part_meta:functionResponse:of",
 
     // openai_chat
     "request:openai_chat.body_field:metadata",
