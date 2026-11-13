@@ -668,11 +668,9 @@ function streamTerminalEvent(event: Record<string, unknown>): Program {
         response?.output == null
             ? []
             : asArray(response.output, "stream event.response.output");
-    const hasFunctionCall = output.some(
-        (item) =>
-            asRecord(item, "stream event.response.output item").type ===
-            "function_call",
-    );
+    const hasFunctionCall = output
+        .map((item) => asRecord(item, "stream event.response.output item"))
+        .some((item) => item.type === "function_call");
     const reason = finishReason(
         status,
         incompleteReason,

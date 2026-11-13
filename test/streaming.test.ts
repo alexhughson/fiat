@@ -310,7 +310,7 @@ describe("stream response conversion", () => {
         ).toEqual([{ op: "response.stop", reason: "tool_use" }]);
     });
 
-    test("openai responses stream stop stays end_turn or max_tokens without a completed function call", () => {
+    test("openai responses stream raises no tool_use stop without a completed function call", () => {
         const message = {
             type: "message",
             id: "msg_1",
@@ -386,6 +386,66 @@ describe("stream response conversion", () => {
                 },
             ]),
         ).toEqual([{ op: "response.stop", reason: "max_tokens" }]);
+        expect(
+            stops([
+                {
+                    type: "response.failed",
+                    response: {
+                        status: "failed",
+                        error: { code: "server_error", message: "nope" },
+                        output: [{ ...functionCall, status: "completed" }],
+                    },
+                },
+            ]),
+        ).toEqual([]);
+        expect(
+            stops([
+                {
+                    type: "response.completed",
+                    response: {
+                        output: [{ ...functionCall, status: "completed" }],
+                    },
+                },
+            ]),
+        ).toEqual([]);
+    });
+
+    test("openai responses stream terminal events throw on a malformed response.output", () => {
+        const functionCall = {
+            type: "function_call",
+            id: "fc_1",
+            call_id: "call_1",
+            name: "get_weather",
+            arguments: "{}",
+            status: "completed",
+        };
+        const raise = (type: string, status: string, output: unknown) => () =>
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type,
+                response: { status, output },
+            });
+        const notAnArray =
+            'stream event.response.output: expected an array, got "x"';
+        const notAnObject =
+            "stream event.response.output item: expected an object, got 1";
+
+        expect(raise("response.completed", "completed", "x")).toThrow(
+            notAnArray,
+        );
+        expect(raise("response.completed", "completed", [1])).toThrow(
+            notAnObject,
+        );
+        // The malformed item throws on either side of the function call.
+        expect(
+            raise("response.completed", "completed", [1, functionCall]),
+        ).toThrow(notAnObject);
+        expect(
+            raise("response.completed", "completed", [functionCall, 1]),
+        ).toThrow(notAnObject);
+        expect(raise("response.incomplete", "incomplete", [1])).toThrow(
+            notAnObject,
+        );
+        expect(raise("response.failed", "failed", "x")).toThrow(notAnArray);
     });
 
     test("openai responses failed terminal events warn and drop cross-provider metadata", () => {
