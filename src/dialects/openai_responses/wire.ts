@@ -664,7 +664,18 @@ function streamTerminalEvent(event: Record<string, unknown>): Program {
                   incompleteDetails.reason,
                   "stream event.response.incomplete_details.reason",
               );
-    const reason = finishReason(status, incompleteReason, false);
+    const output =
+        response?.output == null
+            ? []
+            : asArray(response.output, "stream event.response.output");
+    const hasFunctionCall = output
+        .map((item) => asRecord(item, "stream event.response.output item"))
+        .some((item) => item.type === "function_call");
+    const reason = finishReason(
+        status,
+        incompleteReason,
+        status === "completed" && hasFunctionCall,
+    );
     if (reason) program.push({ op: "openai_responses.finish_reason", reason });
     if (response?.usage != null) {
         program.push({
