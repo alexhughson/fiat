@@ -66,11 +66,15 @@ const REASONING_ITEM = "openai_responses.reasoning_item";
 // usage, and no response object, such as the program of the first Chat chunk,
 // which holds only the role. For a program that holds a delta,
 // streamResponseToWire returns the delta event before it reads the model.
+// openai_responses.usage stands alone, without response.usage, in the program
+// that this codec's fromWire returns for an event whose response holds only
+// model and usage, when a caller lowers that program without raising it.
 export function keepResponseModelForTerminalEvent(program: Program): Program {
     const buildsTerminalEvent = program.some(
         (op) =>
             op.op === "response.stop" ||
             op.op === "response.usage" ||
+            op.op === "openai_responses.usage" ||
             (op.op === "openai_responses.body_field" &&
                 opData<{ key: string }>(op).key === "response"),
     );

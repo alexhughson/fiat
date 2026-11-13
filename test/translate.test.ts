@@ -977,6 +977,31 @@ describe("the model that answered", () => {
         );
     });
 
+    test("a Responses terminal event that holds only model and usage keeps the model when its codec program is lowered without raising", () => {
+        const event = {
+            type: "response.completed",
+            response: {
+                model: "gpt-4o-2024-08-06",
+                usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+            },
+        };
+        const codecProgram =
+            OpenAIResponsesTranslator.dialect.responseStream!.fromWire(event);
+        expect(codecProgram.map((op) => op.op)).toEqual([
+            "openai_responses.body_field",
+            "response.model",
+            "openai_responses.usage",
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(codecProgram),
+        ).toEqual([
+            {
+                type: "response.completed",
+                response: { ...event.response, status: "completed" },
+            },
+        ]);
+    });
+
     test("a Chat tool call argument chunk lowers to delta events that hold no model", () => {
         const argumentChunk = OpenAIChatTranslator.fromStreamResponse(
             chatChunk([
