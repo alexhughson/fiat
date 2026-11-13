@@ -407,10 +407,65 @@ describe("openai_chat requests", () => {
             { op: "llm.tool_result", id: "call_1", content: '["INV-7"]' },
         ]);
 
-        expect(OpenAIChatTranslator.toBody(program)).toEqual(body);
+        // The explicit empty `tools` array raises no llm.tool op, so the
+        // lowered body omits the key.
+        expect(OpenAIChatTranslator.toBody(program)).toEqual({
+            model: "gpt-4o",
+            messages: [
+                { role: "user", content: "Check my invoices" },
+                {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: "call_1",
+                            type: "function",
+                            function: {
+                                name: "list_invoices",
+                                arguments: '{"customer_id":"c_9"}',
+                            },
+                        },
+                    ],
+                },
+                { role: "tool", tool_call_id: "call_1", content: '["INV-7"]' },
+            ],
+        });
     });
 
-    test("tool history replay without current tools serializes an empty tools array", () => {
+    test("a request body without a tools key keeps no tools key after the round trip", () => {
+        const body = {
+            model: "gpt-4o",
+            messages: [
+                { role: "user", content: "Read a.txt" },
+                {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: "call_1",
+                            type: "function",
+                            function: {
+                                name: "read_file",
+                                arguments: '{"path":"a.txt"}',
+                            },
+                        },
+                    ],
+                },
+                { role: "tool", tool_call_id: "call_1", content: "contents" },
+                { role: "user", content: "thanks" },
+            ],
+        };
+
+        const program = OpenAIChatTranslator.fromBody(body);
+        expect(program.some((op) => op.op === "llm.tool")).toBe(false);
+        const lowered = OpenAIChatTranslator.toBody(program) as Record<
+            string,
+            unknown
+        >;
+        expect(Object.hasOwn(lowered, "tools")).toBe(false);
+    });
+
+    test("tool history replay without current tools omits the tools key", () => {
         expect(
             OpenAIChatTranslator.toBody([
                 { op: "llm.model", model: "gpt-4o" },
@@ -451,7 +506,6 @@ describe("openai_chat requests", () => {
                 },
                 { role: "user", content: "hi" },
             ],
-            tools: [],
         });
     });
 
@@ -548,7 +602,6 @@ describe("openai_chat requests", () => {
                     ],
                 },
             ],
-            tools: [],
         });
     });
 

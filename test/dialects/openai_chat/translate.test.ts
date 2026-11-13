@@ -230,6 +230,43 @@ describe("openai_chat translation", () => {
         expect(body.reasoning_effort).toBeUndefined();
     });
 
+    test("an anthropic request with tool history and no tools lowers to OpenAI Chat without a tools key", () => {
+        const body = OpenAIChatTranslator.toBody(
+            AnthropicTranslator.fromBody({
+                model: "claude-sonnet-5-5",
+                max_tokens: 1024,
+                messages: [
+                    { role: "user", content: "Read a.txt" },
+                    {
+                        role: "assistant",
+                        content: [
+                            {
+                                type: "tool_use",
+                                id: "toolu_1",
+                                name: "read_file",
+                                input: { path: "a.txt" },
+                            },
+                        ],
+                    },
+                    {
+                        role: "user",
+                        content: [
+                            {
+                                type: "tool_result",
+                                tool_use_id: "toolu_1",
+                                content: "contents",
+                            },
+                        ],
+                    },
+                    { role: "user", content: "thanks" },
+                ],
+            }),
+        ) as Record<string, unknown>;
+
+        expect(body.model).toBe("claude-sonnet-5-5");
+        expect(Object.hasOwn(body, "tools")).toBe(false);
+    });
+
     test("unsupported Anthropic thinking warns and drops when targeting OpenAI Chat", () => {
         withWarnSpy((warn) => {
             const body = OpenAIChatTranslator.toBody(

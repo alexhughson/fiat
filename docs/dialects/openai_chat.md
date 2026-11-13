@@ -43,7 +43,9 @@ models lower them as `max_tokens`.
 - Responses-style ids like `call_id|item_id` lower to the Chat `call_id`; ids
   over 40 characters are truncated.
 - Reasoning chat models serialize portable system text as `developer`.
-- Tool history without current tools still serializes `tools: []`.
+- Tool history without current tools omits the `tools` key: `llm.tool` ops
+  lower to `tools`, and tool history alone does not make `requestToWire`
+  write an empty `tools` array.
 - Responses with `n > 1` are rejected.
 - Chat has no field for reasoning: `llm.reasoning` is dropped with a warning.
 - Response envelope and usage residuals are response-only and are not resent
