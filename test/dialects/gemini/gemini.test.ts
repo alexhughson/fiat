@@ -54,10 +54,8 @@ describe("gemini requests", () => {
                 op: "gemini.part_meta",
                 part: {
                     kind: "functionResponse",
-                    index: 0,
-                    id: "call_1",
+                    of: "call_1",
                     name: "get_weather",
-                    response: { temp_c: 21 },
                 },
             },
             {
