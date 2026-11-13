@@ -141,14 +141,12 @@ function lowerStreamResponseProgram(
     low = codec.lower(low, {
         dialect: dialect.name,
         kind: "response_stream",
-        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
         dialect: dialect.name,
         kind: "response_stream",
-        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     };
     for (const legalize of codec.legalizations ?? []) {
