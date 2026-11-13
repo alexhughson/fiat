@@ -17,10 +17,10 @@ path. Code: `src/dialects/gemini/`.
 | minimal Google Search / code execution tools | `llm.server_tool`       |
 | portable `functionCallingConfig` modes       | `llm.tool_choice`       |
 | JSON response schema config                  | `llm.output`            |
-| REST `inline_data` image parts               | `llm.image`             |
-| REST `inline_data` audio parts               | `llm.audio`             |
-| REST `inline_data` PDF parts                 | `llm.document`          |
-| REST `inline_data` video parts               | `llm.video`             |
+| `inline_data` / `inlineData` image parts     | `llm.image`             |
+| `inline_data` / `inlineData` audio parts     | `llm.audio`             |
+| `inline_data` / `inlineData` PDF parts       | `llm.document`          |
+| `inline_data` / `inlineData` video parts     | `llm.video`             |
 
 ## Dialect ops
 
@@ -202,10 +202,15 @@ omits the synthetic id again.
 - Native `thinkingLevel` reaching Gemini 2.5 is legalized to budgets by
   default.
 - Configured built-ins and URL context stay as `gemini.tool` residuals.
-- REST `inline_data` image/audio/PDF/video parts raise to portable media ops.
-  Gemini file URIs and SDK camelCase media parts stay as content-bearing
-  `gemini.content` residuals unless they are text/function-call/function-
-  response parts.
+- `inline_data` and `inlineData` image/audio/PDF/video parts in user
+  content raise to `llm.image`, `llm.audio`, `llm.document`, and `llm.video`,
+  and Gemini lowering writes them back as `inline_data`. Gemini file URIs,
+  and inline parts with other fields on the part or its blob, such as
+  `videoMetadata` or `mediaResolution`, stay as content-bearing
+  `gemini.content` residuals. An inline image/audio/PDF/video part in user
+  content that also sets `text`, `functionCall`, `functionResponse`,
+  `file_data`, or `fileData`, or sets both `inline_data` and `inlineData`,
+  throws.
 - URL image/document sources cannot lower directly to GenerateContent; upload
   them and pass native Gemini file data, or use base64 data.
 - Media model validation is hard failure even in lenient mode. It never drops
