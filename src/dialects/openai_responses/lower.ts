@@ -15,6 +15,7 @@ import {
 import * as reasoning from "../../core/reasoning.js";
 import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
 import { summaryFromText, summaryText } from "./raise.js";
+import { messageItem } from "./wire.js";
 import type {
     WireContentPart,
     WireFunctionCall,
@@ -126,11 +127,7 @@ export function lowerRequestTexts(program: Program): Program {
         return [
             {
                 op: "openai_responses.input",
-                item: {
-                    type: "message" as const,
-                    role: text.role,
-                    content: [{ type: "input_text", text: text.content }],
-                },
+                item: messageItem(text.role, text.content),
             },
         ];
     });
