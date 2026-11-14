@@ -27,7 +27,7 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 | `request.stream`         | `value`                                   | stream request flag                        |
 | `request.stop_sequences` | `value: string[]`                         | provider stop strings                      |
 | `llm.thinking`           | `effort`                                  | portable effort; dialects choose wire form |
-| `llm.text`               | `role`, `content`                         | one text unit                              |
+| `llm.text`               | `role`, `content`                         | one text unit; see [page](ops/llm.text.md) |
 | `llm.reasoning`          | `id`, `content`                           | model reasoning; see Reasoning below       |
 | `llm.image`              | `role:"user"`, `source`                   | image URL or base64 image data             |
 | `llm.audio`              | `role:"user"`, `source`                   | base64 audio data                          |
