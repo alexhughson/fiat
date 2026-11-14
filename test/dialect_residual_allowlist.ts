@@ -36,9 +36,6 @@ export const baseline: string[] = [
     "request:anthropic_messages.sampling:top_p",
 
     // gemini
-    "request:gemini.content:parts[].inlineData.data",
-    "request:gemini.content:parts[].inlineData.mimeType",
-    "request:gemini.content:role",
     "request:gemini.generation_config:stopSequences[]",
     "request:gemini.generation_config:topK",
     "request:gemini.generation_config:topP",

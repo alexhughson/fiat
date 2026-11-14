@@ -2255,7 +2255,6 @@ function isStop(unit: string, input: string, value: unknown): boolean {
 // no unit. A field is listed under the op that carries it, so the same field
 // name on any other op opens a unit. Every entry needs a corpus case that
 // raises the op with the field; the test fails on an entry no case reached.
-// - `preservesContent` marks a gemini.content op that lowering must keep.
 // - `eventType` names the event an openai_realtime.event_param belongs to;
 //   the event's wire `type` is a unit of its own.
 // - `of` holds the id of the llm.reasoning op that an
@@ -2263,7 +2262,6 @@ function isStop(unit: string, input: string, value: unknown): boolean {
 // An entry hides a string or a boolean only, so a listed name cannot hide a
 // wire object. The value of a hidden string is not checked.
 const opMechanics: Record<string, string[]> = {
-    "gemini.content": ["preservesContent"],
     "openai_realtime.event_param": ["eventType"],
     "openai_responses.reasoning_item": ["of"],
 };
