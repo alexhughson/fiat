@@ -23,6 +23,21 @@ export const OpenAIChatDialect = {
 
 `responseStream` uses the same edges one event/chunk at a time.
 
+A `responseStream` codec may also define `splitEvents`. One chunk of one
+provider's stream can lower to a program that the target stream sends as more
+than one event: a Gemini chunk holds text and `finishReason` together, and an
+`openai_responses` stream sends a text delta event and then a terminal event.
+`splitEvents` receives the lowered program and returns the ops of each event,
+in the order the stream sends the events. `toWire` then serializes each
+returned program as one event. `openai_responses` and `openai_realtime` define
+`splitEvents`. For such a program `toStreamResponses` returns every event.
+
+`toStreamResponse` returns one event and does not call `splitEvents`: it passes
+the whole lowered program to `toWire`. The stream `toWire` functions of
+`openai_responses` and `openai_realtime` throw a `LintError` for a program that
+holds a delta and a stop reason, because one event cannot hold both. Each
+dialect decides this in its own `toWire`; the shared pipeline rejects nothing.
+
 ## Stage pipelines
 
 `raise` and `lower` are composed from `Stage` functions:

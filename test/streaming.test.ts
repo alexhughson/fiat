@@ -648,3 +648,245 @@ describe("stream response conversion", () => {
         ).toEqual(delta);
     });
 });
+
+// Gemini's API can send text and finishReason in one chunk. The OpenAI
+// Responses and Realtime streams have no event that holds both.
+describe("a stream chunk that holds a delta and a stop reason", () => {
+    function geminiChunk(
+        parts: unknown[],
+        rest: Record<string, unknown> = {},
+    ): Record<string, unknown> {
+        const { finishReason, ...body } = rest;
+        return {
+            candidates: [
+                {
+                    content: { role: "model", parts },
+                    ...(finishReason != null ? { finishReason } : {}),
+                    index: 0,
+                },
+            ],
+            ...body,
+        };
+    }
+
+    const textAndStop = geminiChunk([{ text: "Hello" }], {
+        finishReason: "STOP",
+    });
+    const textOnly = geminiChunk([{ text: "Hello" }]);
+    const stopOnly = geminiChunk([], { finishReason: "STOP" });
+
+    const responsesTextEvent = {
+        type: "response.output_text.delta",
+        item_id: expect.stringMatching(/^msg_/),
+        output_index: 0,
+        content_index: 0,
+        delta: "Hello",
+    };
+    const responsesCompletedEvent = {
+        type: "response.completed",
+        response: { status: "completed" },
+    };
+    const realtimeTextEvent = {
+        type: "response.output_text.delta",
+        delta: "Hello",
+    };
+    const realtimeDoneEvent = {
+        type: "response.done",
+        response: { status: "completed", status_details: null },
+    };
+
+    test("gemini text and STOP lower to a delta event and a terminal event in openai_responses", () => {
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(
+                GeminiTranslator.fromStreamResponse(textAndStop),
+            ),
+        ).toEqual([responsesTextEvent, responsesCompletedEvent]);
+    });
+
+    test("gemini text and STOP lower to a delta event and response.done in openai_realtime", () => {
+        expect(
+            OpenAIRealtimeTranslator.toStreamResponses(
+                GeminiTranslator.fromStreamResponse(textAndStop),
+            ),
+        ).toEqual([realtimeTextEvent, realtimeDoneEvent]);
+    });
+
+    test("a gemini chunk with only text lowers to one delta event", () => {
+        const raised = GeminiTranslator.fromStreamResponse(textOnly);
+
+        expect(OpenAIResponsesTranslator.toStreamResponses(raised)).toEqual([
+            responsesTextEvent,
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(raised)).toEqual([
+            realtimeTextEvent,
+        ]);
+    });
+
+    test("a gemini chunk with only STOP lowers to one terminal event", () => {
+        const raised = GeminiTranslator.fromStreamResponse(stopOnly);
+
+        expect(OpenAIResponsesTranslator.toStreamResponses(raised)).toEqual([
+            responsesCompletedEvent,
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(raised)).toEqual([
+            realtimeDoneEvent,
+        ]);
+    });
+
+    test("the terminal event holds the stop reason and the usage of the chunk", () => {
+        const raised = GeminiTranslator.fromStreamResponse(
+            geminiChunk([{ text: "Hello" }], {
+                finishReason: "MAX_TOKENS",
+                usageMetadata: {
+                    promptTokenCount: 4,
+                    candidatesTokenCount: 1,
+                },
+            }),
+        );
+
+        expect(OpenAIResponsesTranslator.toStreamResponses(raised)).toEqual([
+            responsesTextEvent,
+            {
+                type: "response.incomplete",
+                response: {
+                    status: "incomplete",
+                    incomplete_details: { reason: "max_output_tokens" },
+                    usage: { input_tokens: 4, output_tokens: 1 },
+                },
+            },
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(raised)).toEqual([
+            realtimeTextEvent,
+            {
+                type: "response.done",
+                response: {
+                    status: "incomplete",
+                    status_details: {
+                        type: "incomplete",
+                        reason: "max_output_tokens",
+                    },
+                    usage: { input_tokens: 4, output_tokens: 1 },
+                },
+            },
+        ]);
+    });
+
+    test("gemini text and SAFETY lower to a delta event and a terminal event that holds content_filter", () => {
+        const raised = GeminiTranslator.fromStreamResponse(
+            geminiChunk([{ text: "Hello" }], { finishReason: "SAFETY" }),
+        );
+
+        expect(OpenAIResponsesTranslator.toStreamResponses(raised)).toEqual([
+            responsesTextEvent,
+            {
+                type: "response.incomplete",
+                response: {
+                    status: "incomplete",
+                    incomplete_details: { reason: "content_filter" },
+                },
+            },
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(raised)).toEqual([
+            realtimeTextEvent,
+            {
+                type: "response.done",
+                response: {
+                    status: "incomplete",
+                    status_details: {
+                        type: "incomplete",
+                        reason: "content_filter",
+                    },
+                },
+            },
+        ]);
+    });
+
+    test("a gemini function call and STOP lower to the call event and a terminal event", () => {
+        const raised = GeminiTranslator.fromStreamResponse(
+            geminiChunk([{ functionCall: { name: "lookup", args: {} } }], {
+                finishReason: "STOP",
+            }),
+        );
+
+        const callEvent = expect.objectContaining({
+            item: expect.objectContaining({ name: "lookup" }),
+        });
+
+        expect(OpenAIResponsesTranslator.toStreamResponses(raised)).toEqual([
+            callEvent,
+            responsesCompletedEvent,
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(raised)).toEqual([
+            callEvent,
+            realtimeDoneEvent,
+        ]);
+    });
+
+    test("a gemini stream with usage on every chunk lowers to one terminal event, sent last", () => {
+        const usageMetadata = { promptTokenCount: 4, candidatesTokenCount: 1 };
+        const chunks = [
+            geminiChunk([{ text: "Hel" }], { usageMetadata }),
+            geminiChunk([{ text: "lo" }], { usageMetadata }),
+            geminiChunk([{ text: "!" }], {
+                finishReason: "STOP",
+                usageMetadata,
+            }),
+        ];
+        const eventTypes = (translator: typeof OpenAIResponsesTranslator) =>
+            chunks
+                .flatMap((chunk) =>
+                    translator.toStreamResponses(
+                        GeminiTranslator.fromStreamResponse(chunk),
+                    ),
+                )
+                .map((event) => (event as { type: string }).type);
+
+        expect(eventTypes(OpenAIResponsesTranslator)).toEqual([
+            "response.output_text.delta",
+            "response.output_text.delta",
+            "response.output_text.delta",
+            "response.completed",
+        ]);
+        expect(eventTypes(OpenAIRealtimeTranslator)).toEqual([
+            "response.output_text.delta",
+            "response.output_text.delta",
+            "response.output_text.delta",
+            "response.done",
+        ]);
+    });
+
+    test("toStreamResponse throws instead of returning one of the two events", () => {
+        const raised = GeminiTranslator.fromStreamResponse(textAndStop);
+
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponse(raised),
+        ).toThrow(LintError);
+        expect(() => OpenAIRealtimeTranslator.toStreamResponse(raised)).toThrow(
+            LintError,
+        );
+
+        const callAndStop = GeminiTranslator.fromStreamResponse(
+            geminiChunk([{ functionCall: { name: "lookup", args: {} } }], {
+                finishReason: "STOP",
+            }),
+        );
+
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponse(callAndStop),
+        ).toThrow(LintError);
+        expect(() =>
+            OpenAIRealtimeTranslator.toStreamResponse(callAndStop),
+        ).toThrow(LintError);
+
+        expect(
+            OpenAIResponsesTranslator.toStreamResponse(
+                GeminiTranslator.fromStreamResponse(textOnly),
+            ),
+        ).toEqual(responsesTextEvent);
+        expect(
+            OpenAIRealtimeTranslator.toStreamResponse(
+                GeminiTranslator.fromStreamResponse(stopOnly),
+            ),
+        ).toEqual(realtimeDoneEvent);
+    });
+});

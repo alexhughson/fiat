@@ -494,6 +494,11 @@ export function streamResponseToWire(program: Program): unknown {
         }
     }
 
+    rejectDeltaWithFinishReason(
+        sawTextDelta || toolDeltas.length > 0,
+        finishReason,
+    );
+
     if (sawTextDelta) {
         event.type ??= "response.output_text.delta";
         event.item_id ??= `msg_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -559,6 +564,20 @@ export function streamResponseToWire(program: Program): unknown {
         event.response = response;
     }
     return event;
+}
+
+// A Responses stream has no event that holds a delta and a stop reason, and
+// this function returns one event. Writing the delta event alone would drop
+// the stop reason, so the program is rejected. toStreamResponses splits such a
+// program before it calls this function.
+function rejectDeltaWithFinishReason(
+    hasDelta: boolean,
+    finishReason: string | undefined,
+): void {
+    if (!hasDelta || finishReason == null) return;
+    throw new LintError(
+        `openai_responses stream response toWire: the program holds a delta and the stop reason "${finishReason}", which a Responses stream sends as two events; toStreamResponses returns both`,
+    );
 }
 
 function inputFromWire(input: unknown): Program {
