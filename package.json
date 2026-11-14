@@ -27,7 +27,6 @@
         "e2e:openai-realtime:validate": "bun e2e/openai_realtime/validate.ts",
         "example:anthropic-evil-router": "bun examples/anthropic-evil-router.ts",
         "example:anthropic-openai-proxy": "bun examples/anthropic-openai-proxy.ts",
-        "example:anthropic-openai-proxy:smoke": "bun examples/anthropic-openai-proxy-smoke.ts",
         "example:cli-chat": "bun examples/cli-chat.ts",
         "example:openai-realtime": "bun examples/openai-realtime-chat-server.ts",
         "format": "prettier . --write",

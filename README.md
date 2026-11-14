@@ -99,7 +99,7 @@ Inspired by the safeguards around Fable, `examples/anthropic-evil-router.ts` exp
 
 ### Anthropic OpenAI proxy
 
-`examples/anthropic-openai-proxy.ts` is a super simple server which exposes the Anthropic APi but is backed by gpt-5.5. It works with Claude code, and is pretty simple.
+`examples/anthropic-openai-proxy.ts` is a super simple server which exposes the Anthropic API but is backed by gpt-5.5. It works with Claude code, and is pretty simple.
 
 ### CLI Chat
 
@@ -129,7 +129,7 @@ When you convert this payload to a non anthropic endpoint, the anthropic cache c
 
 As much as possible, fiat will try to map `llm.*` operations to the best possible match for a given model/endpoint.
 
-So where there are a million different ways of expressing thinking effort, fiat will attempt to map the `none`, `minimal`, `low`, `medium`, `high`, `xhigh` gradiant as closely as possible to what the model supports.
+So where there are a million different ways of expressing thinking effort, fiat will attempt to map the `none`, `minimal`, `low`, `medium`, `high`, `xhigh` gradient as closely as possible to what the model supports.
 
 ## Available translator wrappers:
 

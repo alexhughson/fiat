@@ -664,7 +664,18 @@ function streamTerminalEvent(event: Record<string, unknown>): Program {
                   incompleteDetails.reason,
                   "stream event.response.incomplete_details.reason",
               );
-    const reason = finishReason(status, incompleteReason, false);
+    const output =
+        response?.output == null
+            ? []
+            : asArray(response.output, "stream event.response.output");
+    const hasFunctionCall = output
+        .map((item) => asRecord(item, "stream event.response.output item"))
+        .some((item) => item.type === "function_call");
+    const reason = finishReason(
+        status,
+        incompleteReason,
+        status === "completed" && hasFunctionCall,
+    );
     if (reason) program.push({ op: "openai_responses.finish_reason", reason });
     if (response?.usage != null) {
         program.push({
@@ -682,8 +693,18 @@ function terminalEventType(finishReason: string | undefined): string {
         : "response.completed";
 }
 
-function messageItem(role: "user" | "assistant", text: string): WireInputItem {
-    return { type: "message", role, content: [{ type: "input_text", text }] };
+// An assistant message in `input` takes its text as a string: OpenAI's input
+// schemas allow only input_* parts in a message list, and an output_text part
+// only inside an output message, which requires `id` and `status`.
+export function messageItem(
+    role: "user" | "assistant",
+    text: string,
+): WireInputItem {
+    return {
+        type: "message",
+        role,
+        content: role === "assistant" ? text : [{ type: "input_text", text }],
+    };
 }
 
 function toolFromWire(tool: Record<string, unknown>): Op[] {
