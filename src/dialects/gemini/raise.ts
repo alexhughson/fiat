@@ -15,6 +15,7 @@ import { asNumber, asRecord, asString } from "../../core/wire.js";
 import type { GeminiPartMeta, WireContent, WirePart } from "./ops.js";
 
 export const raiseStages: Stage[] = [
+    raiseToolUseStops,
     raiseContents,
     raiseThoughts,
     raiseFinishReasons,
@@ -24,6 +25,7 @@ export const raiseStages: Stage[] = [
 export const raise: Stage = stagePipeline(raiseStages);
 
 export const raiseStreamResponseStages: Stage[] = [
+    raiseToolUseStops,
     raiseStreamContents,
     raiseFinishReasons,
     raiseUsage,
@@ -88,6 +90,32 @@ export function raiseStreamContents(program: Program): Program {
             appliesTo?: "request" | "response";
         }>(op);
         return raiseStreamContent(contentOp.content, contentOp.appliesTo);
+    });
+}
+
+// Gemini sends finishReason "STOP" also when the candidate asks for a
+// function call. This stage runs before raiseContents and
+// raiseStreamContents, while the response candidate's gemini.content still
+// precedes its gemini.finish_reason, so a call in request history does not
+// count. A stream chunk counts only its own parts.
+export function raiseToolUseStops(program: Program): Program {
+    let candidateCalls = false;
+    return program.map((op) => {
+        if (
+            op.op === "gemini.content" &&
+            opData<{ appliesTo?: string }>(op).appliesTo === "response"
+        ) {
+            candidateCalls = opData<{ content: WireContent }>(
+                op,
+            ).content.parts.some((part) => part.functionCall != null);
+            return op;
+        }
+        if (op.op !== "gemini.finish_reason") return op;
+        const calledTool = candidateCalls;
+        candidateCalls = false;
+        return calledTool && opData<{ value: string }>(op).value === "STOP"
+            ? ({ op: "response.stop", reason: "tool_use" } as Op)
+            : op;
     });
 }
 
@@ -536,16 +564,13 @@ export function lowerFinishReason(reason: StopReason): string {
     switch (reason) {
         case "end_turn":
         case "stop_sequence":
+        case "tool_use":
             return "STOP";
         case "max_tokens":
             return "MAX_TOKENS";
         case "content_filter":
         case "refusal":
             return "SAFETY";
-        case "tool_use":
-            throw new LintError(
-                "gemini response.stop tool_use has no finishReason mapping",
-            );
         case "pause_turn":
         case "model_context_window_exceeded":
             throw new LintError(

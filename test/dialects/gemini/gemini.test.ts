@@ -3,6 +3,7 @@ import {
     GeminiTranslator,
     LintError,
     OpenAIChatTranslator,
+    type Program,
 } from "../../../src/index";
 import {
     geminiFunctionCallResponseFixture,
@@ -1108,6 +1109,113 @@ describe("gemini responses", () => {
         expect(GeminiTranslator.toResponse(program)).toEqual(wire);
     });
 
+    test("STOP raises to tool_use only when the candidate holds a functionCall part", () => {
+        const stopsOf = (parts: unknown[], finishReason: string) =>
+            GeminiTranslator.fromResponse({
+                model,
+                candidates: [
+                    { content: { role: "model", parts }, finishReason },
+                ],
+            }).filter((op) => op.op === "response.stop");
+        const call = {
+            functionCall: { id: "call_1", name: "get_weather", args: {} },
+        };
+
+        expect(stopsOf([call], "STOP")).toEqual([
+            { op: "response.stop", reason: "tool_use" },
+        ]);
+        expect(stopsOf([{ text: "It is sunny." }], "STOP")).toEqual([
+            { op: "response.stop", reason: "end_turn" },
+        ]);
+        expect(stopsOf([call], "MAX_TOKENS")).toEqual([
+            { op: "response.stop", reason: "max_tokens" },
+        ]);
+    });
+
+    test("a functionCall outside the current candidate does not make a text response raise to tool_use", () => {
+        const textResponse = {
+            model,
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [{ text: "The answer is 19." }],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+        };
+        const callContent = (appliesTo: "request" | "response") =>
+            ({
+                op: "gemini.content",
+                content: {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                id: "history_9",
+                                name: "lookup",
+                                args: { code: 37 },
+                            },
+                        },
+                    ],
+                },
+                appliesTo,
+            }) as const;
+        const stops = (program: Program) =>
+            program.filter((op) => op.op === "response.stop");
+
+        const history = GeminiTranslator.fromResponse(textResponse, {
+            beforeRaise: (lower) => [callContent("request"), ...lower],
+        });
+        expect(history).toContainEqual({
+            op: "llm.tool_call",
+            id: "history_9",
+            name: "lookup",
+            arguments: { code: 37 },
+        });
+        expect(stops(history)).toEqual([
+            { op: "response.stop", reason: "end_turn" },
+        ]);
+
+        // The earlier response ends in MAX_TOKENS, and the current text
+        // response is already raised, so no gemini.content op of its own
+        // comes before its finish reason.
+        const earlierResponse = GeminiTranslator.fromResponse(textResponse, {
+            beforeRaise: (lower) => [
+                callContent("response"),
+                { op: "gemini.finish_reason", value: "MAX_TOKENS" },
+                ...lower.map((op) =>
+                    op.op === "gemini.content"
+                        ? {
+                              op: "llm.text",
+                              role: "assistant",
+                              content: "The answer is 19.",
+                          }
+                        : op,
+                ),
+            ],
+        });
+        expect(stops(earlierResponse)).toEqual([
+            { op: "response.stop", reason: "max_tokens" },
+            { op: "response.stop", reason: "end_turn" },
+        ]);
+    });
+
+    test("a functionCall response with STOP lowers back to finishReason STOP", () => {
+        const program = GeminiTranslator.fromResponse(
+            geminiFunctionCallResponseFixture,
+        );
+
+        expect(program).toContainEqual({
+            op: "response.stop",
+            reason: "tool_use",
+        });
+        expect(GeminiTranslator.toResponse(program)).toEqual(
+            geminiFunctionCallResponseFixture,
+        );
+    });
+
     test("unmapped finish reasons halt instead of guessing", () => {
         expect(() =>
             GeminiTranslator.fromResponse({
@@ -1210,13 +1318,77 @@ describe("gemini stream responses", () => {
                 name: "lookup",
                 arguments: '{"x":"1"}',
             },
-            { op: "response.stop", reason: "end_turn" },
+            { op: "response.stop", reason: "tool_use" },
         ]);
         expect(
             GeminiTranslator.toStreamResponse(
                 GeminiTranslator.fromStreamResponse(chunk),
             ),
         ).toEqual(chunk);
+    });
+
+    test("a stream chunk raises STOP to tool_use only when the chunk holds a functionCall part", () => {
+        const opsOf = (parts: unknown[], finishReason?: string) =>
+            GeminiTranslator.fromStreamResponse({
+                candidates: [
+                    {
+                        content: { role: "model", parts },
+                        ...(finishReason ? { finishReason } : {}),
+                    },
+                ],
+            });
+
+        expect(opsOf([{ text: "It is sunny." }], "STOP")).toEqual([
+            {
+                op: "response.text_delta",
+                role: "assistant",
+                content: "It is sunny.",
+            },
+            { op: "response.stop", reason: "end_turn" },
+        ]);
+        expect(
+            opsOf([{ functionCall: { name: "lookup", args: { x: "1" } } }]),
+        ).toEqual([
+            {
+                op: "response.tool_call_delta",
+                index: 0,
+                name: "lookup",
+                arguments: '{"x":"1"}',
+            },
+        ]);
+    });
+
+    test("a tool_call_delta with response.stop tool_use lowers to a functionCall chunk with STOP", () => {
+        expect(
+            GeminiTranslator.toStreamResponse([
+                {
+                    op: "response.tool_call_delta",
+                    index: 0,
+                    id: "call_1",
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                },
+                { op: "response.stop", reason: "tool_use" },
+            ]),
+        ).toEqual({
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            {
+                                functionCall: {
+                                    name: "get_weather",
+                                    args: { city: "Paris" },
+                                    id: "call_1",
+                                },
+                            },
+                        ],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+        });
     });
 
     test("usage-only chunks raise and lower without synthesizing an empty candidate", () => {
