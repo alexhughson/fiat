@@ -31,6 +31,7 @@ export function requestFromWire(wire: unknown): Program {
     const body = asRecord(wire, "openai_responses request body");
     const program: Program = [];
     let pendingToolChoice: unknown;
+    let inputStart: number | undefined;
     for (const [key, value] of Object.entries(body)) {
         switch (key) {
             case "model":
@@ -39,9 +40,12 @@ export function requestFromWire(wire: unknown): Program {
                     model: asString(value, "model"),
                 });
                 break;
+            // JSON key order carries no meaning to OpenAI, so a body that
+            // writes `input` before `instructions` still gets its system text
+            // ahead of the conversation ops.
             case "instructions":
                 if (value != null)
-                    program.push({
+                    program.splice(inputStart ?? program.length, 0, {
                         op: "llm.text",
                         role: "system",
                         content: asString(value, "instructions"),
@@ -82,6 +86,7 @@ export function requestFromWire(wire: unknown): Program {
                 }
                 break;
             case "input":
+                inputStart = program.length;
                 program.push(...inputFromWire(value));
                 break;
             case "tools":
