@@ -123,6 +123,33 @@ describe("openai_responses requests", () => {
         ).toEqual(body);
     });
 
+    test("instructions raise ahead of the conversation when the body writes input first", () => {
+        const body = {
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [{ type: "input_text", text: "hi" }],
+                },
+            ],
+            temperature: 0.2,
+            instructions: "Reply tersely.",
+        };
+
+        expect(OpenAIResponsesTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model: "gpt-4o-mini" },
+            { op: "llm.text", role: "system", content: "Reply tersely." },
+            { op: "llm.text", role: "user", content: "hi" },
+            { op: "llm.temperature", value: 0.2 },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toBody(
+                OpenAIResponsesTranslator.fromBody(body),
+            ),
+        ).toEqual(body);
+    });
+
     test("custom grammar tools stay as responses-only tool residuals", () => {
         const customTool = {
             type: "custom",

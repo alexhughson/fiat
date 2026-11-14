@@ -273,7 +273,7 @@ export function lowerStructuredOutput(program: Program): Program {
 
 // functionResponse needs the tool's name, which the core op doesn't carry —
 // it comes from the functionResponse gemini.part_meta whose `of` holds the
-// result's id, or from an llm.tool_call with the same id. The response
+// result's id, or from an earlier llm.tool_call with the same id. The response
 // object always comes from llm.tool_result.content, so a transform that
 // edits that op changes the gemini body. Each part_meta belongs to the
 // nearest earlier llm.tool_result with its id, or the nearest later one
@@ -284,19 +284,16 @@ export function lowerStructuredOutput(program: Program): Program {
 // functionResponse part_meta: a matched one is consumed, and one whose
 // `of` matches no result holds only the name of a part that no longer
 // exists, so it is dropped rather than thrown on.
-// Runs before lowerToolCalls so the llm.tool_call ops it scans for names
-// are still present. The tool_call scan collects every call by id, so when
-// a later call reuses an id, that later call's name wins.
+// Runs before lowerToolCalls so the llm.tool_call ops it reads for names
+// are still present. Without a part_meta, a result takes the name of the
+// nearest earlier llm.tool_call with its id, so a later call that reuses
+// the id does not rename it; a result with no earlier call of its id
+// throws, even when a later call has the id.
 // When several part_metas bind to one result, the later one's name wins.
 export function lowerToolResults(program: Program): Program {
-    const callNames = new Map<string, string>();
     const resultIndexesById = new Map<string, number[]>();
     for (let i = 0; i < program.length; i++) {
         const op = program[i]!;
-        if (op.op === "llm.tool_call") {
-            const call = op as OpOf<"llm.tool_call">;
-            callNames.set(call.id, call.name);
-        }
         if (op.op === "llm.tool_result") {
             const id = (op as OpOf<"llm.tool_result">).id;
             const indexes = resultIndexesById.get(id);
@@ -323,9 +320,14 @@ export function lowerToolResults(program: Program): Program {
         metaNameByResultIndex.set(bound ?? indexes[0]!, meta.name);
     }
 
+    const callNames = new Map<string, string>();
     const out: Program = [];
     for (let i = 0; i < program.length; i++) {
         const op = program[i]!;
+        if (op.op === "llm.tool_call") {
+            const call = op as OpOf<"llm.tool_call">;
+            callNames.set(call.id, call.name);
+        }
         if (op.op === "gemini.part_meta") {
             const meta = opData<{ part: GeminiPartMeta }>(op).part;
             if (meta.kind === "functionResponse") continue;
