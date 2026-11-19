@@ -1043,12 +1043,21 @@ describe("one writer lowers one whole stream into openai_responses events", () =
             },
             {
                 type: "response.completed",
-                // The Gemini stream raise on main drops responseId and
-                // modelVersion, so the response carries no id and no model;
-                // they come with the raise row for gap D3.
+                // Gemini raising keeps responseId and modelVersion in
+                // gemini.body_field residuals. Responses lowering drops those
+                // foreign residuals, so the response has no id and no model.
                 response: {
                     status: "completed",
-                    usage: { input_tokens: 15, output_tokens: 78 },
+                    usage: {
+                        input_tokens: 15,
+                        input_tokens_details: {
+                            cached_tokens: 0,
+                            cache_write_tokens: 0,
+                        },
+                        output_tokens: 78,
+                        output_tokens_details: { reasoning_tokens: 0 },
+                        total_tokens: 93,
+                    },
                     output: [
                         {
                             type: "message",
@@ -1070,23 +1079,128 @@ describe("one writer lowers one whole stream into openai_responses events", () =
         ]);
     });
 
+    test("text before and after a call stays in separate ordered messages", () => {
+        const writer = OpenAIResponsesTranslator.streamWriter();
+        const events = [
+            geminiChunk([{ text: "before " }]),
+            geminiChunk([
+                {
+                    functionCall: {
+                        id: "gemini-call-1",
+                        name: "lookup",
+                        args: { x: 1 },
+                    },
+                },
+            ]),
+            geminiChunk([{ text: " after" }]),
+            geminiChunk([{ text: "" }], { finishReason: "STOP" }),
+        ].flatMap((chunk) =>
+            writer.write(GeminiTranslator.fromStreamResponse(chunk)),
+        );
+
+        const deltas = events.filter(
+            (event) =>
+                (event as { type: string }).type ===
+                "response.output_text.delta",
+        ) as { item_id: string; output_index: number; delta: string }[];
+        expect(
+            deltas.map(({ output_index, delta }) => ({ output_index, delta })),
+        ).toEqual([
+            { output_index: 0, delta: "before " },
+            { output_index: 2, delta: " after" },
+            { output_index: 2, delta: "" },
+        ]);
+        expect(deltas[0]!.item_id).not.toBe(deltas[1]!.item_id);
+        expect(deltas[1]!.item_id).toBe(deltas[2]!.item_id);
+
+        const callEvent = events.find(
+            (event) =>
+                (event as { item?: { type?: string } }).item?.type ===
+                "function_call",
+        )!;
+        expect(callEvent).toMatchObject({ output_index: 1 });
+        expect(events.indexOf(callEvent)).toBeGreaterThan(
+            events.indexOf(deltas[0]!),
+        );
+        expect(events.indexOf(callEvent)).toBeLessThan(
+            events.indexOf(deltas[1]!),
+        );
+
+        const terminal = events[events.length - 1] as {
+            response: { output: unknown[] };
+        };
+        expect(terminal.response.output).toEqual([
+            expect.objectContaining({
+                type: "message",
+                id: deltas[0]!.item_id,
+                content: [expect.objectContaining({ text: "before " })],
+            }),
+            expect.objectContaining({
+                type: "function_call",
+                call_id: "gemini-call-1",
+                name: "lookup",
+                arguments: '{"x":1}',
+            }),
+            expect.objectContaining({
+                type: "message",
+                id: deltas[1]!.item_id,
+                content: [expect.objectContaining({ text: " after" })],
+            }),
+        ]);
+    });
+
     test("two writers keep the state of their own stream", () => {
         const first = OpenAIResponsesTranslator.streamWriter();
         const second = OpenAIResponsesTranslator.streamWriter();
+        const raise = (text: string, finishReason?: string) =>
+            GeminiTranslator.fromStreamResponse(
+                geminiChunk([{ text }], { finishReason }),
+            );
 
-        const firstEvents = first.write(
-            GeminiTranslator.fromStreamResponse(geminiChunk([{ text: "a" }])),
-        );
-        second.write(
-            GeminiTranslator.fromStreamResponse(geminiChunk([{ text: "b" }])),
-        );
-        const firstAgain = first.write(
-            GeminiTranslator.fromStreamResponse(geminiChunk([{ text: "c" }])),
-        );
+        const firstEvents = first.write(raise("a"));
+        const secondEvents = second.write(raise("b"));
+        firstEvents.push(...first.write(raise("c")));
+        secondEvents.push(...second.write(raise("", "STOP")));
+        firstEvents.push(...first.write(raise("", "STOP")));
 
-        expect((firstEvents[0] as { item_id: string }).item_id).toBe(
-            (firstAgain[0] as { item_id: string }).item_id,
+        const deltasOf = (events: unknown[]) =>
+            events.filter(
+                (event) =>
+                    (event as { type: string }).type ===
+                    "response.output_text.delta",
+            ) as { item_id: string }[];
+        const firstDeltas = deltasOf(firstEvents);
+        const secondDeltas = deltasOf(secondEvents);
+        const firstId = firstDeltas[0]!.item_id;
+        const secondId = secondDeltas[0]!.item_id;
+        expect(new Set(firstDeltas.map((event) => event.item_id))).toEqual(
+            new Set([firstId]),
         );
+        expect(new Set(secondDeltas.map((event) => event.item_id))).toEqual(
+            new Set([secondId]),
+        );
+        expect(firstId).not.toBe(secondId);
+
+        const terminalOutputOf = (events: unknown[]) =>
+            (
+                events.find(
+                    (event) =>
+                        (event as { type: string }).type ===
+                        "response.completed",
+                ) as { response: { output: unknown[] } }
+            ).response.output;
+        expect(terminalOutputOf(firstEvents)).toEqual([
+            expect.objectContaining({
+                id: firstId,
+                content: [expect.objectContaining({ text: "ac" })],
+            }),
+        ]);
+        expect(terminalOutputOf(secondEvents)).toEqual([
+            expect.objectContaining({
+                id: secondId,
+                content: [expect.objectContaining({ text: "b" })],
+            }),
+        ]);
     });
 
     test("a stream that names its own items keeps their ids and response", () => {
@@ -1118,7 +1232,16 @@ describe("one writer lowers one whole stream into openai_responses events", () =
                         ],
                     },
                 ],
-                usage: { input_tokens: 3, output_tokens: 2 },
+                usage: {
+                    input_tokens: 3,
+                    input_tokens_details: {
+                        cached_tokens: 0,
+                        cache_write_tokens: 0,
+                    },
+                    output_tokens: 2,
+                    output_tokens_details: { reasoning_tokens: 0 },
+                    total_tokens: 5,
+                },
             },
         };
 
@@ -1133,7 +1256,15 @@ describe("one writer lowers one whole stream into openai_responses events", () =
     test("a gemini function-call stream puts the call in the terminal response", () => {
         const writer = OpenAIResponsesTranslator.streamWriter();
         const events = [
-            geminiChunk([{ functionCall: { name: "lookup", args: { x: 1 } } }]),
+            geminiChunk([
+                {
+                    functionCall: {
+                        id: "gemini-call-1",
+                        name: "lookup",
+                        args: { x: 1 },
+                    },
+                },
+            ]),
             geminiChunk([{ text: "" }], { finishReason: "STOP" }),
         ].flatMap((chunk) =>
             writer.write(GeminiTranslator.fromStreamResponse(chunk)),
@@ -1144,16 +1275,26 @@ describe("one writer lowers one whole stream into openai_responses events", () =
             response: {
                 status: "completed",
                 output: [
-                    expect.objectContaining({
+                    {
                         type: "function_call",
-                        id: expect.stringMatching(/^fc_/),
-                        call_id: expect.stringMatching(/^call_/),
+                        call_id: "gemini-call-1",
                         name: "lookup",
                         arguments: '{"x":1}',
-                    }),
+                    },
                 ],
             },
         });
+    });
+
+    test("a function call without an id throws instead of inventing call_id", () => {
+        const writer = OpenAIResponsesTranslator.streamWriter();
+        const raised = GeminiTranslator.fromStreamResponse(
+            geminiChunk([{ functionCall: { name: "lookup", args: { x: 1 } } }]),
+        );
+
+        expect(() => writer.write(raised)).toThrow(
+            "function call is missing call_id (response.tool_call_delta.id)",
+        );
     });
 
     test("argument fragments sent without an item join into the call", () => {
@@ -1192,7 +1333,16 @@ describe("one writer lowers one whole stream into openai_responses events", () =
             type: "response.completed",
             response: {
                 status: "completed",
-                usage: { input_tokens: 10, output_tokens: 2 },
+                usage: {
+                    input_tokens: 10,
+                    input_tokens_details: {
+                        cached_tokens: 0,
+                        cache_write_tokens: 0,
+                    },
+                    output_tokens: 2,
+                    output_tokens_details: { reasoning_tokens: 0 },
+                    total_tokens: 12,
+                },
                 output: [
                     expect.objectContaining({
                         type: "function_call",
@@ -1245,7 +1395,16 @@ describe("one writer lowers one whole stream into openai_responses events", () =
                 type: "response.completed",
                 response: {
                     status: "completed",
-                    usage: { input_tokens: 15, output_tokens: 78 },
+                    usage: {
+                        input_tokens: 15,
+                        input_tokens_details: {
+                            cached_tokens: 0,
+                            cache_write_tokens: 0,
+                        },
+                        output_tokens: 78,
+                        output_tokens_details: { reasoning_tokens: 0 },
+                        total_tokens: 93,
+                    },
                 },
             },
         ]);

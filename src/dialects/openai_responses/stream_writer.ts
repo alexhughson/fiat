@@ -27,24 +27,45 @@ const TERMINAL_EVENT_TYPES = new Set([
     "response.failed",
 ]);
 
-function namesTextItem(op: Op): boolean {
+function namesItemId(op: Op): boolean {
     return (
         op.op === "openai_responses.body_field" &&
         opData<{ key: string }>(op).key === "item_id"
     );
 }
 
+function namesCallItem(op: Op): boolean {
+    return (
+        op.op === "openai_responses.body_field" &&
+        opData<{ key: string }>(op).key === "item"
+    );
+}
+
+interface MessageState {
+    id: string;
+    text: string;
+    outputIndex: number;
+}
+
+interface CallState {
+    item: WireFunctionCall;
+    outputIndex: number;
+    argumentFragments: string;
+}
+
+type CollectedItem =
+    | { kind: "message"; message: MessageState }
+    | { kind: "call"; call: CallState };
+
 class ResponsesStreamWriter implements StreamWriter {
-    private messageItemId: string | undefined;
-    private messageText = "";
-    // Keyed by the id the per-chunk lowering wrote on the item, so an item
-    // that appears in more than one event (an output_item.added and its
-    // output_item.done) is collected once, with the last shape seen.
-    private callItems = new Map<string, WireFunctionCall>();
-    private callItemIndex = new Map<string, number>();
-    // A stream can send one call's arguments as fragments in delta events
-    // that hold no item, so the fragments are joined by output_index.
-    private callArguments = new Map<number, string>();
+    private readonly items: CollectedItem[] = [];
+    private currentMessage: MessageState | undefined;
+    private nextOutputIndex = 0;
+    private readonly callItems = new Map<string, CallState>();
+    // Foreign streams number their own items. Remember both their indexes and
+    // the indexes the writer assigns so later argument fragments find the call.
+    private readonly callsByIndex = new Map<number, CallState>();
+    private readonly pendingCallArguments = new Map<number, string>();
 
     constructor(
         private readonly dialect: Dialect,
@@ -52,10 +73,12 @@ class ResponsesStreamWriter implements StreamWriter {
     ) {}
 
     write(program: Program): unknown[] {
-        // A chunk raised from an openai_responses event names its own items;
-        // a chunk raised from another provider's stream does not, and the
-        // per-chunk lowering invents a fresh item id for every delta event.
-        const namesItsItems = program.some(namesTextItem);
+        // A chunk raised from openai_responses names its own items; a chunk
+        // raised from another provider's stream does not, and the per-chunk
+        // lowering invents a fresh item id for every delta event.
+        const hasSourceItemId = program.some(namesItemId);
+        const hasSourceCallItem = program.some(namesCallItem);
+        this.assertCallIds(program);
         const events = lowerStreamResponsesToWire(
             this.dialect,
             program,
@@ -64,22 +87,38 @@ class ResponsesStreamWriter implements StreamWriter {
         return events.map((event) =>
             this.applyStreamState(
                 asRecord(event, "stream event"),
-                namesItsItems,
+                hasSourceItemId,
+                hasSourceCallItem,
             ),
         );
     }
 
+    private assertCallIds(program: Program): void {
+        for (const op of program) {
+            if (
+                op.op === "response.tool_call_delta" &&
+                op.name != null &&
+                op.id == null
+            ) {
+                throw new Error(
+                    "openai_responses stream writer: function call is missing call_id (response.tool_call_delta.id)",
+                );
+            }
+        }
+    }
+
     private applyStreamState(
         event: Record<string, unknown>,
-        namesItsItems: boolean,
+        hasSourceItemId: boolean,
+        hasSourceCallItem: boolean,
     ): unknown {
-        if (event.item != null) this.rememberCallItem(event);
+        if (event.item != null) this.rememberCallItem(event, hasSourceCallItem);
         switch (event.type) {
             case "response.output_text.delta":
-                this.rememberMessage(event, namesItsItems);
+                this.rememberMessage(event, hasSourceItemId);
                 break;
             case "response.function_call_arguments.delta":
-                this.rememberCallArguments(event);
+                this.rememberCallArguments(event, hasSourceItemId);
                 break;
             default:
                 if (
@@ -95,38 +134,108 @@ class ResponsesStreamWriter implements StreamWriter {
 
     private rememberMessage(
         event: Record<string, unknown>,
-        namesItsItems: boolean,
+        hasSourceItemId: boolean,
     ): void {
-        if (namesItsItems) {
-            this.messageItemId ??= asString(
-                event.item_id,
-                "stream event.item_id",
+        const sourceId = hasSourceItemId
+            ? asString(event.item_id, "stream event.item_id")
+            : undefined;
+        if (
+            this.currentMessage == null ||
+            (hasSourceItemId && sourceId !== this.currentMessage.id)
+        ) {
+            const sourceIndex =
+                event.output_index == null
+                    ? 0
+                    : asNumber(event.output_index, "stream event.output_index");
+            const outputIndex = hasSourceItemId
+                ? sourceIndex
+                : this.nextOutputIndex++;
+            this.nextOutputIndex = Math.max(
+                this.nextOutputIndex,
+                outputIndex + 1,
             );
-        } else {
-            this.messageItemId ??= `msg_${crypto.randomUUID().replaceAll("-", "")}`;
-            event.item_id = this.messageItemId;
+            this.currentMessage = {
+                id:
+                    sourceId ??
+                    `msg_${crypto.randomUUID().replaceAll("-", "")}`,
+                text: "",
+                outputIndex,
+            };
+            this.items.push({
+                kind: "message",
+                message: this.currentMessage,
+            });
         }
-        this.messageText += asString(event.delta, "stream event.delta");
+        if (!hasSourceItemId) {
+            event.item_id = this.currentMessage.id;
+            event.output_index = this.currentMessage.outputIndex;
+        }
+        this.currentMessage.text += asString(event.delta, "stream event.delta");
     }
 
-    private rememberCallItem(event: Record<string, unknown>): void {
-        const item = asRecord(
+    private rememberCallItem(
+        event: Record<string, unknown>,
+        hasSourceCallItem: boolean,
+    ): void {
+        let item = asRecord(
             event.item,
             "stream event.item",
         ) as unknown as WireFunctionCall;
         if (item.type !== "function_call") return;
-        const key = item.id ?? item.call_id;
-        if (typeof key !== "string") return;
-        this.callItems.set(key, item);
-        this.callItemIndex.set(
-            key,
+        if (!hasSourceCallItem && item.id != null) {
+            // FunctionCall.id is optional, so a foreign call must not keep the
+            // id that per-chunk lowering generated only to fill the field.
+            item = { ...item };
+            delete item.id;
+            event.item = item;
+        }
+        const sourceIndex =
             event.output_index == null
                 ? 0
-                : asNumber(event.output_index, "stream event.output_index"),
-        );
+                : asNumber(event.output_index, "stream event.output_index");
+        let call = this.findCall(item);
+        if (call) {
+            call.item = item;
+        } else {
+            const outputIndex = hasSourceCallItem
+                ? sourceIndex
+                : this.nextOutputIndex++;
+            this.nextOutputIndex = Math.max(
+                this.nextOutputIndex,
+                outputIndex + 1,
+            );
+            call = {
+                item,
+                outputIndex,
+                argumentFragments:
+                    this.pendingCallArguments.get(sourceIndex) ?? "",
+            };
+            this.pendingCallArguments.delete(sourceIndex);
+            this.items.push({ kind: "call", call });
+            // Text that follows a call belongs to a new output message.
+            this.currentMessage = undefined;
+        }
+        for (const key of [item.id, item.call_id]) {
+            if (typeof key === "string") this.callItems.set(key, call);
+        }
+        this.callsByIndex.set(sourceIndex, call);
+        this.callsByIndex.set(call.outputIndex, call);
+        if (!hasSourceCallItem) event.output_index = call.outputIndex;
     }
 
-    private rememberCallArguments(event: Record<string, unknown>): void {
+    private findCall(item: WireFunctionCall): CallState | undefined {
+        for (const key of [item.id, item.call_id]) {
+            if (typeof key !== "string") continue;
+            const call = this.callItems.get(key);
+            if (call) return call;
+        }
+        return undefined;
+    }
+
+    private rememberCallArguments(
+        event: Record<string, unknown>,
+        hasSourceItemId: boolean,
+    ): void {
         // A chunk that holds a whole call lowers to one event that carries
         // the item and no delta; the item is the whole call already.
         if (typeof event.delta !== "string") return;
@@ -134,10 +243,20 @@ class ResponsesStreamWriter implements StreamWriter {
             event.output_index == null
                 ? 0
                 : asNumber(event.output_index, "stream event.output_index");
-        this.callArguments.set(
-            index,
-            (this.callArguments.get(index) ?? "") + event.delta,
-        );
+        const itemId =
+            typeof event.item_id === "string" ? event.item_id : undefined;
+        const call =
+            (itemId ? this.callItems.get(itemId) : undefined) ??
+            this.callsByIndex.get(index);
+        if (!call) {
+            this.pendingCallArguments.set(
+                index,
+                (this.pendingCallArguments.get(index) ?? "") + event.delta,
+            );
+            return;
+        }
+        if (!hasSourceItemId) event.output_index = call.outputIndex;
+        call.argumentFragments += event.delta;
     }
 
     private fillTerminalResponse(event: Record<string, unknown>): void {
@@ -154,33 +273,34 @@ class ResponsesStreamWriter implements StreamWriter {
     }
 
     private collectedOutput(): WireOutputItem[] {
-        const output: WireOutputItem[] = [];
-        if (this.messageText !== "" && this.messageItemId != null) {
-            output.push({
-                type: "message",
-                id: this.messageItemId,
-                role: "assistant",
-                status: "completed",
-                content: [
+        return this.items.flatMap((entry): WireOutputItem[] => {
+            if (entry.kind === "call") {
+                const { item, argumentFragments } = entry.call;
+                return [
                     {
-                        type: "output_text",
-                        text: this.messageText,
-                        annotations: [],
-                        logprobs: [],
+                        ...item,
+                        arguments: item.arguments || argumentFragments,
                     },
-                ],
-            });
-        }
-        for (const [key, item] of this.callItems) {
-            const index = this.callItemIndex.get(key);
-            const joined =
-                index == null ? undefined : this.callArguments.get(index);
-            output.push(
-                joined == null
-                    ? item
-                    : { ...item, arguments: item.arguments || joined },
-            );
-        }
-        return output;
+                ];
+            }
+            const { id, text } = entry.message;
+            if (text === "") return [];
+            return [
+                {
+                    type: "message",
+                    id,
+                    role: "assistant",
+                    status: "completed",
+                    content: [
+                        {
+                            type: "output_text",
+                            text,
+                            annotations: [],
+                            logprobs: [],
+                        },
+                    ],
+                },
+            ];
+        });
     }
 }

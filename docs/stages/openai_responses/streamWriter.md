@@ -104,13 +104,6 @@ raised chunk.
             "op": "response.usage",
             "inputTokens": 13,
             "outputTokens": 2
-        },
-        {
-            "op": "gemini.usage",
-            "usage": {
-                "totalTokenCount": 15
-            },
-            "appliesTo": "response"
         }
     ]
 ]
@@ -150,7 +143,15 @@ stream; this block writes the invented id as `msg_<invented>`.
             "status": "completed",
             "usage": {
                 "input_tokens": 13,
-                "output_tokens": 2
+                "input_tokens_details": {
+                    "cached_tokens": 0,
+                    "cache_write_tokens": 0
+                },
+                "output_tokens": 2,
+                "output_tokens_details": {
+                    "reasoning_tokens": 0
+                },
+                "total_tokens": 15
             },
             "output": [
                 {
@@ -175,21 +176,27 @@ stream; this block writes the invented id as `msg_<invented>`.
 
 Every text delta event carries the item id the writer invented once, and the
 terminal event holds the message the stream built, so the client reads one
-message and one answer. The terminal event's response carries no `id` and no
-`model`, because the Gemini stream raise drops `responseId` and
-`modelVersion` before they reach the writer; a raise row for those fields
-fills them in.
+message and one answer. Gemini raising keeps `responseId` and `modelVersion`
+in the `gemini.body_field` ops shown in the input. OpenAI Responses lowering
+drops those foreign residual ops with a warning, so the terminal event's
+response carries no `id` and no `model`; the response-id and response-model
+rows cover that loss.
 
 ## What the writer keeps
 
-- One item id for the text deltas of the stream's message, invented on the
-  first text delta. A stream lowered from OpenAI Responses events names its
-  own items; the writer keeps that id instead.
-- The message text, assembled from the text deltas, written into the terminal
-  event's `response.output` as one message item.
-- The function-call items the stream's events carried, written into the
-  terminal event's `response.output` after the message, with the argument
-  fragments of a stream that sends them in pieces joined.
+- The output items in stream order, each with a stable `output_index`. A
+  stream lowered from OpenAI Responses events keeps the ids and indexes that
+  the source events supplied.
+- One item id for each message's text deltas, invented on the message's first
+  text delta when the source stream supplied no id. A function call closes the
+  current message, so later text starts a new message with a new id and index.
+- The text of each message, assembled from its text deltas and written into
+  the terminal event's `response.output` at the message's position.
+- The function-call items at their own positions, with the argument fragments
+  of a stream that sends them in pieces joined. The writer keeps the source
+  `call_id`, omits the optional `FunctionCall.id` when the source supplied no
+  item id, and throws an error naming `call_id` when that required id is
+  missing.
 - Everything else the per-chunk lowering produced, unchanged. `write` adds
   `output` to the terminal event's response only when the stream built items
   and the response does not already hold an `output` of its own.
