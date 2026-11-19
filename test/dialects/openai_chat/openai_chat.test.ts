@@ -665,14 +665,10 @@ describe("openai_chat responses", () => {
             },
             { op: "response.stop", reason: "end_turn" },
             { op: "response.usage", inputTokens: 20, outputTokens: 9 },
-            // Vendor-specific counts stay in the stream as an ignorable residual:
-            // other dialects drop it, openai_chat merges it back into wire usage.
-            {
-                op: "openai_chat.usage",
-                usage: { total_tokens: 29 },
-                appliesTo: "response",
-            },
         ]);
+        // total_tokens raises nowhere: each lowering recomputes it from the
+        // parts, so a body that reports only the two totals leaves no
+        // openai_chat.usage residual.
     });
 
     test("responses round-trip", () => {

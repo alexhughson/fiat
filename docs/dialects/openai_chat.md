@@ -28,7 +28,7 @@ models lower them as `max_tokens`.
 | `openai_chat.message`               | preserves one Chat message; raises text, tool calls, and tool results |
 | `openai_chat.message_meta`          | developer-role metadata and response-only message metadata            |
 | `openai_chat.finish_reason`         | maps Chat finish reasons to `response.stop`                           |
-| `openai_chat.usage`                 | maps shared token counts and preserves usage extras                   |
+| `openai_chat.usage`                 | modality breakdowns and prediction counts                             |
 | `openai_chat.response_format`       | unsupported or extra response-format payload                          |
 | `openai_chat.choice_count`          | request `n`                                                           |
 | `openai_chat.max_completion_tokens` | reasoning-model token cap                                             |

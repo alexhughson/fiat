@@ -19,6 +19,7 @@ import {
     assertImageMediaType,
 } from "../../core/media.js";
 import * as reasoning from "../../core/reasoning.js";
+import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
 import type {
     WireAnthropicMessage,
@@ -533,17 +534,72 @@ export function lowerUsageCounts(program: Program): Program {
         return [
             {
                 op: "anthropic_messages.usage",
-                usage: {
-                    ...(counts.inputTokens != null
-                        ? { input_tokens: counts.inputTokens }
-                        : {}),
-                    ...(counts.outputTokens != null
-                        ? { output_tokens: counts.outputTokens }
-                        : {}),
-                },
+                usage: anthropicBodyUsage(counts),
             },
         ];
     });
+}
+
+// The usage object of a response body: input_tokens counts the fresh input and
+// the tool-use prompt tokens, the cache counts sit beside it as required but
+// nullable fields, and output_tokens is the inclusive total with the thinking
+// count itemized inside output_tokens_details.
+export function anthropicBodyUsage(
+    counts: usage.UsageCounts,
+): Record<string, unknown> {
+    return {
+        input_tokens: usage.sumOrZero(
+            counts,
+            ["inputTokens", "toolUsePromptTokens"],
+            "input_tokens",
+            "anthropic_messages usage",
+        ),
+        cache_read_input_tokens: counts.cacheReadTokens ?? null,
+        cache_creation_input_tokens: counts.cacheWriteTokens ?? null,
+        output_tokens: usage.sumOrZero(
+            counts,
+            ["outputTokens", "reasoningTokens"],
+            "output_tokens",
+            "anthropic_messages usage",
+        ),
+        ...(counts.reasoningTokens != null
+            ? {
+                  output_tokens_details: {
+                      thinking_tokens: counts.reasoningTokens,
+                  },
+              }
+            : {}),
+    };
+}
+
+// The usage of a message_delta event, whose shape lists only the input and
+// cache counts (each nullable, so an absent part is null), the output count,
+// output_tokens_details, and server_tool_use.
+export function anthropicDeltaUsage(
+    counts: usage.UsageCounts,
+): Record<string, unknown> {
+    const inputTotal = usage.sumParts(counts, [
+        "inputTokens",
+        "toolUsePromptTokens",
+    ]);
+    return {
+        input_tokens: inputTotal ?? null,
+        cache_creation_input_tokens: counts.cacheWriteTokens ?? null,
+        cache_read_input_tokens: counts.cacheReadTokens ?? null,
+        output_tokens: usage.sumOrZero(
+            counts,
+            ["outputTokens", "reasoningTokens"],
+            "output_tokens",
+            "anthropic_messages usage",
+        ),
+        ...(counts.reasoningTokens != null
+            ? {
+                  output_tokens_details: {
+                      thinking_tokens: counts.reasoningTokens,
+                  },
+              }
+            : {}),
+    };
 }
 
 export function lowerCompleteResponseToStreamEvents(program: Program): Program {
@@ -570,7 +626,8 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
     const events: WireAnthropicStreamEvent[] = [];
     let model: string | undefined;
     let responseId: string | undefined;
-    let usage: Record<string, unknown> | undefined;
+    let counts: usage.UsageCounts | undefined;
+    let residual: Record<string, unknown> | undefined;
     let stopReason: string | undefined;
     let index = 0;
     const passthrough: Program = [];
@@ -621,21 +678,13 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                 );
                 break;
             case "response.usage": {
-                const counts = op as OpOf<"response.usage">;
-                usage = {
-                    ...usage,
-                    ...(counts.inputTokens != null
-                        ? { input_tokens: counts.inputTokens }
-                        : {}),
-                    ...(counts.outputTokens != null
-                        ? { output_tokens: counts.outputTokens }
-                        : {}),
-                };
+                const { op: _op, ...parts } = op as OpOf<"response.usage">;
+                counts = { ...(counts ?? {}), ...parts };
                 break;
             }
             case "anthropic_messages.usage":
-                usage = {
-                    ...usage,
+                residual = {
+                    ...residual,
                     ...opData<{ usage: Record<string, unknown> }>(op).usage,
                 };
                 break;
@@ -664,6 +713,21 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
         );
     }
 
+    // message_start carries the full usage object: the counts computed from
+    // the core parts plus every field the residual holds.
+    const messageUsage = {
+        ...(counts ? anthropicBodyUsage(counts) : {}),
+        ...(residual ?? {}),
+    };
+    // message_delta carries only the fields its own usage shape lists, so the
+    // residual fields its shape omits stay in message_start's usage.
+    const deltaUsage = {
+        ...(counts ? anthropicDeltaUsage(counts) : {}),
+        ...(residual?.server_tool_use != null
+            ? { server_tool_use: residual.server_tool_use }
+            : {}),
+    };
+
     const out: Program = [
         streamEvent({
             type: "message_start",
@@ -677,13 +741,13 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                 content: [],
                 stop_reason: null,
                 stop_sequence: null,
-                usage: usage ?? {},
+                usage: messageUsage,
             },
         }),
         ...events.map(streamEvent),
     ];
 
-    if (stopReason !== undefined || usage !== undefined) {
+    if (stopReason !== undefined || Object.keys(deltaUsage).length > 0) {
         out.push(
             streamEvent({
                 type: "message_delta",
@@ -691,7 +755,9 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
                     stopReason !== undefined
                         ? { stop_reason: stopReason, stop_sequence: null }
                         : {},
-                ...(usage !== undefined ? { usage } : {}),
+                ...(Object.keys(deltaUsage).length > 0
+                    ? { usage: deltaUsage }
+                    : {}),
             }),
         );
     }
@@ -764,7 +830,8 @@ export function lowerStreamToolCallDeltas(program: Program): Program {
 export function lowerStreamStopAndUsage(program: Program): Program {
     const out: Program = [];
     let stopReason: string | undefined;
-    let usage: Record<string, unknown> | undefined;
+    let counts: usage.UsageCounts | undefined;
+    let residual: Record<string, unknown> | undefined;
 
     for (const op of program) {
         switch (op.op) {
@@ -779,21 +846,13 @@ export function lowerStreamStopAndUsage(program: Program): Program {
                 );
                 break;
             case "response.usage": {
-                const counts = op as OpOf<"response.usage">;
-                usage = {
-                    ...usage,
-                    ...(counts.inputTokens != null
-                        ? { input_tokens: counts.inputTokens }
-                        : {}),
-                    ...(counts.outputTokens != null
-                        ? { output_tokens: counts.outputTokens }
-                        : {}),
-                };
+                const { op: _op, ...parts } = op as OpOf<"response.usage">;
+                counts = { ...(counts ?? {}), ...parts };
                 break;
             }
             case "anthropic_messages.usage":
-                usage = {
-                    ...usage,
+                residual = {
+                    ...residual,
                     ...opData<{ usage: Record<string, unknown> }>(op).usage,
                 };
                 break;
@@ -802,13 +861,31 @@ export function lowerStreamStopAndUsage(program: Program): Program {
         }
     }
 
-    if (stopReason !== undefined || usage !== undefined) {
+    // The usage of a message_delta lists only the input and cache counts, the
+    // output count, output_tokens_details, and server_tool_use. Residual
+    // fields outside that list (the cache tiers, the service tier, the
+    // inference region, the speed mode) have no field on this event.
+    const { server_tool_use: serverToolUse, ...offShape } = residual ?? {};
+    for (const field of Object.keys(offShape)) {
+        console.warn(
+            `metamodel: dropped anthropic_messages usage field ${JSON.stringify(field)} from a message_delta, whose usage lists only the input and cache counts, the output count, output_tokens_details, and server_tool_use`,
+        );
+    }
+
+    const deltaUsage = {
+        ...(counts ? anthropicDeltaUsage(counts) : {}),
+        ...(serverToolUse != null ? { server_tool_use: serverToolUse } : {}),
+    };
+
+    if (stopReason !== undefined || Object.keys(deltaUsage).length > 0) {
         out.push(
             streamEvent({
                 type: "message_delta",
                 delta:
                     stopReason !== undefined ? { stop_reason: stopReason } : {},
-                ...(usage !== undefined ? { usage } : {}),
+                ...(Object.keys(deltaUsage).length > 0
+                    ? { usage: deltaUsage }
+                    : {}),
             }),
         );
     }
