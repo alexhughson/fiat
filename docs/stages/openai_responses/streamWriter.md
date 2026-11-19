@@ -163,8 +163,7 @@ stream; this block writes the invented id as `msg_<invented>`.
                         {
                             "type": "output_text",
                             "text": "AB",
-                            "annotations": [],
-                            "logprobs": []
+                            "annotations": []
                         }
                     ]
                 }
@@ -191,12 +190,15 @@ rows cover that loss.
   text delta when the source stream supplied no id. A function call closes the
   current message, so later text starts a new message with a new id and index.
 - The text of each message, assembled from its text deltas and written into
-  the terminal event's `response.output` at the message's position.
+  the terminal event's `response.output` at the message's position. A message
+  closed by a function call has status `completed`; a message still open at
+  the end takes the terminal response's status, which must be `in_progress`,
+  `completed` or `incomplete`.
 - The function-call items at their own positions, with the argument fragments
   of a stream that sends them in pieces joined. The writer keeps the source
-  `call_id`, omits the optional `FunctionCall.id` when the source supplied no
-  item id, and throws an error naming `call_id` when that required id is
-  missing.
+  `call_id`, omits the optional `ResponseFunctionToolCall.id` when the source
+  supplied no item id, and throws an error naming `call_id` when that required
+  id is missing.
 - Everything else the per-chunk lowering produced, unchanged. `write` adds
   `output` to the terminal event's response only when the stream built items
   and the response does not already hold an `output` of its own.

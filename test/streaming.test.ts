@@ -1069,7 +1069,6 @@ describe("one writer lowers one whole stream into openai_responses events", () =
                                     type: "output_text",
                                     text: "Every night, the moon",
                                     annotations: [],
-                                    logprobs: [],
                                 },
                             ],
                         },
@@ -1133,7 +1132,14 @@ describe("one writer lowers one whole stream into openai_responses events", () =
             expect.objectContaining({
                 type: "message",
                 id: deltas[0]!.item_id,
-                content: [expect.objectContaining({ text: "before " })],
+                status: "completed",
+                content: [
+                    {
+                        type: "output_text",
+                        text: "before ",
+                        annotations: [],
+                    },
+                ],
             }),
             expect.objectContaining({
                 type: "function_call",
@@ -1144,9 +1150,83 @@ describe("one writer lowers one whole stream into openai_responses events", () =
             expect.objectContaining({
                 type: "message",
                 id: deltas[1]!.item_id,
-                content: [expect.objectContaining({ text: " after" })],
+                status: "completed",
+                content: [
+                    {
+                        type: "output_text",
+                        text: " after",
+                        annotations: [],
+                    },
+                ],
             }),
         ]);
+    });
+
+    test("a call closes a message and MAX_TOKENS leaves the next message incomplete", () => {
+        const writer = OpenAIResponsesTranslator.streamWriter();
+        const events = [
+            geminiChunk([{ text: "before " }]),
+            geminiChunk([
+                {
+                    functionCall: {
+                        id: "gemini-call-1",
+                        name: "lookup",
+                        args: { x: 1 },
+                    },
+                },
+            ]),
+            geminiChunk([{ text: "truncated" }]),
+            geminiChunk([{ text: "" }], { finishReason: "MAX_TOKENS" }),
+        ].flatMap((chunk) =>
+            writer.write(GeminiTranslator.fromStreamResponse(chunk)),
+        );
+
+        const terminal = events[events.length - 1] as {
+            type: string;
+            response: {
+                status: string;
+                incomplete_details: { reason: string };
+                output: { type: string; status?: string }[];
+            };
+        };
+        expect(terminal).toMatchObject({
+            type: "response.incomplete",
+            response: {
+                status: "incomplete",
+                incomplete_details: { reason: "max_output_tokens" },
+            },
+        });
+        expect(
+            terminal.response.output.map((item) => [item.type, item.status]),
+        ).toEqual([
+            ["message", "completed"],
+            ["function_call", undefined],
+            ["message", "incomplete"],
+        ]);
+    });
+
+    test("an open message rejects a terminal status it cannot represent", () => {
+        const writer = OpenAIResponsesTranslator.streamWriter();
+        writer.write(
+            OpenAIResponsesTranslator.fromStreamResponse({
+                type: "response.output_text.delta",
+                item_id: "msg_1",
+                output_index: 0,
+                content_index: 0,
+                delta: "partial",
+            }),
+        );
+
+        expect(() =>
+            writer.write(
+                OpenAIResponsesTranslator.fromStreamResponse({
+                    type: "response.failed",
+                    response: { status: "failed" },
+                }),
+            ),
+        ).toThrow(
+            'response.status "failed" is not a valid ResponseOutputMessage.status',
+        );
     });
 
     test("two writers keep the state of their own stream", () => {
@@ -1192,13 +1272,13 @@ describe("one writer lowers one whole stream into openai_responses events", () =
         expect(terminalOutputOf(firstEvents)).toEqual([
             expect.objectContaining({
                 id: firstId,
-                content: [expect.objectContaining({ text: "ac" })],
+                content: [{ type: "output_text", text: "ac", annotations: [] }],
             }),
         ]);
         expect(terminalOutputOf(secondEvents)).toEqual([
             expect.objectContaining({
                 id: secondId,
-                content: [expect.objectContaining({ text: "b" })],
+                content: [{ type: "output_text", text: "b", annotations: [] }],
             }),
         ]);
     });

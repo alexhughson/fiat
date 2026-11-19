@@ -45,6 +45,7 @@ interface MessageState {
     id: string;
     text: string;
     outputIndex: number;
+    closed: boolean;
 }
 
 interface CallState {
@@ -56,6 +57,21 @@ interface CallState {
 type CollectedItem =
     | { kind: "message"; message: MessageState }
     | { kind: "call"; call: CallState };
+
+function openMessageStatus(
+    status: unknown,
+): "in_progress" | "completed" | "incomplete" {
+    if (
+        status === "in_progress" ||
+        status === "completed" ||
+        status === "incomplete"
+    ) {
+        return status;
+    }
+    throw new Error(
+        `openai_responses stream writer: response.status ${JSON.stringify(status)} is not a valid ResponseOutputMessage.status`,
+    );
+}
 
 class ResponsesStreamWriter implements StreamWriter {
     private readonly items: CollectedItem[] = [];
@@ -160,6 +176,7 @@ class ResponsesStreamWriter implements StreamWriter {
                     `msg_${crypto.randomUUID().replaceAll("-", "")}`,
                 text: "",
                 outputIndex,
+                closed: false,
             };
             this.items.push({
                 kind: "message",
@@ -183,8 +200,8 @@ class ResponsesStreamWriter implements StreamWriter {
         ) as unknown as WireFunctionCall;
         if (item.type !== "function_call") return;
         if (!hasSourceCallItem && item.id != null) {
-            // FunctionCall.id is optional, so a foreign call must not keep the
-            // id that per-chunk lowering generated only to fill the field.
+            // ResponseFunctionToolCall.id is optional, so a foreign call must
+            // not keep the id per-chunk lowering generated to fill the field.
             item = { ...item };
             delete item.id;
             event.item = item;
@@ -213,6 +230,7 @@ class ResponsesStreamWriter implements StreamWriter {
             this.pendingCallArguments.delete(sourceIndex);
             this.items.push({ kind: "call", call });
             // Text that follows a call belongs to a new output message.
+            if (this.currentMessage) this.currentMessage.closed = true;
             this.currentMessage = undefined;
         }
         for (const key of [item.id, item.call_id]) {
@@ -260,19 +278,20 @@ class ResponsesStreamWriter implements StreamWriter {
     }
 
     private fillTerminalResponse(event: Record<string, unknown>): void {
-        const output = this.collectedOutput();
-        if (output.length === 0) return;
         // The per-chunk lowering may have placed a response object that an
         // input op holds into the event; copy it so the collected items
         // never write into that object.
         const response = {
             ...asRecord(event.response ?? {}, "stream event.response"),
         };
-        response.output ??= output;
+        if (response.output != null) return;
+        const output = this.collectedOutput(response.status);
+        if (output.length === 0) return;
+        response.output = output;
         event.response = response;
     }
 
-    private collectedOutput(): WireOutputItem[] {
+    private collectedOutput(terminalStatus: unknown): WireOutputItem[] {
         return this.items.flatMap((entry): WireOutputItem[] => {
             if (entry.kind === "call") {
                 const { item, argumentFragments } = entry.call;
@@ -283,20 +302,21 @@ class ResponsesStreamWriter implements StreamWriter {
                     },
                 ];
             }
-            const { id, text } = entry.message;
+            const { id, text, closed } = entry.message;
             if (text === "") return [];
             return [
                 {
                     type: "message",
                     id,
                     role: "assistant",
-                    status: "completed",
+                    status: closed
+                        ? "completed"
+                        : openMessageStatus(terminalStatus),
                     content: [
                         {
                             type: "output_text",
                             text,
                             annotations: [],
-                            logprobs: [],
                         },
                     ],
                 },
