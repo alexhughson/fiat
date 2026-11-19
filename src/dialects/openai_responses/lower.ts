@@ -6,7 +6,7 @@
 
 import type { Op, OpOf, Program } from "../../core/ops.js";
 import { opData } from "../../core/ops.js";
-import { LintError } from "../../core/lint.js";
+import { LintError, lintOrWarn } from "../../core/lint.js";
 import {
     assertDocumentSource,
     dataUrlFromBase64,
@@ -114,11 +114,25 @@ const REASONING_ITEM = "openai_responses.reasoning_item";
 // A reasoning item is usable by OpenAI only with the id or encrypted_content
 // OpenAI issued, so a reasoning op without the side op (one raised from
 // another provider) is not written. A complete llm.reasoning op still drops
-// from a stream; response.reasoning_delta goes directly to the stream writer.
+// from a stream; response.reasoning_delta goes to the stream writer after
+// dropping any signature, which the Responses event has no field to hold.
 export function lowerReasoning(program: Program, target?: Target): Program {
     const sideOps = reasoning.sideOpsOf(program, [REASONING_ITEM]);
     return program.flatMap((op): Op[] => {
         if (op.op === REASONING_ITEM) return [];
+        if (
+            op.op === "response.reasoning_delta" &&
+            target?.kind === "response_stream"
+        ) {
+            const delta = op as OpOf<"response.reasoning_delta">;
+            const { signature, ...withoutSignature } = delta;
+            if (signature === undefined) return [op];
+            lintOrWarn(
+                target.strict,
+                "dropped response.reasoning_delta.signature: openai_responses response.reasoning_text.delta has no signature field",
+            );
+            return [withoutSignature];
+        }
         if (op.op !== "llm.reasoning") return [op];
         const thought = op as reasoning.Reasoning;
         const side = sideOps.get(thought)![0];

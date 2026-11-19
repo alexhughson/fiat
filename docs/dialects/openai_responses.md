@@ -24,11 +24,12 @@ OpenAI Responses (`POST /v1/responses`). Code:
 
 Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 
-A `response.reasoning_delta` lowers to `response.reasoning_text.delta`. The
-stream writer generates an `rs_…` item id when no provider residual supplies
-one and throws instead of assuming output index zero. It does not synthesize
-the item/content start or done events around the delta or add sequence
-numbers.
+A `response.reasoning_delta` lowers to `response.reasoning_text.delta`. Stream
+lowering warns and drops its signature because the event has no signature
+field. The stream writer generates an `rs_…` item id when no provider residual
+supplies one and throws instead of assuming output index zero. It does not
+synthesize the item/content start or done events around the delta or add
+sequence numbers.
 
 ## Dialect ops
 

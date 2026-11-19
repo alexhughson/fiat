@@ -78,6 +78,48 @@ describe("Gemini stream thought parts", () => {
         expect(event.item_id).toStartWith("rs_");
     });
 
+    test("Responses signature dropping becomes an error in strict mode", () => {
+        const program = GeminiTranslator.fromStreamResponse(signedThoughtChunk);
+
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponse(program, {
+                strict: true,
+            }),
+        ).toThrow("response.reasoning_delta.signature");
+    });
+
+    test("a thought after an answer keeps output and content indexes distinct", () => {
+        const chunk = {
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            { text: "Use the second option." },
+                            {
+                                text: "Check the alternatives first.",
+                                thought: true,
+                            },
+                        ],
+                    },
+                },
+            ],
+        };
+        const program = GeminiTranslator.fromStreamResponse(chunk);
+        const events = OpenAIResponsesTranslator.toStreamResponses(
+            program,
+        ) as Record<string, unknown>[];
+        const reasoning = events.find(
+            (event) => event.type === "response.reasoning_text.delta",
+        );
+
+        expect(reasoning).toMatchObject({
+            output_index: 1,
+            content_index: 0,
+            delta: "Check the alternatives first.",
+        });
+    });
+
     test("Responses lowering rejects a missing output index instead of assuming zero", () => {
         const program = [
             {

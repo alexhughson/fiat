@@ -150,14 +150,13 @@ returns.**
     {
         "op": "response.reasoning_delta",
         "index": 0,
-        "content": "Check the alternatives first.",
-        "signature": {
-            "dialect": "gemini",
-            "value": "sig_stream_1"
-        }
+        "content": "Check the alternatives first."
     }
 ]
 ```
+
+OpenAI Responses stream lowering warns and drops the signature because the
+event has no signature field; strict mode throws instead.
 
 **Out — one response event, nested in the stream the proxy sends to its OpenAI
 Responses client.**
