@@ -1160,6 +1160,17 @@ describe("openai_responses responses", () => {
             itemId: "fc_123",
         });
         expect(program).toContainEqual({
+            op: "openai_responses.output_meta",
+            item: {
+                type: "function_call",
+                status: "completed",
+                call_id: "call_1",
+                name: "get_weather",
+                arguments: '{"city":"Paris"}',
+            },
+            appliesTo: "response",
+        });
+        expect(program).toContainEqual({
             op: "response.stop",
             reason: "tool_use",
         });
