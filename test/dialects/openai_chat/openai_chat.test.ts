@@ -407,10 +407,65 @@ describe("openai_chat requests", () => {
             { op: "llm.tool_result", id: "call_1", content: '["INV-7"]' },
         ]);
 
-        expect(OpenAIChatTranslator.toBody(program)).toEqual(body);
+        // The explicit empty `tools` array raises no llm.tool op, so the
+        // lowered body omits the key.
+        expect(OpenAIChatTranslator.toBody(program)).toEqual({
+            model: "gpt-4o",
+            messages: [
+                { role: "user", content: "Check my invoices" },
+                {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: "call_1",
+                            type: "function",
+                            function: {
+                                name: "list_invoices",
+                                arguments: '{"customer_id":"c_9"}',
+                            },
+                        },
+                    ],
+                },
+                { role: "tool", tool_call_id: "call_1", content: '["INV-7"]' },
+            ],
+        });
     });
 
-    test("tool history replay without current tools serializes an empty tools array", () => {
+    test("a request body without a tools key keeps no tools key after the round trip", () => {
+        const body = {
+            model: "gpt-4o",
+            messages: [
+                { role: "user", content: "Read a.txt" },
+                {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: "call_1",
+                            type: "function",
+                            function: {
+                                name: "read_file",
+                                arguments: '{"path":"a.txt"}',
+                            },
+                        },
+                    ],
+                },
+                { role: "tool", tool_call_id: "call_1", content: "contents" },
+                { role: "user", content: "thanks" },
+            ],
+        };
+
+        const program = OpenAIChatTranslator.fromBody(body);
+        expect(program.some((op) => op.op === "llm.tool")).toBe(false);
+        const lowered = OpenAIChatTranslator.toBody(program) as Record<
+            string,
+            unknown
+        >;
+        expect(Object.hasOwn(lowered, "tools")).toBe(false);
+    });
+
+    test("tool history replay without current tools omits the tools key", () => {
         expect(
             OpenAIChatTranslator.toBody([
                 { op: "llm.model", model: "gpt-4o" },
@@ -451,8 +506,79 @@ describe("openai_chat requests", () => {
                 },
                 { role: "user", content: "hi" },
             ],
-            tools: [],
         });
+    });
+
+    test("a body_field op with key tools and value [] forces the tools key into the lowered body", () => {
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                {
+                    op: "llm.tool_call",
+                    id: "call_1",
+                    name: "read_file",
+                    arguments: { path: "a.txt" },
+                },
+                { op: "llm.tool_result", id: "call_1", content: "contents" },
+                { op: "openai_chat.body_field", key: "tools", value: [] },
+            ]),
+        ).toEqual({
+            model: "gpt-4o",
+            tools: [],
+            messages: [
+                {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: "call_1",
+                            type: "function",
+                            function: {
+                                name: "read_file",
+                                arguments: '{"path":"a.txt"}',
+                            },
+                        },
+                    ],
+                },
+                { role: "tool", tool_call_id: "call_1", content: "contents" },
+            ],
+        });
+    });
+
+    test("llm.tool ops override a body_field op that names tools", () => {
+        const toolOp = {
+            op: "llm.tool",
+            name: "read_file",
+            description: "Read a file",
+            inputSchema: { type: "object" },
+        };
+        const expected = {
+            model: "gpt-4o",
+            tools: [
+                {
+                    type: "function",
+                    function: {
+                        name: "read_file",
+                        description: "Read a file",
+                        parameters: { type: "object" },
+                    },
+                },
+            ],
+        };
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                toolOp,
+                { op: "openai_chat.body_field", key: "tools", value: [] },
+            ]),
+        ).toEqual(expected);
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                { op: "openai_chat.body_field", key: "tools", value: [] },
+                toolOp,
+            ]),
+        ).toEqual(expected);
     });
 
     test("Responses-style item ids are stripped from Chat tool call ids", () => {
@@ -548,7 +674,6 @@ describe("openai_chat requests", () => {
                     ],
                 },
             ],
-            tools: [],
         });
     });
 
@@ -665,14 +790,10 @@ describe("openai_chat responses", () => {
             },
             { op: "response.stop", reason: "end_turn" },
             { op: "response.usage", inputTokens: 20, outputTokens: 9 },
-            // Vendor-specific counts stay in the stream as an ignorable residual:
-            // other dialects drop it, openai_chat merges it back into wire usage.
-            {
-                op: "openai_chat.usage",
-                usage: { total_tokens: 29 },
-                appliesTo: "response",
-            },
         ]);
+        // total_tokens raises nowhere: each lowering recomputes it from the
+        // parts, so a body that reports only the two totals leaves no
+        // openai_chat.usage residual.
     });
 
     test("responses round-trip", () => {

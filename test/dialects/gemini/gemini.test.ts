@@ -1140,14 +1140,15 @@ describe("gemini responses", () => {
                 },
                 appliesTo: "response",
             },
-            { op: "response.usage", inputTokens: 12, outputTokens: 2 },
+            {
+                op: "response.usage",
+                inputTokens: 12,
+                outputTokens: 2,
+                reasoningTokens: 1,
+            },
             {
                 op: "gemini.usage",
-                usage: {
-                    totalTokenCount: 14,
-                    thoughtsTokenCount: 1,
-                    serviceTier: "default",
-                },
+                usage: { serviceTier: "default" },
                 appliesTo: "response",
             },
             { op: "response.id", id: "resp_123" },
@@ -1522,11 +1523,19 @@ describe("gemini stream responses", () => {
         expect(GeminiTranslator.fromStreamResponse(chunk)).toEqual([
             { op: "response.usage", inputTokens: 3, outputTokens: 2 },
         ]);
+        // The lowering computes totalTokenCount from the parts, so the chunk
+        // that carried no total gains one.
         expect(
             GeminiTranslator.toStreamResponse(
                 GeminiTranslator.fromStreamResponse(chunk),
             ),
-        ).toEqual(chunk);
+        ).toEqual({
+            usageMetadata: {
+                promptTokenCount: 3,
+                candidatesTokenCount: 2,
+                totalTokenCount: 5,
+            },
+        });
     });
 
     test("Gemini text chunks translate through the generic stream response ops", () => {

@@ -69,6 +69,9 @@ export type GeminiOp =
           appliesTo?: "request" | "response";
       }
     | { op: "gemini.finish_reason"; value: string }
+    // The fields of the wire usageMetadata object that core does not model:
+    // the modality lists and the service tier. The token-count parts raise to
+    // response.usage.
     | {
           op: "gemini.usage";
           usage: Record<string, unknown>;
