@@ -56,6 +56,34 @@ export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
 
+// One chunk of another provider's stream can hold a delta and a stop reason:
+// Gemini's API sends text and finishReason "STOP" together. A Responses stream
+// has no event that holds both, so the finish reason, and the usage beside it,
+// become a terminal event after the delta event. A program without a finish
+// reason stays one event.
+export function splitStreamEvents(program: Program): Program[] {
+    const hasDelta = program.some(
+        (op) =>
+            op.op === "response.text_delta" ||
+            op.op === "response.tool_call_delta",
+    );
+    const hasFinishReason = program.some(
+        (op) => op.op === "openai_responses.finish_reason",
+    );
+    if (!hasDelta || !hasFinishReason) return [program];
+    return [
+        program.filter((op) => !isTerminalEventOp(op)),
+        program.filter(isTerminalEventOp),
+    ];
+}
+
+function isTerminalEventOp(op: Op): boolean {
+    return (
+        op.op === "openai_responses.finish_reason" ||
+        op.op === "openai_responses.usage"
+    );
+}
+
 const REASONING_ITEM = "openai_responses.reasoning_item";
 
 // A reasoning item is usable by OpenAI only with the id or encrypted_content
