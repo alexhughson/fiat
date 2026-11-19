@@ -89,12 +89,10 @@ export type GeminiOp =
     | {
           // The wire key a functionDeclaration's parameter schema came under.
           // Only gemini has two spellings: `parameters` holds a Google Schema
-          // object and `parametersJsonSchema` holds plain JSON Schema. Raise
-          // writes this op with "parameters" for the `parameters` spelling and
-          // for a declaration with no parameter schema; the
-          // `parametersJsonSchema` spelling and tools from other dialects have
-          // no op, and the lowering writes their plain JSON Schema under
-          // `parametersJsonSchema`.
+          // object and `parametersJsonSchema` holds plain JSON Schema. Only
+          // the `parameters` spelling gets this op. Its absence selects
+          // `parametersJsonSchema` for a non-empty schema; an empty schema
+          // writes neither key because both wire fields are optional.
           op: "gemini.tool_meta";
           name: string;
           parametersSpelling: "parameters" | "parametersJsonSchema";

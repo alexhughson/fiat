@@ -120,11 +120,10 @@ the `parametersJsonSchema` spelling:
 }
 ```
 
-A declaration in the `parameters` spelling raises to the same `llm.tool` op
-followed by a `gemini.tool_meta` op, which records the spelling so lowering
-writes the schema under the same key again; a declaration with no parameter
-schema also gets the op, so a round trip keeps writing `parameters: {}` as
-before. The op's shape, as `src/dialects/gemini/ops.ts` declares it:
+Only a declaration in the `parameters` spelling raises to the same
+`llm.tool` op followed by a `gemini.tool_meta` op, which records the spelling
+so lowering writes a non-empty schema under the same key again. The op's
+shape, as `src/dialects/gemini/ops.ts` declares it:
 
 ```ts
 {
@@ -137,8 +136,11 @@ before. The op's shape, as `src/dialects/gemini/ops.ts` declares it:
 
 The `gemini.tool_meta` op is absent for the `parametersJsonSchema` spelling
 and for an `llm.tool` op raised from another dialect, because every other
-dialect writes plain JSON Schema into `inputSchema`. Lowering writes those
-schemas under `parametersJsonSchema`. When the proxy raises a request body an
+dialect writes plain JSON Schema into `inputSchema`. Its absence selects
+`parametersJsonSchema` for a non-empty schema. Both schema keys are optional
+in Google's `FunctionDeclaration` reference, so lowering writes neither key
+when `inputSchema` is empty, including when the input omitted a schema. When
+the proxy raises a request body an
 OpenAI Responses client sends, whose function tool declares
 `additionalProperties: false`, and lowers the program into a request body to
 send on to Gemini's API, the declaration the proxy sends is:

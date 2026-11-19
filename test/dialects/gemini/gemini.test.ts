@@ -144,6 +144,40 @@ describe("gemini requests", () => {
         ).toEqual(body);
     });
 
+    test("parameter and JSON Schema declarations in one body keep their own keys", () => {
+        const body = {
+            model,
+            contents: [
+                { role: "user", parts: [{ text: "Look up both items." }] },
+            ],
+            tools: [
+                {
+                    functionDeclarations: [
+                        {
+                            name: "lookup_openapi_item",
+                            parameters: {
+                                type: "OBJECT",
+                                properties: { item: { type: "INTEGER" } },
+                            },
+                        },
+                        {
+                            name: "lookup_json_item",
+                            parametersJsonSchema: {
+                                type: "object",
+                                properties: { item: { type: "integer" } },
+                                additionalProperties: false,
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(
+            GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
     test("a functionDeclaration with parameters and parametersJsonSchema fails loudly", () => {
         expect(() =>
             GeminiTranslator.fromBody({
@@ -169,7 +203,7 @@ describe("gemini requests", () => {
         );
     });
 
-    test("a functionDeclaration with no parameter schema keeps lowering under parameters", () => {
+    test("a functionDeclaration with no parameter schema omits both optional schema keys", () => {
         const body = {
             model,
             contents: [{ role: "user", parts: [{ text: "Say ping." }] }],
@@ -191,13 +225,26 @@ describe("gemini requests", () => {
                 description: "Takes no arguments.",
                 inputSchema: {},
             },
-            {
-                op: "gemini.tool_meta",
-                name: "no_args",
-                parametersSpelling: "parameters",
-                appliesTo: "request",
-            },
         ]);
+        expect(
+            GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("empty optional parameter schemas lower without either schema key", () => {
+        const body = {
+            model,
+            contents: [{ role: "user", parts: [{ text: "Say ping." }] }],
+            tools: [
+                {
+                    functionDeclarations: [
+                        { name: "empty_openapi", parameters: {} },
+                        { name: "empty_json", parametersJsonSchema: {} },
+                    ],
+                },
+            ],
+        };
+
         expect(
             GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
         ).toEqual({
@@ -205,11 +252,8 @@ describe("gemini requests", () => {
             tools: [
                 {
                     functionDeclarations: [
-                        {
-                            name: "no_args",
-                            description: "Takes no arguments.",
-                            parameters: {},
-                        },
+                        { name: "empty_openapi" },
+                        { name: "empty_json" },
                     ],
                 },
             ],

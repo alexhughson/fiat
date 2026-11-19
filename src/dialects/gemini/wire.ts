@@ -500,7 +500,7 @@ function toolFromWire(value: unknown): Program {
                     : fn.parameters) ?? {}) as JsonSchema,
             },
         ];
-        if (!jsonSchemaSpelling) {
+        if (fn.parameters != null) {
             ops.push({
                 op: "gemini.tool_meta",
                 name,
@@ -566,12 +566,15 @@ function toolToWire(
     // live API answers 400 for a keyword Google's Schema object lacks, such
     // as additionalProperties, under parameters. A schema from the
     // parameters spelling is a Google Schema object and goes back under the
-    // same key.
+    // same key. Both schema fields are optional, so an empty schema writes
+    // neither field.
     const declaration: WireFunctionDeclaration = {
         name: op.name,
         ...(op.description != null ? { description: op.description } : {}),
     };
-    declaration[parametersSpelling] = op.inputSchema;
+    if (Object.keys(op.inputSchema).length > 0) {
+        declaration[parametersSpelling] = op.inputSchema;
+    }
     return declaration;
 }
 
