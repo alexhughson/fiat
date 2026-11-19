@@ -1042,6 +1042,19 @@ describe("gemini responses", () => {
         ).toEqual(wireResponse);
     });
 
+    test("a response body model key stays a Gemini residual, not a model op", () => {
+        expect(
+            GeminiTranslator.fromResponse({ model: "hand-written-model" }),
+        ).toEqual([
+            {
+                op: "gemini.body_field",
+                key: "model",
+                value: "hand-written-model",
+                appliesTo: "response",
+            },
+        ]);
+    });
+
     test("functionCall parts raise to llm.tool_call with object args", () => {
         const program = GeminiTranslator.fromResponse(
             geminiFunctionCallResponseFixture,
