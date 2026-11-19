@@ -664,7 +664,7 @@ describe("openai_responses responses", () => {
         ],
         usage: {
             input_tokens: 12,
-            input_tokens_details: { cached_tokens: 0 },
+            input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
             output_tokens: 2,
             output_tokens_details: { reasoning_tokens: 0 },
             total_tokens: 14,
@@ -713,15 +713,13 @@ describe("openai_responses responses", () => {
                 },
                 appliesTo: "response",
             },
-            { op: "response.usage", inputTokens: 12, outputTokens: 2 },
             {
-                op: "openai_responses.usage",
-                usage: {
-                    input_tokens_details: { cached_tokens: 0 },
-                    output_tokens_details: { reasoning_tokens: 0 },
-                    total_tokens: 14,
-                },
-                appliesTo: "response",
+                op: "response.usage",
+                inputTokens: 12,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                outputTokens: 2,
+                reasoningTokens: 0,
             },
             {
                 op: "openai_responses.body_field",
@@ -821,7 +819,16 @@ describe("openai_responses responses", () => {
                     ],
                 },
             ],
-            usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+            usage: {
+                input_tokens: 3,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 0,
+                },
+                output_tokens: 2,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: 5,
+            },
             incomplete_details: null,
         };
 
@@ -941,7 +948,16 @@ describe("openai_responses responses", () => {
                     arguments: '{"city":"Paris"}',
                 },
             ],
-            usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 },
+            usage: {
+                input_tokens: 10,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 0,
+                },
+                output_tokens: 4,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: 14,
+            },
             incomplete_details: null,
         });
 

@@ -157,17 +157,47 @@ describe("openai_chat lower response stages", () => {
         ]);
     });
 
-    test("lowerUsageCounts renames the core count fields onto wire usage field names", () => {
+    test("lowerUsageCounts sums the core parts into the wire totals and writes the optional details only for present parts", () => {
         const program = lowerUsageCounts([
             { op: "llm.model", model: "m" },
-            { op: "response.usage", inputTokens: 20, outputTokens: 9 },
+            {
+                op: "response.usage",
+                inputTokens: 52,
+                cacheReadTokens: 2048,
+                cacheWriteTokens: 500,
+                toolUsePromptTokens: 33,
+                outputTokens: 57,
+                reasoningTokens: 40,
+            },
         ]);
 
         expect(program).toEqual([
             { op: "llm.model", model: "m" },
             {
                 op: "openai_chat.usage",
-                usage: { prompt_tokens: 20, completion_tokens: 9 },
+                usage: {
+                    prompt_tokens: 2633,
+                    prompt_tokens_details: {
+                        cached_tokens: 2048,
+                        cache_write_tokens: 500,
+                    },
+                    completion_tokens: 97,
+                    completion_tokens_details: { reasoning_tokens: 40 },
+                    total_tokens: 2730,
+                },
+            },
+        ]);
+    });
+
+    test("lowerUsageCounts omits a total whose sums are not both known", () => {
+        const program = lowerUsageCounts([
+            { op: "response.usage", outputTokens: 9 },
+        ]);
+
+        expect(program).toEqual([
+            {
+                op: "openai_chat.usage",
+                usage: { completion_tokens: 9 },
             },
         ]);
     });

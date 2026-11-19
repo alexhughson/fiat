@@ -130,7 +130,16 @@ describe("stream response conversion", () => {
             type: "response.completed",
             response: {
                 status: "completed",
-                usage: { input_tokens: 3, output_tokens: 2 },
+                usage: {
+                    input_tokens: 3,
+                    input_tokens_details: {
+                        cached_tokens: 0,
+                        cache_write_tokens: 0,
+                    },
+                    output_tokens: 2,
+                    output_tokens_details: { reasoning_tokens: 0 },
+                    total_tokens: 5,
+                },
                 previous_response_id: null,
             },
         };
@@ -214,7 +223,16 @@ describe("stream response conversion", () => {
                 status: "completed",
                 model: "gpt-4.1",
                 output: [functionCall],
-                usage: { input_tokens: 20, output_tokens: 8 },
+                usage: {
+                    input_tokens: 20,
+                    input_tokens_details: {
+                        cached_tokens: 0,
+                        cache_write_tokens: 0,
+                    },
+                    output_tokens: 8,
+                    output_tokens_details: { reasoning_tokens: 0 },
+                    total_tokens: 28,
+                },
                 previous_response_id: null,
             },
         };
@@ -278,7 +296,14 @@ describe("stream response conversion", () => {
                 arguments: '{"city":"Halifax"}',
             },
             { op: "response.stop", reason: "tool_use" },
-            { op: "response.usage", inputTokens: 20, outputTokens: 8 },
+            {
+                op: "response.usage",
+                inputTokens: 20,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                outputTokens: 8,
+                reasoningTokens: 0,
+            },
         ]);
         expect(
             OpenAIResponsesTranslator.toStreamResponse(
@@ -499,7 +524,7 @@ describe("stream response conversion", () => {
             response: {
                 status: "completed",
                 status_details: null,
-                usage: { input_tokens: 3, output_tokens: 2 },
+                usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
             },
         };
 
@@ -554,7 +579,7 @@ describe("stream response conversion", () => {
                         ],
                     },
                 ],
-                usage: { input_tokens: 3, output_tokens: 2 },
+                usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
             },
         };
 
@@ -746,6 +771,10 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
             }),
         );
 
+        // A gemini chunk reports no cache count, and every key of the
+        // responses usage object is a required number, so its lowering fills
+        // those keys with 0; the call returns, which a proxy routing between
+        // the two dialects needs.
         expect(OpenAIResponsesTranslator.toStreamResponses(raised)).toEqual([
             responsesTextEvent,
             {
@@ -753,7 +782,16 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                 response: {
                     status: "incomplete",
                     incomplete_details: { reason: "max_output_tokens" },
-                    usage: { input_tokens: 4, output_tokens: 1 },
+                    usage: {
+                        input_tokens: 4,
+                        input_tokens_details: {
+                            cached_tokens: 0,
+                            cache_write_tokens: 0,
+                        },
+                        output_tokens: 1,
+                        output_tokens_details: { reasoning_tokens: 0 },
+                        total_tokens: 5,
+                    },
                     previous_response_id: null,
                 },
             },
@@ -768,7 +806,11 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                         type: "incomplete",
                         reason: "max_output_tokens",
                     },
-                    usage: { input_tokens: 4, output_tokens: 1 },
+                    usage: {
+                        input_tokens: 4,
+                        output_tokens: 1,
+                        total_tokens: 5,
+                    },
                 },
             },
         ]);

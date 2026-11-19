@@ -14,6 +14,7 @@ import {
 } from "../../core/ops.js";
 import { firstOp } from "../../core/program.js";
 import { LintError } from "../../core/lint.js";
+import { mergeUsageObjects } from "../../core/usage.js";
 import {
     asArray,
     asBoolean,
@@ -24,6 +25,13 @@ import {
     asThinkingEffort,
 } from "../../core/wire.js";
 import type { WireMessage } from "./ops.js";
+
+// The nested usage objects whose keys merge key-wise when several usage ops
+// join into one wire usage object.
+const USAGE_DETAILS_KEYS = [
+    "prompt_tokens_details",
+    "completion_tokens_details",
+];
 
 const RESPONSE_ENVELOPE_PARAM_KEYS = new Set([
     "id",
@@ -133,7 +141,6 @@ export function requestToWire(program: Program): unknown {
     const body: Record<string, unknown> = {};
     const messages: unknown[] = [];
     const tools: unknown[] = [];
-    let hasToolHistory = false;
     for (const op of program) {
         switch (op.op) {
             case "llm.model":
@@ -166,9 +173,6 @@ export function requestToWire(program: Program): unknown {
                 break;
             case "openai_chat.message":
                 messages.push(op.message);
-                if (messageHasToolHistory(op.message as WireMessage)) {
-                    hasToolHistory = true;
-                }
                 break;
             case "llm.tool":
                 tools.push({
@@ -216,16 +220,18 @@ export function requestToWire(program: Program): unknown {
         }
     }
     if (messages.length > 0) body.messages = messages;
-    if (tools.length > 0 || hasToolHistory) body.tools = tools;
+    if (tools.length > 0) {
+        if (Object.hasOwn(body, "tools"))
+            console.warn(
+                'metamodel: openai_chat dropped the "tools" value of an openai_chat.body_field op because the program declares llm.tool ops',
+            );
+        body.tools = tools;
+    }
     if (!body.model)
         throw new Error(
             "openai_chat request toWire: program has no llm.model op",
         );
     return body;
-}
-
-function messageHasToolHistory(message: WireMessage): boolean {
-    return message.role === "tool" || (message.tool_calls?.length ?? 0) > 0;
 }
 
 export function responseFromWire(wire: unknown): Program {
@@ -310,13 +316,15 @@ export function responseToWire(program: Program): unknown {
             case "openai_chat.finish_reason":
                 finishReason = opData<{ value: string }>(op).value;
                 break;
-            // Multiple usage ops merge: lower emits the mapped counts, and a
-            // Response usage residuals from raise may carry vendor detail.
+            // Multiple usage ops merge: lower emits the counts computed from
+            // the core parts, and a usage residual from raise carries the
+            // vendor detail fields, so the details objects merge key-wise.
             case "openai_chat.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageObjects(
+                    usage ?? {},
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                    USAGE_DETAILS_KEYS,
+                );
                 break;
             case "openai_chat.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
@@ -420,10 +428,11 @@ export function streamResponseToWire(program: Program): unknown {
                 finishReason = opData<{ value: string }>(op).value;
                 break;
             case "openai_chat.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageObjects(
+                    usage ?? {},
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                    USAGE_DETAILS_KEYS,
+                );
                 break;
             case "openai_chat.stream_choice_param": {
                 const param = opData<{ key: string; value: unknown }>(op);

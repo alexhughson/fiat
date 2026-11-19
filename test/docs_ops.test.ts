@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
     AnthropicTranslator,
+    GeminiTranslator,
     OpenAIChatTranslator,
     type Program,
     type Translator,
@@ -101,4 +102,104 @@ test("docs/core-ir.md shows the previous response types that src/core/ops.ts dec
             `### \`${op}\`\n\n\`\`\`ts\n{\n    op: "${op}";\n    responseId: string;\n}\n\`\`\``,
         );
     }
+});
+
+// The two examples on docs/ops/response.usage.md, in page order. Each In
+// block is the usage object of a whole response body, so each run rebuilds
+// the body around it.
+const usageRuns: {
+    source: Translator;
+    target: Translator;
+    body: (usage: unknown) => Record<string, unknown>;
+    lowerUsageOp: string;
+    out: "usage" | "usageMetadata";
+}[] = [
+    {
+        source: AnthropicTranslator,
+        target: OpenAIChatTranslator,
+        body: (usage) => ({
+            id: "msg_01",
+            type: "message",
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            content: [{ type: "text", text: "hi there" }],
+            stop_reason: "end_turn",
+            usage,
+        }),
+        lowerUsageOp: "openai_chat.usage",
+        out: "usage",
+    },
+    {
+        source: GeminiTranslator,
+        target: GeminiTranslator,
+        body: (usage) => ({
+            responseId: "resp_01",
+            model: "gemini-2.5-pro",
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "hi there" }] },
+                    finishReason: "STOP",
+                },
+            ],
+            usageMetadata: usage,
+        }),
+        lowerUsageOp: "gemini.usage",
+        out: "usageMetadata",
+    },
+];
+
+const usageExamples = examplesOf("response.usage.md");
+
+test("docs/ops/response.usage.md has two examples of four json blocks", () => {
+    expect(usageExamples.map((example) => example.blocks.length)).toEqual([
+        4, 4,
+    ]);
+});
+
+for (const [index, { heading, blocks }] of usageExamples.entries()) {
+    test(`docs/ops/response.usage.md ${heading}: every json block matches the run`, () => {
+        const { source, target, body, lowerUsageOp, out } = usageRuns[index]!;
+        const [inUsage, raised, lower, outUsage] = blocks;
+
+        const raisedProgram = source.fromResponse(body(JSON.parse(inUsage!)));
+        expect(
+            printed(raisedProgram.filter((op) => op.op === "response.usage")),
+        ).toBe(raised!);
+
+        // The Lower block is the usage op of the lowered program.
+        const lowerProgram = target.dialect.response.lower(raisedProgram);
+        expect(
+            printed(lowerProgram.filter((op) => op.op === lowerUsageOp)),
+        ).toBe(lower!);
+
+        const outBody = target.toResponse(raisedProgram) as Record<
+            string,
+            unknown
+        >;
+        expect(printed(outBody[out])).toBe(outUsage!);
+    });
+}
+
+test("docs/ops/response.usage.md shows the type of response.usage that src/core/ops.ts declares", () => {
+    const source = read("../src/core/ops.ts");
+    const block =
+        /\| \{\n( {10}op: "response\.usage";\n(?: {10}\w+\?: number;\n)+) {6}\}/.exec(
+            source,
+        );
+    const params = block?.[1]
+        ?.trimEnd()
+        .split("\n")
+        .map((param) =>
+            param
+                .replace(/^ {10}/, "")
+                .replace(/;$/, "")
+                .replace(/^(\w+)\?: (.*)$/, "$1: $2 | null"),
+        );
+    expect(params).toBeDefined();
+    const shown = /```ts\n(.*?)\n```/s.exec(
+        read("../docs/ops/response.usage.md"),
+    );
+    expect(shown?.[1]).toBe(
+        ["{", ...params!.map((param) => `    ${param};`), "}"].join("\n"),
+    );
 });

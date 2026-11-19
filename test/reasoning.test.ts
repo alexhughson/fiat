@@ -170,7 +170,15 @@ describe("llm.reasoning returns to the provider it came from", () => {
             },
             { op: "llm.reasoning", id: "reasoning_2", content: "" },
         ]);
-        expect(AnthropicTranslator.toResponse(core)).toEqual(response);
+        expect(AnthropicTranslator.toResponse(core)).toEqual({
+            ...response,
+            usage: {
+                input_tokens: 1,
+                cache_read_input_tokens: null,
+                cache_creation_input_tokens: null,
+                output_tokens: 2,
+            },
+        });
     });
 
     test("a Responses request keeps its reasoning item", () => {

@@ -11,8 +11,13 @@ import {
 import { firstOp } from "../../core/program.js";
 import { declaredToolsByName, type DeclaredTool } from "../../core/tools.js";
 import { LintError } from "../../core/lint.js";
+import { mergeUsageObjects } from "../../core/usage.js";
 import { asArray, asNumber, asRecord, asString } from "../../core/wire.js";
 import type { WireInputItem, WireOutputItem, WireTool } from "./ops.js";
+
+// The nested usage objects whose keys merge key-wise when several usage ops
+// join into one wire usage object.
+const USAGE_DETAILS_KEYS = ["input_tokens_details", "output_tokens_details"];
 
 const RESPONSE_ENVELOPE_PARAM_KEYS = new Set([
     "id",
@@ -397,11 +402,16 @@ export function responseToWire(program: Program): unknown {
             case "openai_responses.finish_reason":
                 finishReason = opData<{ reason: string }>(op).reason;
                 break;
+            // Multiple usage ops merge: lower emits the counts computed from
+            // the core parts, and a usage residual from raise carries the
+            // write-by-lifetime breakdown, so the details objects merge
+            // key-wise.
             case "openai_responses.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageObjects(
+                    usage ?? {},
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                    USAGE_DETAILS_KEYS,
+                );
                 break;
             case "openai_responses.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
@@ -509,10 +519,11 @@ export function streamResponseToWire(program: Program): unknown {
                     .responseId;
                 break;
             case "openai_responses.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageObjects(
+                    usage ?? {},
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                    USAGE_DETAILS_KEYS,
+                );
                 event.type ??= "response.completed";
                 break;
             case "openai_responses.body_field": {
