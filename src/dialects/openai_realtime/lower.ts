@@ -7,6 +7,7 @@
 import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
 import { dropReasoning } from "../../core/reasoning.js";
+import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import { lowerStopReason } from "./raise.js";
 import type {
@@ -238,19 +239,45 @@ export function lowerStopReasons(program: Program): Program {
     );
 }
 
+// Computes the wire usage object from the core parts: input_tokens holds
+// every input part (realtime's wire has no cache-write or tool-use field, so
+// those merge into the totals on the way down and cannot be split again on
+// the way up), and output_tokens holds the reasoning tokens for the same
+// reason. The optional details object appears only when its part is present;
+// the modality fields come from a residual.
 export function lowerUsageCounts(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "response.usage") return [op];
         const counts = op as OpOf<"response.usage">;
+        const inputTokens = usage.sumParts(counts, [
+            "inputTokens",
+            "cacheReadTokens",
+            "cacheWriteTokens",
+            "toolUsePromptTokens",
+        ]);
+        const outputTokens = usage.sumParts(counts, [
+            "outputTokens",
+            "reasoningTokens",
+        ]);
         return [
             {
                 op: "openai_realtime.usage",
                 usage: {
-                    ...(counts.inputTokens != null
-                        ? { input_tokens: counts.inputTokens }
+                    ...(inputTokens != null
+                        ? { input_tokens: inputTokens }
                         : {}),
-                    ...(counts.outputTokens != null
-                        ? { output_tokens: counts.outputTokens }
+                    ...(counts.cacheReadTokens != null
+                        ? {
+                              input_token_details: {
+                                  cached_tokens: counts.cacheReadTokens,
+                              },
+                          }
+                        : {}),
+                    ...(outputTokens != null
+                        ? { output_tokens: outputTokens }
+                        : {}),
+                    ...(inputTokens != null && outputTokens != null
+                        ? { total_tokens: inputTokens + outputTokens }
                         : {}),
                 },
             },

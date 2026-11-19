@@ -47,9 +47,10 @@ either `{ type:"url", url }` or `{ type:"base64", mediaType:"application/pdf",
 data, filename? }`. Video is base64-only and requires `video/*`.
 
 Provider-owned file ids, provider file URIs, image detail knobs, tool config,
-usage details, and message metadata stay in dialect residual ops. Residuals
-that preserve user content are marked so translating them to another backend
-throws instead of warning and dropping the content.
+usage fields beyond the token-count parts, and message metadata stay in
+dialect residual ops. Residuals that preserve user content are marked so
+translating them to another backend throws instead of warning and dropping
+the content.
 
 ## Reasoning
 
@@ -82,14 +83,14 @@ not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 
 ## Response ops
 
-| op                         | fields                                 | notes                                                            |
-| -------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
-| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below |
-| `response.model`           | `model`                                | the model that answered; see [page](ops/response.model.md)       |
-| `response.stop`            | normalized stop reason                 | provider enum values map here                                    |
-| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                                               |
-| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                |
-| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                           |
+| op                         | fields                                 | notes                                                              |
+| -------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
+| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below   |
+| `response.model`           | `model`                                | the model that answered; see [page](ops/response.model.md)         |
+| `response.stop`            | normalized stop reason                 | provider enum values map here                                      |
+| `response.usage`           | six optional token-count parts         | non-overlapping parts, no total; see [page](ops/response.usage.md) |
+| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                  |
+| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                             |
 
 Assistant responses raise to `llm.text` and `llm.tool_call`. That is why a
 response program can be appended to the next request program.

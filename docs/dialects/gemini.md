@@ -33,7 +33,7 @@ path. Code: `src/dialects/gemini/`.
 | `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                          |
 | `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                            |
 | `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                     |
-| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                                                                       |
+| `gemini.usage`             | modality lists and the service tier                                                                                                                            |
 | `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
 | `gemini.body_field`        | unknown top-level field                                                                                                                                        |
 

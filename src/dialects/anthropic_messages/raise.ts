@@ -9,9 +9,11 @@ import {
 } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
 import * as reasoning from "../../core/reasoning.js";
+import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import {
     asBoolean,
+    asNumber,
     asRecord,
     asString,
     asStringArray,
@@ -163,8 +165,11 @@ export function raiseStopReasons(program: Program): Program {
     );
 }
 
-// Maps the cross-provider counts onto response.usage; any vendor-specific
-// fields (cache counts, ...) stay behind as a droppable residual.
+// Maps the token-count parts of the wire usage object onto response.usage.
+// Anthropic reports every part directly: input_tokens sits beside the cache
+// counts, and thinking_tokens sits inside output_tokens. The fields core does
+// not model (the cache tiers, server-tool request counts, the service tier,
+// the inference region, the speed mode) stay behind as a residual.
 export function raiseUsage(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "anthropic_messages.usage") return [op];
@@ -172,27 +177,94 @@ export function raiseUsage(program: Program): Program {
             usage: Record<string, unknown>;
             appliesTo?: "request" | "response";
         }>(op);
-        const { input_tokens, output_tokens, ...rest } = usageOp.usage;
+        const residual = usage.withoutKeys(usageOp.usage, [
+            "input_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+            "output_tokens",
+            "output_tokens_details",
+        ]);
         const out: Op[] = [
             {
                 op: "response.usage",
-                ...(input_tokens != null
-                    ? { inputTokens: input_tokens as number }
-                    : {}),
-                ...(output_tokens != null
-                    ? { outputTokens: output_tokens as number }
-                    : {}),
+                ...raiseAnthropicCounts(usageOp.usage),
             },
         ];
-        if (Object.keys(rest).length > 0) {
+        if (residual) {
             out.push({
                 op: "anthropic_messages.usage",
-                usage: rest,
+                usage: residual,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
             });
         }
         return out;
     });
+}
+
+function raiseAnthropicCounts(
+    wireUsage: Record<string, unknown>,
+): usage.UsageCounts {
+    const details =
+        wireUsage.output_tokens_details == null
+            ? undefined
+            : asRecord(
+                  wireUsage.output_tokens_details,
+                  "usage.output_tokens_details",
+              );
+    // The reference defaults thinking_tokens to 0, so a details object that
+    // omits the key still reports the count; no details object reports no
+    // reasoning count at all.
+    const thinking =
+        details == null
+            ? undefined
+            : asNumber(
+                  details.thinking_tokens ?? 0,
+                  "usage.output_tokens_details.thinking_tokens",
+              );
+    const outputTokens =
+        wireUsage.output_tokens == null
+            ? undefined
+            : thinking == null
+              ? asNumber(wireUsage.output_tokens, "usage.output_tokens")
+              : usage.totalMinusDetails(
+                    asNumber(wireUsage.output_tokens, "usage.output_tokens"),
+                    [
+                        {
+                            field: "output_tokens_details.thinking_tokens",
+                            value: thinking,
+                        },
+                    ],
+                    "output_tokens",
+                    "anthropic_messages usage",
+                );
+    return {
+        ...(wireUsage.input_tokens != null
+            ? {
+                  inputTokens: asNumber(
+                      wireUsage.input_tokens,
+                      "usage.input_tokens",
+                  ),
+              }
+            : {}),
+        ...(wireUsage.cache_read_input_tokens != null
+            ? {
+                  cacheReadTokens: asNumber(
+                      wireUsage.cache_read_input_tokens,
+                      "usage.cache_read_input_tokens",
+                  ),
+              }
+            : {}),
+        ...(wireUsage.cache_creation_input_tokens != null
+            ? {
+                  cacheWriteTokens: asNumber(
+                      wireUsage.cache_creation_input_tokens,
+                      "usage.cache_creation_input_tokens",
+                  ),
+              }
+            : {}),
+        ...(outputTokens != null ? { outputTokens } : {}),
+        ...(thinking != null ? { reasoningTokens: thinking } : {}),
+    };
 }
 
 export function raiseStreamEvents(program: Program): Program {

@@ -32,7 +32,7 @@ field.
 | `anthropic_messages.tool_result_meta`   | Anthropic-only tool-result fields                               |
 | `anthropic_messages.tool`               | provider-specific tool config                                   |
 | `anthropic_messages.stop_reason`        | maps stop reasons to `response.stop`                            |
-| `anthropic_messages.usage`              | shared usage plus cache/detail extras                           |
+| `anthropic_messages.usage`              | cache tiers, server-tool counts, service tier, region, speed    |
 | `anthropic_messages.metadata`           | top-level metadata; `user_id` maps to `request.user`            |
 | `anthropic_messages.sampling`           | `top_p` / `top_k`                                               |
 | `anthropic_messages.thinking_config`    | raw `thinking` object                                           |

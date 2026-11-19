@@ -532,11 +532,6 @@ describe("openai_realtime responses", () => {
                 appliesTo: "response",
             },
             { op: "response.usage", inputTokens: 12, outputTokens: 2 },
-            {
-                op: "openai_realtime.usage",
-                usage: { total_tokens: 14 },
-                appliesTo: "response",
-            },
             { op: "response.stop", reason: "end_turn" },
         ]);
     });
