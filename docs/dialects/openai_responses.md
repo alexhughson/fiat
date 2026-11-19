@@ -40,7 +40,7 @@ the delta.
 | `openai_responses.tool`           | provider-specific hosted tools                    |
 | `openai_responses.tool_meta`      | extra function-tool fields such as `strict`       |
 | `openai_responses.finish_reason`  | response status/incomplete details                |
-| `openai_responses.usage`          | shared usage plus usage extras                    |
+| `openai_responses.usage`          | the cache-write lifetime breakdown                |
 | `openai_responses.tool_choice`    | provider-specific tool choice                     |
 | `openai_responses.body_field`     | unknown request key or response envelope field    |
 

@@ -47,9 +47,10 @@ either `{ type:"url", url }` or `{ type:"base64", mediaType:"application/pdf",
 data, filename? }`. Video is base64-only and requires `video/*`.
 
 Provider-owned file ids, provider file URIs, image detail knobs, tool config,
-usage details, and message metadata stay in dialect residual ops. Residuals
-that preserve user content are marked so translating them to another backend
-throws instead of warning and dropping the content.
+usage fields beyond the token-count parts, and message metadata stay in
+dialect residual ops. Residuals that preserve user content are marked so
+translating them to another backend throws instead of warning and dropping
+the content.
 
 ## Reasoning
 
@@ -92,7 +93,7 @@ Realtime drop the fragment with a warning; Anthropic has no stream mapping yet.
 | -------------------------- | -------------------------------------- | ------------------------------------------------------------------- |
 | `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below    |
 | `response.stop`            | normalized stop reason                 | provider enum values map here                                       |
-| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                                                  |
+| `response.usage`           | six optional token-count parts         | non-overlapping parts, no total; see [page](ops/response.usage.md)  |
 | `response.reasoning_delta` | `index?`, `content`, `signature?`      | stream reasoning delta; see [page](ops/response.reasoning_delta.md) |
 | `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                   |
 | `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                              |

@@ -29,7 +29,7 @@ events, optionally with top-level call/session fields such as `model`.
 | `openai_realtime.output_meta`         | response output metadata                    |
 | `openai_realtime.tool_meta`           | extra function-tool fields                  |
 | `openai_realtime.finish_reason`       | maps completion status to `response.stop`   |
-| `openai_realtime.usage`               | shared usage plus realtime usage extras     |
+| `openai_realtime.usage`               | modality breakdowns                         |
 | `openai_realtime.response_param`      | unsupported `response.create.response` key  |
 | `openai_realtime.event_param`         | event envelope fields                       |
 | `openai_realtime.body_field`          | top-level or response envelope key          |

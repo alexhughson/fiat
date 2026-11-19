@@ -13,6 +13,7 @@ import {
     mediaDataUrlFromBase64,
 } from "../../core/media.js";
 import * as reasoning from "../../core/reasoning.js";
+import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
 import { summaryFromText, summaryText } from "./raise.js";
 import { messageItem } from "./wire.js";
@@ -360,20 +361,63 @@ export function lowerStopReasons(program: Program): Program {
     );
 }
 
+// Computes the wire usage object from the core parts. Every key of this
+// dialect's usage object is a required number, so a program whose part is
+// absent fills its field with 0 and a warning naming the field: the source
+// reported no count, and a proxy routing a Gemini or Realtime answer to a
+// Responses client needs the call to return. The write-by-lifetime breakdown
+// comes from a residual.
 export function lowerUsageCounts(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "response.usage") return [op];
         const counts = op as OpOf<"response.usage">;
+        const context = "openai_responses usage";
+        const inputTokens = usage.sumOrZero(
+            counts,
+            [
+                "inputTokens",
+                "cacheReadTokens",
+                "cacheWriteTokens",
+                "toolUsePromptTokens",
+            ],
+            "input_tokens",
+            context,
+        );
+        const outputTokens = usage.sumOrZero(
+            counts,
+            ["outputTokens", "reasoningTokens"],
+            "output_tokens",
+            context,
+        );
         return [
             {
                 op: "openai_responses.usage",
                 usage: {
-                    ...(counts.inputTokens != null
-                        ? { input_tokens: counts.inputTokens }
-                        : {}),
-                    ...(counts.outputTokens != null
-                        ? { output_tokens: counts.outputTokens }
-                        : {}),
+                    input_tokens: inputTokens,
+                    input_tokens_details: {
+                        cached_tokens: usage.sumOrZero(
+                            counts,
+                            ["cacheReadTokens"],
+                            "input_tokens_details.cached_tokens",
+                            context,
+                        ),
+                        cache_write_tokens: usage.sumOrZero(
+                            counts,
+                            ["cacheWriteTokens"],
+                            "input_tokens_details.cache_write_tokens",
+                            context,
+                        ),
+                    },
+                    output_tokens: outputTokens,
+                    output_tokens_details: {
+                        reasoning_tokens: usage.sumOrZero(
+                            counts,
+                            ["reasoningTokens"],
+                            "output_tokens_details.reasoning_tokens",
+                            context,
+                        ),
+                    },
+                    total_tokens: inputTokens + outputTokens,
                 },
             },
         ];

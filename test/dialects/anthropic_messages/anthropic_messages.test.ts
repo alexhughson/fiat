@@ -995,7 +995,7 @@ describe("anthropic_messages responses", () => {
         },
     };
 
-    test("responses raise to core ops plus an ignorable vendor-usage residual", () => {
+    test("responses raise the wire usage counts onto response.usage and leave no residual when the body reports only counts", () => {
         // The message raises first; the rest follows wire key order.
         expect(AnthropicTranslator.fromResponse(wireResponse)).toEqual([
             {
@@ -1012,18 +1012,26 @@ describe("anthropic_messages responses", () => {
             },
             { op: "llm.model", model: "claude-sonnet-4-6" },
             { op: "response.stop", reason: "end_turn" },
-            { op: "response.usage", inputTokens: 20, outputTokens: 9 },
             {
-                op: "anthropic_messages.usage",
-                usage: { cache_read_input_tokens: 0 },
-                appliesTo: "response",
+                op: "response.usage",
+                inputTokens: 20,
+                cacheReadTokens: 0,
+                outputTokens: 9,
             },
         ]);
     });
 
-    test("responses round-trip", () => {
+    test("responses round-trip, with the required-but-nullable cache counts lowered as null when absent", () => {
         const program = AnthropicTranslator.fromResponse(wireResponse);
-        expect(AnthropicTranslator.toResponse(program)).toEqual(wireResponse);
+        expect(AnthropicTranslator.toResponse(program)).toEqual({
+            ...wireResponse,
+            usage: {
+                input_tokens: 20,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: null,
+                output_tokens: 9,
+            },
+        });
     });
 
     test("thinking response blocks raise to llm.reasoning and round-trip before text", () => {
@@ -1058,7 +1066,15 @@ describe("anthropic_messages responses", () => {
                 content: "The answer is 42.",
             },
         ]);
-        expect(AnthropicTranslator.toResponse(program)).toEqual(response);
+        expect(AnthropicTranslator.toResponse(program)).toEqual({
+            ...response,
+            usage: {
+                input_tokens: 10,
+                cache_read_input_tokens: null,
+                cache_creation_input_tokens: null,
+                output_tokens: 5,
+            },
+        });
     });
 
     test("thinking response blocks keep their relative order with surrounding text", () => {
@@ -1077,7 +1093,15 @@ describe("anthropic_messages responses", () => {
         };
 
         const program = AnthropicTranslator.fromResponse(response);
-        expect(AnthropicTranslator.toResponse(program)).toEqual(response);
+        expect(AnthropicTranslator.toResponse(program)).toEqual({
+            ...response,
+            usage: {
+                input_tokens: 10,
+                cache_read_input_tokens: null,
+                cache_creation_input_tokens: null,
+                output_tokens: 5,
+            },
+        });
     });
 
     test("server tool response blocks preserve exact Anthropic shape", () => {
@@ -1143,7 +1167,15 @@ describe("anthropic_messages responses", () => {
             op: "anthropic_messages.text_meta",
             fields: { citations: response.content[2]!.citations },
         });
-        expect(AnthropicTranslator.toResponse(program)).toEqual(response);
+        expect(AnthropicTranslator.toResponse(program)).toEqual({
+            ...response,
+            usage: {
+                input_tokens: 10,
+                cache_read_input_tokens: null,
+                cache_creation_input_tokens: null,
+                output_tokens: 5,
+            },
+        });
     });
 
     test("newer stop reasons have core mappings", () => {
@@ -1234,6 +1266,50 @@ describe("anthropic_messages response streams", () => {
             { op: "response.stop", reason: "end_turn" },
             { op: "response.usage", outputTokens: 4 },
         ]);
+        // message_delta's usage lists its input and cache counts as nullable,
+        // so the parts the event did not report lower back as null.
+        expect(AnthropicTranslator.toStreamResponse(program)).toEqual({
+            type: "message_delta",
+            delta: { stop_reason: "end_turn" },
+            usage: {
+                input_tokens: null,
+                cache_creation_input_tokens: null,
+                cache_read_input_tokens: null,
+                output_tokens: 4,
+            },
+        });
+    });
+
+    test("message_delta server_tool_use rides the residual op through the delta's usage", () => {
+        const event = {
+            type: "message_delta",
+            delta: { stop_reason: "end_turn" },
+            usage: {
+                input_tokens: 52,
+                cache_read_input_tokens: 2048,
+                cache_creation_input_tokens: null,
+                output_tokens: 97,
+                output_tokens_details: { thinking_tokens: 40 },
+                server_tool_use: { web_search_requests: 3 },
+            },
+        };
+
+        const program = AnthropicTranslator.fromStreamResponse(event);
+        expect(program).toEqual([
+            { op: "response.stop", reason: "end_turn" },
+            {
+                op: "response.usage",
+                inputTokens: 52,
+                cacheReadTokens: 2048,
+                outputTokens: 57,
+                reasoningTokens: 40,
+            },
+            {
+                op: "anthropic_messages.usage",
+                usage: { server_tool_use: { web_search_requests: 3 } },
+                appliesTo: "response",
+            },
+        ]);
         expect(AnthropicTranslator.toStreamResponse(program)).toEqual(event);
     });
 
@@ -1282,7 +1358,12 @@ describe("anthropic_messages response streams", () => {
                 role: "assistant",
                 model: "claude-sonnet-4-6",
                 content: [],
-                usage: { input_tokens: 12, output_tokens: 4 },
+                usage: {
+                    input_tokens: 12,
+                    cache_read_input_tokens: null,
+                    cache_creation_input_tokens: null,
+                    output_tokens: 4,
+                },
             },
         });
         expect(events[2]).toEqual({
@@ -1301,7 +1382,12 @@ describe("anthropic_messages response streams", () => {
         expect(events[7]).toEqual({
             type: "message_delta",
             delta: { stop_reason: "tool_use", stop_sequence: null },
-            usage: { input_tokens: 12, output_tokens: 4 },
+            usage: {
+                input_tokens: 12,
+                cache_creation_input_tokens: null,
+                cache_read_input_tokens: null,
+                output_tokens: 4,
+            },
         });
     });
 
@@ -1351,7 +1437,12 @@ describe("anthropic_messages response streams", () => {
         expect(events[4]).toEqual({
             type: "message_delta",
             delta: { stop_reason: "end_turn", stop_sequence: null },
-            usage: { input_tokens: 3, output_tokens: 2 },
+            usage: {
+                input_tokens: 3,
+                cache_creation_input_tokens: null,
+                cache_read_input_tokens: null,
+                output_tokens: 2,
+            },
         });
 
         // a program without an id op still gets an invented one
@@ -1441,7 +1532,12 @@ describe("anthropic_messages response streams", () => {
             {
                 type: "message_delta",
                 delta: { stop_reason: "end_turn", stop_sequence: null },
-                usage: { input_tokens: 2, output_tokens: 0 },
+                usage: {
+                    input_tokens: 2,
+                    cache_creation_input_tokens: null,
+                    cache_read_input_tokens: null,
+                    output_tokens: 0,
+                },
             },
             { type: "message_stop" },
         ]);

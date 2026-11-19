@@ -95,10 +95,22 @@ export type CoreOp =
       }
     | { op: "meta.trace"; traceId: string }
     | { op: "response.id"; id: string }
-    // Only the cross-provider counts live here. Provider-specific usage fields
-    // (cache hits, reasoning tokens, totals) stay in the op stream as a
-    // residual on the source dialect's usage op.
-    | { op: "response.usage"; inputTokens?: number; outputTokens?: number }
+    // The token-count parts of a response's usage. The parts do not overlap
+    // and there is no total: each lowering computes its provider's own sum
+    // from the parts that are present. An absent param means the source
+    // response body carried no count for that part; the count is unknown, not
+    // zero. Usage data one provider has, and shared concepts with later rows
+    // (service tiers, modality breakdowns, cache-write TTLs, server-tool
+    // request counts), stay in the source dialect's usage op as a residual.
+    | {
+          op: "response.usage";
+          inputTokens?: number;
+          cacheReadTokens?: number;
+          cacheWriteTokens?: number;
+          toolUsePromptTokens?: number;
+          outputTokens?: number;
+          reasoningTokens?: number;
+      }
     | { op: "response.stop"; reason: StopReason }
     | {
           op: "response.reasoning_delta";
