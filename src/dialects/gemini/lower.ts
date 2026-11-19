@@ -13,6 +13,7 @@ import {
     assertVideoSource,
 } from "../../core/media.js";
 import * as reasoning from "../../core/reasoning.js";
+import * as usage from "../../core/usage.js";
 import type { Target } from "../../core/rewrite.js";
 import { firstOp } from "../../core/program.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
@@ -656,19 +657,46 @@ export function lowerStopReasons(program: Program): Program {
     );
 }
 
+// Computes the wire usageMetadata object from the core parts: promptTokenCount
+// holds the fresh input and the cache counts but not the tool-use prompt
+// tokens, which Gemini reports beside the total; candidatesTokenCount holds no
+// reasoning, which thoughtsTokenCount reports beside it; totalTokenCount sums
+// every part that is present. The modality lists and the service tier come
+// from a residual.
 export function lowerUsageCounts(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "response.usage") return [op];
         const counts = op as OpOf<"response.usage">;
+        const promptTokens = usage.sumParts(counts, [
+            "inputTokens",
+            "cacheReadTokens",
+            "cacheWriteTokens",
+        ]);
+        const totalTokens = usage.sumParts(counts, usage.ALL_PARTS);
         return [
             {
                 op: "gemini.usage",
                 usage: {
-                    ...(counts.inputTokens != null
-                        ? { promptTokenCount: counts.inputTokens }
+                    ...(promptTokens != null
+                        ? { promptTokenCount: promptTokens }
+                        : {}),
+                    ...(counts.cacheReadTokens != null
+                        ? { cachedContentTokenCount: counts.cacheReadTokens }
+                        : {}),
+                    ...(counts.toolUsePromptTokens != null
+                        ? {
+                              toolUsePromptTokenCount:
+                                  counts.toolUsePromptTokens,
+                          }
                         : {}),
                     ...(counts.outputTokens != null
                         ? { candidatesTokenCount: counts.outputTokens }
+                        : {}),
+                    ...(counts.reasoningTokens != null
+                        ? { thoughtsTokenCount: counts.reasoningTokens }
+                        : {}),
+                    ...(totalTokens != null
+                        ? { totalTokenCount: totalTokens }
                         : {}),
                 },
             },

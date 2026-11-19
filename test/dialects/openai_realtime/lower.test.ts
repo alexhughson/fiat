@@ -181,16 +181,28 @@ describe("openai_realtime lower response stages", () => {
         ]);
     });
 
-    test("lowerUsageCounts folds response.usage back into an openai_realtime.usage envelope", () => {
+    test("lowerUsageCounts sums the core parts into the wire totals, and writes the cached detail only when present", () => {
         expect(
             lowerUsageCounts([
-                { op: "response.usage", inputTokens: 12, outputTokens: 2 },
+                {
+                    op: "response.usage",
+                    inputTokens: 52,
+                    cacheReadTokens: 2048,
+                    cacheWriteTokens: 500,
+                    outputTokens: 57,
+                    reasoningTokens: 40,
+                },
                 residual,
             ]),
         ).toEqual([
             {
                 op: "openai_realtime.usage",
-                usage: { input_tokens: 12, output_tokens: 2 },
+                usage: {
+                    input_tokens: 2600,
+                    input_token_details: { cached_tokens: 2048 },
+                    output_tokens: 97,
+                    total_tokens: 2697,
+                },
             },
             residual,
         ]);
