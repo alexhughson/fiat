@@ -509,6 +509,82 @@ describe("openai_chat requests", () => {
         });
     });
 
+    test("a body_field op with key tools and value [] forces the tools key into the lowered body", () => {
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                {
+                    op: "llm.tool_call",
+                    id: "call_1",
+                    name: "read_file",
+                    arguments: { path: "a.txt" },
+                },
+                { op: "llm.tool_result", id: "call_1", content: "contents" },
+                { op: "openai_chat.body_field", key: "tools", value: [] },
+            ]),
+        ).toEqual({
+            model: "gpt-4o",
+            tools: [],
+            messages: [
+                {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: "call_1",
+                            type: "function",
+                            function: {
+                                name: "read_file",
+                                arguments: '{"path":"a.txt"}',
+                            },
+                        },
+                    ],
+                },
+                { role: "tool", tool_call_id: "call_1", content: "contents" },
+            ],
+        });
+    });
+
+    test("llm.tool ops override a body_field op that names tools", () => {
+        const expected = {
+            model: "gpt-4o",
+            tools: [
+                {
+                    type: "function",
+                    function: {
+                        name: "read_file",
+                        description: "Read a file",
+                        parameters: { type: "object" },
+                    },
+                },
+            ],
+        };
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                {
+                    op: "llm.tool",
+                    name: "read_file",
+                    description: "Read a file",
+                    inputSchema: { type: "object" },
+                },
+                { op: "openai_chat.body_field", key: "tools", value: [] },
+            ]),
+        ).toEqual(expected);
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                { op: "openai_chat.body_field", key: "tools", value: [] },
+                {
+                    op: "llm.tool",
+                    name: "read_file",
+                    description: "Read a file",
+                    inputSchema: { type: "object" },
+                },
+            ]),
+        ).toEqual(expected);
+    });
+
     test("Responses-style item ids are stripped from Chat tool call ids", () => {
         expect(
             OpenAIChatTranslator.toBody([

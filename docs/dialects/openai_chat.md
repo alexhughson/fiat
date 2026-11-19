@@ -46,6 +46,10 @@ models lower them as `max_tokens`.
 - Tool history without current tools omits the `tools` key: `llm.tool` ops
   lower to `tools`, and tool history alone does not make `requestToWire`
   write an empty `tools` array.
+- A program that must lower to a body holding `"tools": []`, with or without
+  tool history, holds an `openai_chat.body_field` op with key `tools` and
+  value `[]`; when the program also declares `llm.tool` ops, the `llm.tool`
+  ops write `tools` and the `openai_chat.body_field` op changes nothing.
 - Responses with `n > 1` are rejected.
 - Chat has no field for reasoning: `llm.reasoning` is dropped with a warning.
 - Response envelope and usage residuals are response-only and are not resent
