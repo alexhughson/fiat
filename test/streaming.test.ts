@@ -140,7 +140,6 @@ describe("stream response conversion", () => {
                     output_tokens_details: { reasoning_tokens: 0 },
                     total_tokens: 5,
                 },
-                previous_response_id: null,
             },
         };
 
@@ -233,7 +232,6 @@ describe("stream response conversion", () => {
                     output_tokens_details: { reasoning_tokens: 0 },
                     total_tokens: 28,
                 },
-                previous_response_id: null,
             },
         };
         // A real stream also holds response.created, response.in_progress, and
@@ -711,7 +709,7 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
     };
     const responsesCompletedEvent = {
         type: "response.completed",
-        response: { status: "completed", previous_response_id: null },
+        response: { status: "completed" },
     };
     const realtimeTextEvent = {
         type: "response.output_text.delta",
@@ -792,7 +790,6 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                         output_tokens_details: { reasoning_tokens: 0 },
                         total_tokens: 5,
                     },
-                    previous_response_id: null,
                 },
             },
         ]);
@@ -828,7 +825,6 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                 response: {
                     status: "incomplete",
                     incomplete_details: { reason: "content_filter" },
-                    previous_response_id: null,
                 },
             },
         ]);

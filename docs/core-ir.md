@@ -157,27 +157,27 @@ named response. Request lowering removes this response echo, and response or
 stream lowering removes `request.previous_response`, so an appended response
 cannot make the next request continue from the wrong response.
 
-`responseId` has the same value as `response.id` in the earlier response's
-program, but it names provider storage rather than an earlier op in the
-current program. No lowering resolves it against the program. The op has no
-`dialect` tag because the value names whichever provider stored the response,
-not a wire format. Its position in a program carries no meaning.
+A string `responseId` has the same value as `response.id` in the earlier
+response's program, but it names provider storage rather than an earlier op in
+the current program. No lowering resolves either value against the program.
+The op has no `dialect` tag because a string names whichever provider stored
+the response, not a wire format. Its position in a program carries no meaning.
 
 | dialect              | request lowering              | response and stream lowering                                                                                                                   |
 | -------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `openai_responses`   | writes `previous_response_id` | writes `previous_response_id` in a response body or the `response` object of `response.completed`, `response.incomplete`, or `response.failed` |
-| `anthropic_messages` | throws `LintError`            | drops `response.previous_response`                                                                                                             |
-| `openai_chat`        | throws `LintError`            | drops `response.previous_response`                                                                                                             |
-| `gemini`             | throws `LintError`            | drops `response.previous_response`                                                                                                             |
-| `openai_realtime`    | throws `LintError`            | drops `response.previous_response`                                                                                                             |
+| `anthropic_messages` | throws `LintError`            | warns and drops `response.previous_response`                                                                                                   |
+| `openai_chat`        | throws `LintError`            | warns and drops `response.previous_response`                                                                                                   |
+| `gemini`             | throws `LintError`            | warns and drops `response.previous_response`                                                                                                   |
+| `openai_realtime`    | throws `LintError`            | warns and drops `response.previous_response`                                                                                                   |
 
 The four dialects with no continuation field cannot retrieve the stored
-conversation. Their response lowering drops only the echo, which repeats what
-the request held. Raising `previous_response_id: null` produces no op.
-Lowering an `openai_responses` response body or terminal stream event writes
-`previous_response_id: null` when the program holds no
-`response.previous_response`; request lowering writes no key when the program
-holds no `request.previous_response`.
+conversation. Their response and stream lowering warn and drop only the echo,
+which repeats what the request held. The warning includes the response id and
+target dialect. A `previous_response_id` that is null produces no op in a
+request, response body, or terminal event. Home lowering writes the key only
+when the matching op is present, so a missing or null key stays missing after
+the round trip.
 
 ## Host ops
 

@@ -5,7 +5,7 @@
 // appended after them. Extend by appending to the stage arrays.
 
 import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
-import { LintError } from "../../core/lint.js";
+import { LintError, lintOrWarn } from "../../core/lint.js";
 import {
     assertAudioSource,
     assertDocumentSource,
@@ -14,7 +14,7 @@ import {
 } from "../../core/media.js";
 import { dropReasoning } from "../../core/reasoning.js";
 import * as usage from "../../core/usage.js";
-import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
 import { lowerFinishReason } from "./raise.js";
 import type {
     OpenAIChatMessageMeta,
@@ -63,9 +63,23 @@ export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
 
-export function lowerPreviousResponse(program: Program): Program {
+export function lowerPreviousResponse(
+    program: Program,
+    target?: Target,
+): Program {
     return program.filter((op) => {
-        if (op.op === "response.previous_response") return false;
+        if (op.op === "response.previous_response") {
+            if (
+                target?.kind === "response" ||
+                target?.kind === "response_stream"
+            ) {
+                lintOrWarn(
+                    target.strict,
+                    `dropped response.previous_response "${op.responseId}": openai_chat has no field for a stored previous response`,
+                );
+            }
+            return false;
+        }
         if (op.op !== "request.previous_response") return true;
         throw new LintError(
             "openai_chat request lower: cannot lower request.previous_response because Chat Completions cannot retrieve a stored response",

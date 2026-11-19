@@ -437,7 +437,6 @@ export function responseToWire(program: Program): unknown {
         finishReason === "max_tokens" || finishReason === "content_filter"
             ? "incomplete"
             : "completed";
-    body.previous_response_id ??= null;
     if (body.incomplete_details === undefined) {
         if (finishReason === "max_tokens")
             body.incomplete_details = { reason: "max_output_tokens" };
@@ -547,7 +546,7 @@ export function streamResponseToWire(program: Program): unknown {
         previousResponseId !== undefined
     ) {
         throw new LintError(
-            "openai_responses stream response toWire: the program holds a delta and response.previous_response, which a Responses stream sends as two events; toStreamResponses returns both",
+            "openai_responses stream response toWire: a delta beside response.previous_response requires openai_responses.finish_reason so toStreamResponses can return separate delta and terminal events",
         );
     }
 
@@ -590,6 +589,15 @@ export function streamResponseToWire(program: Program): unknown {
         return event;
     }
 
+    if (
+        previousResponseId !== undefined &&
+        finishReason == null &&
+        event.type == null
+    ) {
+        throw new LintError(
+            "openai_responses stream response toWire: response.previous_response requires a terminal event type or openai_responses.finish_reason",
+        );
+    }
     event.type ??= terminalEventType(finishReason);
     const isTerminalEvent =
         event.type === "response.completed" ||
@@ -599,7 +607,7 @@ export function streamResponseToWire(program: Program): unknown {
         const response = {
             ...asRecord(event.response ?? {}, "stream event.response"),
         };
-        if (usage || finishReason != null || previousResponseId !== undefined) {
+        if (usage || finishReason != null) {
             response.status ??=
                 finishReason === "max_tokens" ||
                 finishReason === "content_filter"
@@ -619,7 +627,9 @@ export function streamResponseToWire(program: Program): unknown {
             response.incomplete_details = { reason: "content_filter" };
         }
         if (usage) response.usage = usage;
-        response.previous_response_id = previousResponseId ?? null;
+        if (previousResponseId !== undefined) {
+            response.previous_response_id = previousResponseId;
+        }
         event.response = response;
     }
     return event;

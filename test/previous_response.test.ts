@@ -127,7 +127,7 @@ describe("previous response bodies", () => {
     });
 
     test.each(["null", "absent"] as const)(
-        "a %s response previous_response_id raises no op and lowers as null",
+        "a response previous_response_id that is %s raises no op and writes no response key",
         (presence) => {
             const body: Record<string, unknown> = { ...responseBody };
             if (presence === "null") body.previous_response_id = null;
@@ -137,10 +137,11 @@ describe("previous response bodies", () => {
             expect(
                 program.some((op) => op.op === "response.previous_response"),
             ).toBe(false);
-            expect(OpenAIResponsesTranslator.toResponse(program)).toEqual({
-                ...body,
-                previous_response_id: null,
-            });
+            const { previous_response_id: _previous, ...withoutPrevious } =
+                responseBody;
+            expect(OpenAIResponsesTranslator.toResponse(program)).toEqual(
+                withoutPrevious,
+            );
         },
     );
 
@@ -159,10 +160,23 @@ describe("previous response bodies", () => {
         test(`${target.name} drops the response echo without dropping the answer`, () => {
             const program =
                 OpenAIResponsesTranslator.fromResponse(responseBody);
+            if (target === AnthropicTranslator) {
+                program.push({
+                    op: "response.usage",
+                    inputTokens: 3,
+                    outputTokens: 2,
+                });
+            }
             const body = target.toResponse(program);
 
             expect(JSON.stringify(body)).toContain("pong");
             expect(JSON.stringify(body)).not.toContain("resp_earlier");
+            if (target === AnthropicTranslator) {
+                expect(body).toMatchObject({
+                    stop_reason: "end_turn",
+                    usage: { input_tokens: 3, output_tokens: 2 },
+                });
+            }
         });
 
         test(`${target.name} drops the response echo from a stream event`, () => {
@@ -232,6 +246,8 @@ describe("previous response terminal stream events", () => {
                 event,
             );
 
+            const { previous_response_id: _previous, ...withoutPrevious } =
+                event.response;
             const nullProgram = OpenAIResponsesTranslator.fromStreamResponse({
                 ...event,
                 response: {
@@ -248,26 +264,23 @@ describe("previous response terminal stream events", () => {
                 OpenAIResponsesTranslator.toStreamResponse(nullProgram),
             ).toEqual({
                 ...event,
-                response: {
-                    ...event.response,
-                    previous_response_id: null,
-                },
+                response: withoutPrevious,
             });
 
-            const { previous_response_id: _previous, ...withoutPrevious } =
-                event.response;
             const absentProgram = OpenAIResponsesTranslator.fromStreamResponse({
                 ...event,
                 response: withoutPrevious,
             });
             expect(
+                absentProgram.some(
+                    (op) => op.op === "response.previous_response",
+                ),
+            ).toBe(false);
+            expect(
                 OpenAIResponsesTranslator.toStreamResponse(absentProgram),
             ).toEqual({
                 ...event,
-                response: {
-                    ...withoutPrevious,
-                    previous_response_id: null,
-                },
+                response: withoutPrevious,
             });
         });
     }
@@ -284,6 +297,7 @@ describe("previous response terminal stream events", () => {
                 op: "response.previous_response",
                 responseId: "resp_earlier",
             },
+            { op: "openai_responses.finish_reason", reason: "end_turn" },
         ]);
 
         expect(events).toHaveLength(2);
@@ -298,5 +312,30 @@ describe("previous response terminal stream events", () => {
                 previous_response_id: "resp_earlier",
             },
         });
+    });
+
+    test("a response echo without terminal data does not invent an event", () => {
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponses([
+                {
+                    op: "response.previous_response",
+                    responseId: "resp_earlier",
+                },
+            ]),
+        ).toThrow("terminal event type");
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponses([
+                {
+                    op: "response.text_delta",
+                    index: 0,
+                    role: "assistant",
+                    content: "pong",
+                },
+                {
+                    op: "response.previous_response",
+                    responseId: "resp_earlier",
+                },
+            ]),
+        ).toThrow("openai_responses.finish_reason");
     });
 });
