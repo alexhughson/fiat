@@ -311,7 +311,13 @@ export function streamResponseToWire(program: Program): unknown {
     for (const op of program) {
         switch (op.op) {
             case "llm.model":
-                body.model = op.model;
+                // A stream chunk carries the model under `modelVersion`; the
+                // library keeps `model` only in whole request and response
+                // bodies for translation.
+                body.modelVersion = (op as OpOf<"llm.model">).model;
+                break;
+            case "response.id":
+                body.responseId = (op as OpOf<"response.id">).id;
                 break;
             case "gemini.content":
                 if (content)
@@ -356,13 +362,28 @@ export function streamResponseToWire(program: Program): unknown {
                 ...(finishReason ? { finishReason } : {}),
             },
         ];
-    } else if (finishReason || Object.keys(candidateMeta).length > 0) {
+    } else if (finishReason) {
+        // A stop reason that arrives without content writes the candidate
+        // shape Gemini itself sends live for the same case: one content with
+        // a single empty text part.
+        body.candidates = [
+            {
+                content: { role: "model", parts: [{ text: "" }] },
+                finishReason,
+            },
+        ];
+    } else if (Object.keys(candidateMeta).length > 0) {
         throw new Error(
-            "gemini stream response toWire: finishReason or candidate metadata requires candidate content",
+            "gemini stream response toWire: candidate metadata requires candidate content",
         );
     }
     if (usage) body.usageMetadata = usage;
-    if (!body.candidates && !body.usageMetadata && !body.model) {
+    if (
+        !body.candidates &&
+        !body.usageMetadata &&
+        !body.modelVersion &&
+        !body.responseId
+    ) {
         throw new Error("gemini stream response toWire: empty stream chunk");
     }
     return body;

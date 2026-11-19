@@ -121,9 +121,13 @@ ops, the last one is written. When a program holds none, four dialects invent
 an id and `gemini` writes no `responseId`.
 
 Lowering a program to a request body removes `response.id`, like every other
-`response.*` op. Among the stream codecs, only the `anthropic_messages` one
-that lowers a complete response to stream events reads the op: it writes the
-id into `message_start.message.id`.
+`response.*` op. Among the stream codecs, the `anthropic_messages` one that
+lowers a complete response to stream events reads the op and writes the id
+into `message_start.message.id`; the `openai_responses` one writes it into the
+`response` object of an envelope event (`response.created`,
+`response.in_progress`, `response.completed`, `response.incomplete`,
+`response.failed`); the `gemini` one writes it as `responseId` on the chunk.
+The `openai_chat` and `openai_realtime` stream codecs throw on the op.
 
 ## Host ops
 

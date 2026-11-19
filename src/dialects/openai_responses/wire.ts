@@ -414,42 +414,79 @@ export function responseToWire(program: Program): unknown {
     return body;
 }
 
+// Every event of an ordinary text stream or function-tool-call stream raises.
+// A value that other providers also have raises to a core op: the response id
+// and the model name of an envelope event, the usage and the stop reason of a
+// terminal event, the text of a delta, the complete arguments of a done
+// event. A value only this stream format has — the event `type`, the
+// `sequence_number`, the `item_id` and `content_index` bookkeeping, the
+// response envelope's own fields, a content part or item before its text —
+// stays in `openai_responses.body_field` ops, which lower back to the event
+// they came from.
 export function streamResponseFromWire(wire: unknown): Program {
     const event = asRecord(wire, "openai_responses stream response event");
     const type = asString(event.type, "stream event.type");
     switch (type) {
         case "response.output_text.delta":
             return [
-                ...streamEventParams(event, ["delta"]),
+                ...streamEventParams(event, ["type", "output_index", "delta"]),
                 {
                     op: "response.text_delta",
                     role: "assistant",
+                    ...streamOutputIndex(event),
                     content: asString(event.delta, "stream event.delta"),
                 },
             ];
         case "response.function_call_arguments.delta":
             return [
-                ...streamEventParams(event, ["delta"]),
+                ...streamEventParams(event, ["type", "output_index", "delta"]),
                 {
                     op: "response.tool_call_delta",
-                    ...(event.output_index != null
+                    ...streamOutputIndex(event),
+                    arguments: asString(event.delta, "stream event.delta"),
+                },
+            ];
+        case "response.function_call_arguments.done":
+            return [
+                // The event `type` stays a residual: no core op distinguishes
+                // a done event from an output_item.done event, both of which
+                // raise the same complete call onto the core op.
+                ...streamEventParams(event, [
+                    "output_index",
+                    "name",
+                    "arguments",
+                ]),
+                {
+                    op: "response.tool_call_delta",
+                    ...streamOutputIndex(event),
+                    ...(event.name != null
                         ? {
-                              index: asNumber(
-                                  event.output_index,
-                                  "stream event.output_index",
-                              ),
+                              name: asString(event.name, "stream event.name"),
                           }
                         : {}),
-                    arguments: asString(event.delta, "stream event.delta"),
+                    arguments: asString(
+                        event.arguments,
+                        "stream event.arguments",
+                    ),
                 },
             ];
         case "response.output_item.added":
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
+        // A content part starting or ending, and the finalized text of a
+        // part, have no core op yet: the text of the answer arrives through
+        // `response.text_delta`, and no core op says where a part starts.
+        // These events keep every key as a residual, so they round trip.
+        case "response.content_part.added":
+        case "response.content_part.done":
+        case "response.output_text.done":
+            return streamEventParams(event, []);
+        case "response.created":
+        case "response.in_progress":
         case "response.completed":
         case "response.incomplete":
         case "response.failed":
-            return streamTerminalEvent(event);
+            return streamEnvelopeEvent(event);
         default:
             throw new LintError(
                 `openai_responses stream response: unsupported event type ${JSON.stringify(type)}`,
@@ -457,24 +494,41 @@ export function streamResponseFromWire(wire: unknown): Program {
     }
 }
 
+// The raised type decides the event: an event raised on this dialect carries
+// its `type` as a body_field residual, and each event type has a field for
+// its core ops. A program with no type residual (raised from another
+// dialect) keeps the derivation on main.
 export function streamResponseToWire(program: Program): unknown {
     let text = "";
+    let textIndex: number | undefined;
     const toolDeltas: OpOf<"response.tool_call_delta">[] = [];
     let finishReason: string | undefined;
     let usage: Record<string, unknown> | undefined;
+    let responseId: string | undefined;
+    let modelName: string | undefined;
     const event: Record<string, unknown> = {};
     let sawTextDelta = false;
+    let hasRaisedType = false;
 
     for (const op of program) {
         switch (op.op) {
-            case "response.text_delta":
+            case "response.text_delta": {
+                const textDelta = op as OpOf<"response.text_delta">;
                 sawTextDelta = true;
-                text += (op as OpOf<"response.text_delta">).content;
+                text += textDelta.content;
+                textIndex ??= textDelta.index;
                 event.type ??= "response.output_text.delta";
                 break;
+            }
             case "response.tool_call_delta":
                 toolDeltas.push(op as OpOf<"response.tool_call_delta">);
                 event.type ??= "response.function_call_arguments.delta";
+                break;
+            case "response.id":
+                responseId = (op as OpOf<"response.id">).id;
+                break;
+            case "llm.model":
+                modelName = (op as OpOf<"llm.model">).model;
                 break;
             case "openai_responses.finish_reason":
                 finishReason = opData<{ reason: string }>(op).reason;
@@ -490,6 +544,7 @@ export function streamResponseToWire(program: Program): unknown {
             case "openai_responses.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
                 event[param.key] = param.value;
+                if (param.key === "type") hasRaisedType = true;
                 break;
             }
             default:
@@ -504,51 +559,92 @@ export function streamResponseToWire(program: Program): unknown {
         finishReason,
     );
 
+    const tool = toolDeltas[0];
+
+    // A raised done event writes `arguments`, never `delta` and never an
+    // item; the derived flows below cannot express it.
+    if (
+        hasRaisedType &&
+        event.type === "response.function_call_arguments.done"
+    ) {
+        if (responseId != null || modelName != null) {
+            throw unplaceableEnvelopeOps(
+                responseId != null,
+                modelName != null,
+                "response.function_call_arguments.done",
+            );
+        }
+        event.output_index ??= tool?.index ?? 0;
+        if (tool?.name != null) event.name ??= tool.name;
+        event.arguments ??= tool?.arguments ?? "";
+        return event;
+    }
+
     if (sawTextDelta) {
+        if (responseId != null || modelName != null) {
+            throw unplaceableEnvelopeOps(
+                responseId != null,
+                modelName != null,
+                "response.output_text.delta",
+            );
+        }
         event.type ??= "response.output_text.delta";
         event.item_id ??= `msg_${crypto.randomUUID().replaceAll("-", "")}`;
-        event.output_index ??= 0;
+        event.output_index ??= textIndex ?? 0;
         event.content_index ??= 0;
         event.delta = text;
         return event;
     }
-    if (toolDeltas.length > 0) {
-        const tool = toolDeltas[0]!;
-        if (tool.name != null || tool.id != null) {
-            event.type ??= "response.output_item.added";
-            event.output_index ??= tool.index ?? 0;
-            const itemTemplate = asRecord(
-                event.item ?? {},
-                "stream event.item",
+    if (toolDeltas.length > 0 && (tool!.name != null || tool!.id != null)) {
+        if (responseId != null || modelName != null) {
+            throw unplaceableEnvelopeOps(
+                responseId != null,
+                modelName != null,
+                "response.output_item.added",
             );
-            event.item = {
-                ...itemTemplate,
-                type: "function_call",
-                id:
-                    itemTemplate.id ??
-                    event.item_id ??
-                    `fc_${crypto.randomUUID().replaceAll("-", "")}`,
-                call_id:
-                    tool.id ??
-                    itemTemplate.call_id ??
-                    `call_${crypto.randomUUID().replaceAll("-", "")}`,
-                name: tool.name ?? itemTemplate.name ?? "",
-                arguments: tool.arguments ?? itemTemplate.arguments ?? "",
-            };
-            return event;
+        }
+        event.type ??= "response.output_item.added";
+        event.output_index ??= tool!.index ?? 0;
+        const itemTemplate = asRecord(event.item ?? {}, "stream event.item");
+        event.item = {
+            ...itemTemplate,
+            type: "function_call",
+            id:
+                itemTemplate.id ??
+                event.item_id ??
+                `fc_${crypto.randomUUID().replaceAll("-", "")}`,
+            call_id:
+                tool!.id ??
+                itemTemplate.call_id ??
+                `call_${crypto.randomUUID().replaceAll("-", "")}`,
+            name: tool!.name ?? itemTemplate.name ?? "",
+            arguments: tool!.arguments ?? itemTemplate.arguments ?? "",
+        };
+        return event;
+    }
+    if (toolDeltas.length > 0) {
+        if (responseId != null || modelName != null) {
+            throw unplaceableEnvelopeOps(
+                responseId != null,
+                modelName != null,
+                "response.function_call_arguments.delta",
+            );
         }
         event.type ??= "response.function_call_arguments.delta";
-        event.output_index ??= tool.index ?? 0;
-        event.delta = tool.arguments ?? "";
+        event.output_index ??= tool!.index ?? 0;
+        event.delta = tool!.arguments ?? "";
         return event;
     }
 
     event.type ??= terminalEventType(finishReason);
+    // Copy before merging: `event.response` holds the object of a
+    // body_field op, and lowering writes into no object an input op holds.
+    const response: Record<string, unknown> = {
+        ...asRecord(event.response ?? {}, "stream event.response"),
+    };
+    if (responseId != null) response.id ??= responseId;
+    if (modelName != null) response.model ??= modelName;
     if (usage || finishReason != null) {
-        const response = asRecord(
-            event.response ?? {},
-            "stream event.response",
-        );
         response.status ??=
             finishReason === "max_tokens" || finishReason === "content_filter"
                 ? "incomplete"
@@ -566,9 +662,26 @@ export function streamResponseToWire(program: Program): unknown {
             response.incomplete_details = { reason: "content_filter" };
         }
         if (usage) response.usage = usage;
-        event.response = response;
     }
+    if (Object.keys(response).length > 0) event.response = response;
     return event;
+}
+
+// The response id and the model name have a field only on an envelope event's
+// `response` object, so they are a named reject everywhere else rather than a
+// silent drop.
+function unplaceableEnvelopeOps(
+    hasId: boolean,
+    hasModel: boolean,
+    type: string,
+): LintError {
+    const ops = [
+        ...(hasId ? ['"response.id"'] : []),
+        ...(hasModel ? ['"llm.model"'] : []),
+    ].join(", ");
+    return new LintError(
+        `openai_responses stream response toWire: ${ops} has no field on a ${JSON.stringify(type)} event`,
+    );
 }
 
 // A Responses stream has no event that holds a delta and a stop reason, and
@@ -612,29 +725,38 @@ function streamEventParams(
     return program;
 }
 
+function streamOutputIndex(
+    event: Record<string, unknown>,
+): { index: number } | Record<string, never> {
+    return event.output_index != null
+        ? {
+              index: asNumber(event.output_index, "stream event.output_index"),
+          }
+        : {};
+}
+
 function streamOutputItemEvent(
     event: Record<string, unknown>,
     type: string,
 ): Program {
-    const program = streamEventParams(event, ["item"]);
     const item = asRecord(event.item, "stream event.item");
+    // A function_call item raises its `output_index` onto the core
+    // `response.tool_call_delta.index`, so the residual carries no copy of it.
+    const isFunctionCall = item.type === "function_call";
+    const program = streamEventParams(
+        event,
+        isFunctionCall ? ["item", "output_index"] : ["item"],
+    );
     program.push({
         op: "openai_responses.body_field",
         key: "item",
         value: item,
         appliesTo: "response",
     });
-    if (item.type !== "function_call") return program;
+    if (!isFunctionCall) return program;
     program.push({
         op: "response.tool_call_delta",
-        ...(event.output_index != null
-            ? {
-                  index: asNumber(
-                      event.output_index,
-                      "stream event.output_index",
-                  ),
-              }
-            : {}),
+        ...streamOutputIndex(event),
         ...(item.call_id != null
             ? { id: asString(item.call_id, "stream event.item.call_id") }
             : {}),
@@ -653,22 +775,44 @@ function streamOutputItemEvent(
     return program;
 }
 
-function streamTerminalEvent(event: Record<string, unknown>): Program {
+// An envelope event carries the whole response object. The id, the model
+// name, and a non-null usage raise to core ops; the stop reason is computed
+// from the status, `incomplete_details`, and any function-call output item,
+// as for a complete response body. Everything else — `object`, `created_at`,
+// the `status` itself, the request echo, a null usage — stays in one
+// `openai_responses.body_field` keyed `response`, which lowering merges back
+// with the core values.
+function streamEnvelopeEvent(event: Record<string, unknown>): Program {
     const program = streamEventParams(event, ["response"]);
     const response =
         event.response == null
             ? undefined
             : asRecord(event.response, "stream event.response");
-    if (response != null) {
-        const { usage: _usage, ...responseMeta } = response;
-        if (Object.keys(responseMeta).length > 0) {
-            program.push({
-                op: "openai_responses.body_field",
-                key: "response",
-                value: responseMeta,
-                appliesTo: "response",
-            });
-        }
+    const responseMeta: Record<string, unknown> =
+        response == null ? {} : { ...response };
+    if (typeof responseMeta.id === "string") {
+        program.push({ op: "response.id", id: responseMeta.id });
+        delete responseMeta.id;
+    }
+    if (typeof responseMeta.model === "string") {
+        program.push({
+            op: "llm.model",
+            model: responseMeta.model,
+        });
+        delete responseMeta.model;
+    }
+    if (responseMeta.usage != null) {
+        // A non-null usage raises below; `usage: null` has no op, so it stays
+        // in the residual and keeps the event exactly as it was.
+        delete responseMeta.usage;
+    }
+    if (Object.keys(responseMeta).length > 0) {
+        program.push({
+            op: "openai_responses.body_field",
+            key: "response",
+            value: responseMeta,
+            appliesTo: "response",
+        });
     }
     const status =
         response?.status == null

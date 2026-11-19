@@ -7,6 +7,10 @@ import {
     OpenAIRealtimeTranslator,
     OpenAIResponsesTranslator,
 } from "../src/index";
+import {
+    textStreamEvents,
+    toolCallStreamEvents,
+} from "./fixtures/openai_responses_stream";
 
 function withWarnSpy<T>(
     run: (warn: ReturnType<typeof spyOn<Console, "warn">>) => T,
@@ -138,20 +142,8 @@ describe("stream response conversion", () => {
             [
                 {
                     op: "openai_responses.body_field",
-                    key: "type",
-                    value: "response.output_text.delta",
-                    appliesTo: "response",
-                },
-                {
-                    op: "openai_responses.body_field",
                     key: "item_id",
                     value: "msg_1",
-                    appliesTo: "response",
-                },
-                {
-                    op: "openai_responses.body_field",
-                    key: "output_index",
-                    value: 0,
                     appliesTo: "response",
                 },
                 {
@@ -160,7 +152,12 @@ describe("stream response conversion", () => {
                     value: 0,
                     appliesTo: "response",
                 },
-                { op: "response.text_delta", role: "assistant", content: "hi" },
+                {
+                    op: "response.text_delta",
+                    index: 0,
+                    role: "assistant",
+                    content: "hi",
+                },
             ],
         );
         expect(
@@ -216,9 +213,10 @@ describe("stream response conversion", () => {
                 usage: { input_tokens: 20, output_tokens: 8 },
             },
         };
-        // A real stream also holds response.created, response.in_progress, and
-        // response.function_call_arguments.done; the raise throws on those
-        // three event types, so this stream leaves them out.
+        // This stream keeps only the events that shape the call.
+        // `response.created`, `response.in_progress`, and
+        // `response.function_call_arguments.done` raise too; their ops are
+        // covered by the recorded-stream tests below.
         const stream = [
             {
                 type: "response.output_item.added",
@@ -275,6 +273,8 @@ describe("stream response conversion", () => {
                 name: "get_weather",
                 arguments: '{"city":"Halifax"}',
             },
+            { op: "response.id", id: "resp_1" },
+            { op: "llm.model", model: "gpt-4.1" },
             { op: "response.stop", reason: "tool_use" },
             { op: "response.usage", inputTokens: 20, outputTokens: 8 },
         ]);
@@ -888,5 +888,275 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                 GeminiTranslator.fromStreamResponse(stopOnly),
             ),
         ).toEqual(realtimeDoneEvent);
+    });
+});
+
+describe("recorded openai responses streams", () => {
+    // A proxy which exposes the Gemini API to its clients and routes some
+    // requests to an OpenAI Responses provider: it raises each stream event
+    // the Responses provider returns, then lowers each raised program into
+    // Gemini `streamGenerateContent` chunks for its client. The fixtures hold
+    // events recorded from glm-5.3 on gw.lunaroute.com/v1 on 2026-11-19,
+    // with the response.reasoning_text.* events removed.
+
+    test("every event of the recorded text stream raises and round-trips", () => {
+        for (const event of textStreamEvents) {
+            const raised = OpenAIResponsesTranslator.fromStreamResponse(event);
+            expect(raised.length).toBeGreaterThan(0);
+            expect(OpenAIResponsesTranslator.toStreamResponse(raised)).toEqual(
+                event,
+            );
+        }
+    });
+
+    test("every event of the recorded tool-call stream raises and round-trips", () => {
+        for (const event of toolCallStreamEvents) {
+            const raised = OpenAIResponsesTranslator.fromStreamResponse(event);
+            expect(raised.length).toBeGreaterThan(0);
+            expect(OpenAIResponsesTranslator.toStreamResponse(raised)).toEqual(
+                event,
+            );
+        }
+    });
+
+    test("the first event of the recorded text stream raises the id and model to core ops", () => {
+        const raised = OpenAIResponsesTranslator.fromStreamResponse(
+            textStreamEvents[0],
+        );
+        expect(raised).toEqual(
+            expect.arrayContaining([
+                {
+                    op: "response.id",
+                    id: "resp_54641cf2ebdc46159b14a430cb48a317",
+                },
+                { op: "llm.model", model: "glm-5.3" },
+            ]),
+        );
+        // status "in_progress" reports no stop reason, and a null usage
+        // raises no usage op; both stay inside the response residual.
+        expect(raised).not.toContainEqual(
+            expect.objectContaining({ op: "response.stop" }),
+        );
+        expect(raised).not.toContainEqual(
+            expect.objectContaining({ op: "response.usage" }),
+        );
+    });
+
+    test("a Gemini client reads the recorded text stream as chunks", () => {
+        const chunks = textStreamEvents.flatMap((event) =>
+            GeminiTranslator.toStreamResponses(
+                OpenAIResponsesTranslator.fromStreamResponse(event),
+            ),
+        );
+        expect(chunks).toEqual([
+            {
+                responseId: "resp_54641cf2ebdc46159b14a430cb48a317",
+                modelVersion: "glm-5.3",
+            },
+            {
+                responseId: "resp_54641cf2ebdc46159b14a430cb48a317",
+                modelVersion: "glm-5.3",
+            },
+            {
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [{ text: "streams now work" }],
+                        },
+                    },
+                ],
+            },
+            {
+                responseId: "resp_54641cf2ebdc46159b14a430cb48a317",
+                modelVersion: "glm-5.3",
+                candidates: [
+                    {
+                        content: { role: "model", parts: [{ text: "" }] },
+                        finishReason: "STOP",
+                    },
+                ],
+                usageMetadata: {
+                    promptTokenCount: 21,
+                    candidatesTokenCount: 76,
+                },
+            },
+        ]);
+    });
+
+    test("a Gemini client reads the recorded tool-call stream, except the argument fragments", () => {
+        const chunks = toolCallStreamEvents.flatMap((event) => {
+            // The argument fragments have no field on a Gemini chunk; the
+            // next test asserts their named reject. Every other event must
+            // lower without a throw.
+            if (
+                (event as Record<string, unknown>).type ===
+                "response.function_call_arguments.delta"
+            )
+                return [];
+            return GeminiTranslator.toStreamResponses(
+                OpenAIResponsesTranslator.fromStreamResponse(event),
+            );
+        });
+        expect(chunks).toEqual([
+            {
+                responseId: "resp_0e6b06f8ae2d4af7a2cafd061d44e206",
+                modelVersion: "glm-5.3",
+            },
+            {
+                responseId: "resp_0e6b06f8ae2d4af7a2cafd061d44e206",
+                modelVersion: "glm-5.3",
+            },
+            {
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [
+                                {
+                                    functionCall: {
+                                        name: "get_weather",
+                                        args: {},
+                                        id: "call_bacfd278dcbc4b9a813a875c",
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [
+                                {
+                                    functionCall: {
+                                        name: "get_weather",
+                                        args: { city: "Paris" },
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [
+                                {
+                                    functionCall: {
+                                        name: "get_weather",
+                                        args: { city: "Paris" },
+                                        id: "call_bacfd278dcbc4b9a813a875c",
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                responseId: "resp_0e6b06f8ae2d4af7a2cafd061d44e206",
+                modelVersion: "glm-5.3",
+                candidates: [
+                    {
+                        content: { role: "model", parts: [{ text: "" }] },
+                        finishReason: "STOP",
+                    },
+                ],
+                usageMetadata: {
+                    promptTokenCount: 167,
+                    candidatesTokenCount: 38,
+                },
+            },
+        ]);
+    });
+
+    test("a function-call arguments fragment still throws when lowered to a Gemini chunk", () => {
+        const raised = OpenAIResponsesTranslator.fromStreamResponse(
+            toolCallStreamEvents[7],
+        );
+        expect(() => GeminiTranslator.toStreamResponses(raised)).toThrow(
+            "gemini stream response lower: tool_call_delta requires a function name",
+        );
+    });
+
+    test("the complete function-call arguments raise onto the core op", () => {
+        const raised = OpenAIResponsesTranslator.fromStreamResponse(
+            toolCallStreamEvents.find(
+                (event) =>
+                    (event as Record<string, unknown>).type ===
+                    "response.function_call_arguments.done",
+            ),
+        );
+        expect(raised).toContainEqual({
+            op: "response.tool_call_delta",
+            index: 1,
+            name: "get_weather",
+            arguments: '{"city": "Paris"}',
+        });
+    });
+
+    test("a stop reason and usage without content lower to the Gemini final-chunk shape", () => {
+        // Gemini itself ends a live stream with a candidate whose only part
+        // is an empty text part, carrying the finishReason.
+        expect(
+            GeminiTranslator.toStreamResponses([
+                { op: "response.id", id: "resp_1" },
+                { op: "llm.model", model: "glm-5.3" },
+                { op: "response.stop", reason: "end_turn" },
+                { op: "response.usage", inputTokens: 21, outputTokens: 76 },
+            ]),
+        ).toEqual([
+            {
+                responseId: "resp_1",
+                modelVersion: "glm-5.3",
+                candidates: [
+                    {
+                        content: { role: "model", parts: [{ text: "" }] },
+                        finishReason: "STOP",
+                    },
+                ],
+                usageMetadata: {
+                    promptTokenCount: 21,
+                    candidatesTokenCount: 76,
+                },
+            },
+        ]);
+    });
+
+    test("the response id is a named reject on an event with no response field", () => {
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponse([
+                { op: "response.text_delta", role: "assistant", content: "hi" },
+                { op: "response.id", id: "resp_1" },
+            ]),
+        ).toThrow(
+            'openai_responses stream response toWire: "response.id" has no field on a "response.output_text.delta" event',
+        );
+    });
+
+    test("out-of-scope stream events still throw by name", () => {
+        for (const type of [
+            "response.reasoning_text.delta",
+            "response.reasoning_text.done",
+            "response.reasoning_summary_text.delta",
+            "response.refusal.delta",
+            "response.web_search_call.in_progress",
+            "response.output_text.annotation.added",
+        ]) {
+            expect(() =>
+                OpenAIResponsesTranslator.fromStreamResponse({
+                    type,
+                }),
+            ).toThrow(
+                `openai_responses stream response: unsupported event type "${type}"`,
+            );
+        }
     });
 });
