@@ -31,7 +31,7 @@ path. Code: `src/dialects/gemini/`.
 | `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                                                                  |
 | `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                          |
 | `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                            |
-| `gemini.finish_reason`     | preserves the exact `finishReason`; `of` names its `response.stop` when a core reason exists                                                                   |
+| `gemini.finish_reason`     | preserves the exact `finishReason`; `of` names its `response.stop` when a core reason exists; without `of`, `preservesContent` forbids a cross-dialect drop    |
 | `gemini.usage`             | modality lists and the service tier                                                                                                                            |
 | `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
 | `gemini.body_field`        | unknown top-level field                                                                                                                                        |
@@ -56,9 +56,10 @@ value. Other dialects warn and drop that side op after using the core stop.
 `NO_IMAGE`, `UNEXPECTED_TOOL_CALL`, `TOO_MANY_TOOL_CALLS`,
 `MISSING_THOUGHT_SIGNATURE`, `MALFORMED_RESPONSE`, `PUP_LIMITED_DISABLED`,
 `CONTINUATION`, and unknown values have no equal core reason. They raise only a
-`gemini.finish_reason` op with `appliesTo: "response"`. Gemini lowering writes
-the value back unchanged; lowering to another dialect throws rather than
-substituting a nearby stop reason.
+`gemini.finish_reason` op with `appliesTo: "response"` and
+`preservesContent: true`. Gemini lowering writes the value back unchanged.
+When lowering to another dialect, core's `dropForeignResiduals` refuses to drop
+that op instead of substituting a nearby stop reason.
 
 A response candidate may omit `content` or send `content: {}`. Both forms raise
 without content ops. Lowering omits the optional `content` key when the

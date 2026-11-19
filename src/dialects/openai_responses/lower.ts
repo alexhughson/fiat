@@ -324,15 +324,6 @@ function splitResponsesToolCallId(id: string): {
 
 export function lowerStopReasons(program: Program): Program {
     return program.flatMap((op) => {
-        if (
-            op.op === "gemini.finish_reason" &&
-            opData<{ of?: string }>(op).of == null
-        ) {
-            const value = opData<{ value: string }>(op).value;
-            throw new LintError(
-                `openai_responses response lower: gemini finishReason ${JSON.stringify(value)} has no core stop reason mapping`,
-            );
-        }
         if (op.op !== "response.stop") return [op];
         return [
             {

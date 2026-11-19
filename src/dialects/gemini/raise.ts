@@ -132,7 +132,12 @@ export function raiseFinishReasons(program: Program): Program {
         if (!reason) {
             // No equal core reason exists. Keep the provider's value instead
             // of claiming that the turn ended, hit a limit, or called a tool.
-            out.push({ ...op, appliesTo: "response" } as Op);
+            // Another dialect must not silently drop that provider-only stop.
+            out.push({
+                ...op,
+                appliesTo: "response",
+                preservesContent: true,
+            } as Op);
             continue;
         }
         if (lowerFinishReason(reason) === value) {

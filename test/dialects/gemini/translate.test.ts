@@ -1173,8 +1173,8 @@ describe("gemini translation", () => {
         });
     });
 
-    test("a Gemini-only finishReason fails cross-dialect lowering instead of substituting a stop", () => {
-        const program = GeminiTranslator.fromResponse({
+    test("core refuses to drop a Gemini-only finishReason in every other dialect", () => {
+        const wire = {
             candidates: [
                 {
                     content: { role: "model", parts: [{ text: "So far " }] },
@@ -1182,52 +1182,25 @@ describe("gemini translation", () => {
                     continuationToken: "cont_tok_abc123",
                 },
             ],
-        });
+        };
+        const body = GeminiTranslator.fromResponse(wire);
+        const stream = GeminiTranslator.fromStreamResponse(wire).map((op) =>
+            op.op === "response.text_delta" ? { ...op, index: 0 } : op,
+        );
 
-        for (const translator of [
-            OpenAIResponsesTranslator,
-            OpenAIChatTranslator,
-            AnthropicTranslator,
-            OpenAIRealtimeTranslator,
-        ]) {
-            expect(() => translator.toResponse(program)).toThrow(
-                'gemini finishReason "CONTINUATION" has no core stop reason mapping',
-            );
+        for (const [dialect, translator] of [
+            ["openai_responses", OpenAIResponsesTranslator],
+            ["openai_chat", OpenAIChatTranslator],
+            ["anthropic_messages", AnthropicTranslator],
+            ["openai_realtime", OpenAIRealtimeTranslator],
+        ] as const) {
+            const error = `cannot drop content-bearing foreign op "gemini.finish_reason" while lowering to "${dialect}"`;
+            expect(() => translator.toResponse(body)).toThrow(error);
+            expect(() => translator.toStreamResponses(stream)).toThrow(error);
         }
-        expect(() =>
-            OpenAIResponsesTranslator.toStreamResponses(
-                GeminiTranslator.fromStreamResponse({
-                    candidates: [
-                        {
-                            content: {
-                                role: "model",
-                                parts: [{ text: "So far " }],
-                            },
-                            finishReason: "CONTINUATION",
-                        },
-                    ],
-                }),
-            ),
-        ).toThrow(
-            'gemini finishReason "CONTINUATION" has no core stop reason mapping',
-        );
-        expect(() =>
-            AnthropicTranslator.toStreamResponses([
-                {
-                    op: "response.text_delta",
-                    index: 0,
-                    role: "assistant",
-                    content: "So far ",
-                },
-                {
-                    op: "gemini.finish_reason",
-                    value: "CONTINUATION",
-                    appliesTo: "response",
-                },
-            ]),
-        ).toThrow(
-            'gemini finishReason "CONTINUATION" has no core stop reason mapping',
-        );
+
+        expect(GeminiTranslator.toResponse(body)).toEqual(wire);
+        expect(GeminiTranslator.toStreamResponse(stream)).toEqual(wire);
     });
 
     test("a filtered candidate with no content lowers to valid empty output in every other dialect", () => {

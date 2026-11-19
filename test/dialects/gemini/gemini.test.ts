@@ -1298,6 +1298,7 @@ describe("gemini responses", () => {
                         op: "gemini.finish_reason",
                         value: finishReason,
                         appliesTo: "response",
+                        preservesContent: true,
                     });
                 }
             }
@@ -1345,6 +1346,7 @@ describe("gemini responses", () => {
                 op: "gemini.finish_reason",
                 value: finishReason,
                 appliesTo: "response",
+                preservesContent: true,
             });
             expect(GeminiTranslator.toResponse(program)).toEqual(wire);
         }
