@@ -161,3 +161,8 @@ export function namespaceOf(op: Op): string {
 export function isCoreOp(op: Op): op is CoreOp {
     return CORE_NAMESPACES.has(namespaceOf(op));
 }
+
+// Lowering drops foreign dialect ops after its target-dialect stages run.
+export function isForeignOp(op: Op, dialectName: string): boolean {
+    return !isCoreOp(op) && namespaceOf(op) !== dialectName;
+}

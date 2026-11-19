@@ -4,7 +4,13 @@
 // collecting a response into one choice message) lives in small named stages
 // appended after them. Extend by appending to the stage arrays.
 
-import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
+import {
+    isForeignOp,
+    opData,
+    type Op,
+    type OpOf,
+    type Program,
+} from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
 import {
     assertAudioSource,
@@ -293,20 +299,25 @@ function applyMetaToMessage(
     return { ...message, role: "developer" };
 }
 
-// A tool-calls-only assistant message merges into the assistant message op
-// immediately before it, keeping "text then call" one wire message and
-// parallel calls together. Any intervening op breaks adjacency, so config
-// residuals placed mid-conversation still split messages. Merging builds a
-// new op — the previous one may be a caller-owned residual, and mutating it
-// would corrupt the caller's program (and compound on repeated lowering).
+// A tool-calls-only assistant message merges into the preceding assistant
+// message when only foreign dialect ops intervene; those ops drop after
+// merging. This keeps "text then call" one wire message and parallel calls
+// together. Core and target-dialect ops break adjacency, so config residuals
+// placed mid-conversation still split messages. Merging builds a new op — the
+// previous one may be a caller-owned residual, and mutating it would corrupt
+// the caller's program (and compound on repeated lowering).
 export function mergeToolCallMessages(program: Program): Program {
     const out: Program = [];
+    let previousMessageIndex: number | undefined;
     for (const op of program) {
         const message =
             op.op === "openai_chat.message"
                 ? opData<{ message: WireMessage }>(op).message
                 : undefined;
-        const previous = out[out.length - 1];
+        const previous =
+            previousMessageIndex == null
+                ? undefined
+                : out[previousMessageIndex];
         const previousMessage =
             previous?.op === "openai_chat.message"
                 ? opData<{ message: WireMessage }>(previous).message
@@ -317,7 +328,7 @@ export function mergeToolCallMessages(program: Program): Program {
             message.tool_calls &&
             previousMessage?.role === "assistant"
         ) {
-            out[out.length - 1] = {
+            out[previousMessageIndex!] = {
                 ...previous,
                 message: {
                     ...previousMessage,
@@ -329,6 +340,11 @@ export function mergeToolCallMessages(program: Program): Program {
             } as Op;
             continue;
         }
+        if (isForeignOp(op, "openai_chat")) {
+            out.push(op);
+            continue;
+        }
+        previousMessageIndex = message ? out.length : undefined;
         out.push(op);
     }
     return out;

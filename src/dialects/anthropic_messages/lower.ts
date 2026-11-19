@@ -7,6 +7,7 @@
 
 import {
     isCoreOp,
+    isForeignOp,
     namespaceOf,
     opData,
     type Op,
@@ -474,19 +475,24 @@ export function lowerRequestContentBlocks(program: Program): Program {
     });
 }
 
-// Adjacent-only on purpose: an op between two same-role messages (a config
-// residual, a system op) keeps them separate messages, exactly like the
-// wire would have carried them. Merging builds a new op — the previous one
-// may be a caller-owned residual, and mutating it would corrupt the caller's
-// program (and compound on repeated lowering).
+// Foreign dialect ops drop after merging, so they do not separate same-role
+// messages. Core and target-dialect ops (a config residual, a system op)
+// still break adjacency, exactly like the wire would have carried them.
+// Merging builds a new op — the previous one may be a caller-owned residual,
+// and mutating it would corrupt the caller's program (and compound on repeated
+// lowering).
 export function mergeAdjacentSameRole(program: Program): Program {
     const out: Program = [];
+    let previousMessageIndex: number | undefined;
     for (const op of program) {
         const message =
             op.op === "anthropic_messages.message"
                 ? opData<{ message: WireAnthropicMessage }>(op).message
                 : undefined;
-        const previous = out[out.length - 1];
+        const previous =
+            previousMessageIndex == null
+                ? undefined
+                : out[previousMessageIndex];
         const previousMessage =
             previous?.op === "anthropic_messages.message"
                 ? opData<{ message: WireAnthropicMessage }>(previous).message
@@ -498,7 +504,7 @@ export function mergeAdjacentSameRole(program: Program): Program {
             Array.isArray(message.content) &&
             Array.isArray(previousMessage.content)
         ) {
-            out[out.length - 1] = {
+            out[previousMessageIndex!] = {
                 ...previous,
                 message: {
                     ...previousMessage,
@@ -507,6 +513,11 @@ export function mergeAdjacentSameRole(program: Program): Program {
             } as Op;
             continue;
         }
+        if (isForeignOp(op, "anthropic_messages")) {
+            out.push(op);
+            continue;
+        }
+        previousMessageIndex = message ? out.length : undefined;
         out.push(op);
     }
     return out;

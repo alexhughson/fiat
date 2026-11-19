@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+    AnthropicTranslator,
     GeminiTranslator,
     LintError,
+    OpenAIChatTranslator,
     OpenAIResponsesTranslator,
 } from "../../../src/index";
 import { OpenAIResponsesDialect } from "../../../src/dialects/openai_responses/index";
@@ -18,6 +20,20 @@ const replayedResult = {
     type: "function_call_output",
     call_id: "call_replay_alpha_81",
     output: '{"value":17}',
+};
+
+const replayedBetaCall = {
+    type: "function_call",
+    id: "fc_replay_beta_82",
+    call_id: "call_replay_beta_82",
+    name: "lookup",
+    arguments: '{"key":"beta"}',
+};
+
+const replayedBetaResult = {
+    type: "function_call_output",
+    call_id: "call_replay_beta_82",
+    output: '{"value":18}',
 };
 
 describe("openai_responses requests", () => {
@@ -734,22 +750,81 @@ describe("openai_responses requests", () => {
         });
     });
 
-    test("two parallel replayed Responses calls and results lower to Gemini", () => {
-        const betaCall = {
-            type: "function_call",
-            id: "fc_replay_beta_82",
-            call_id: "call_replay_beta_82",
-            name: "lookup",
-            arguments: '{"key":"beta"}',
-        };
-        const betaResult = {
-            type: "function_call_output",
-            call_id: "call_replay_beta_82",
-            output: '{"value":18}',
-        };
+    test("two parallel replayed Responses calls lower to one Chat assistant message", () => {
         const program = OpenAIResponsesTranslator.fromBody({
             model: "glm-5.3",
-            input: [replayedCall, betaCall, replayedResult, betaResult],
+            input: [replayedCall, replayedBetaCall],
+        });
+
+        expect(OpenAIChatTranslator.toBody(program)).toEqual({
+            model: "glm-5.3",
+            messages: [
+                {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: "call_replay_alpha_81",
+                            type: "function",
+                            function: {
+                                name: "lookup",
+                                arguments: '{"key":"alpha"}',
+                            },
+                        },
+                        {
+                            id: "call_replay_beta_82",
+                            type: "function",
+                            function: {
+                                name: "lookup",
+                                arguments: '{"key":"beta"}',
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("two parallel replayed Responses calls lower to one Anthropic assistant message", () => {
+        const program = OpenAIResponsesTranslator.fromBody({
+            model: "glm-5.3",
+            input: [replayedCall, replayedBetaCall],
+        });
+
+        expect(AnthropicTranslator.toBody(program)).toEqual({
+            model: "glm-5.3",
+            max_tokens: 4096,
+            messages: [
+                {
+                    role: "assistant",
+                    content: [
+                        {
+                            type: "tool_use",
+                            id: "call_replay_alpha_81",
+                            name: "lookup",
+                            input: { key: "alpha" },
+                        },
+                        {
+                            type: "tool_use",
+                            id: "call_replay_beta_82",
+                            name: "lookup",
+                            input: { key: "beta" },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("two parallel replayed Responses calls and results lower to Gemini", () => {
+        const program = OpenAIResponsesTranslator.fromBody({
+            model: "glm-5.3",
+            input: [
+                replayedCall,
+                replayedBetaCall,
+                replayedResult,
+                replayedBetaResult,
+            ],
         });
 
         expect(GeminiTranslator.toBody(program)).toEqual({

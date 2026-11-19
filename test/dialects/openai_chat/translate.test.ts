@@ -368,12 +368,6 @@ describe("openai_chat translation", () => {
                                     arguments: '{"invoice_id":"INV-7"}',
                                 },
                             },
-                        ],
-                    },
-                    {
-                        role: "assistant",
-                        content: null,
-                        tool_calls: [
                             {
                                 id: "call_policy",
                                 type: "function",

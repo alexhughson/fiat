@@ -4,7 +4,13 @@
 // user/model turns). System text stays a core op — requestToWire serializes
 // it into systemInstruction. Extend by appending to the stage arrays.
 
-import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
+import {
+    isForeignOp,
+    opData,
+    type Op,
+    type OpOf,
+    type Program,
+} from "../../core/ops.js";
 import { LintError, lintOrWarn } from "../../core/lint.js";
 import {
     assertAudioSource,
@@ -607,13 +613,11 @@ function injectCurrentTurnThoughtSignatures(program: Program): Program {
     });
 }
 
-// Adjacent-only on purpose: an op between two same-role contents (a config
-// residual, a system op) keeps them separate contents. A Responses function
-// call item id is the exception: its `of` reference binds it to the call, and
-// Gemini ignores it, so it must not split parallel calls into two model turns.
-// Merging builds a new op — the previous one may be a caller-owned residual,
-// and mutating it would corrupt the caller's program (and compound on repeated
-// lowering).
+// Foreign dialect ops drop after merging, so they do not separate same-role
+// contents. Core and target-dialect ops (a config residual, a system op)
+// still break adjacency. Merging builds a new op — the previous one may be a
+// caller-owned residual, and mutating it would corrupt the caller's program
+// (and compound on repeated lowering).
 export function mergeAdjacentContents(program: Program): Program {
     const out: Program = [];
     let previousContentIndex: number | undefined;
@@ -644,7 +648,7 @@ export function mergeAdjacentContents(program: Program): Program {
             } as Op;
             continue;
         }
-        if (op.op === "openai_responses.function_call_item") {
+        if (isForeignOp(op, "gemini")) {
             out.push(op);
             continue;
         }

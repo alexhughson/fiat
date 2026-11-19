@@ -145,11 +145,6 @@ describe("anthropic_messages translation", () => {
                                 name: "lookup_invoice",
                                 input: { invoice_id: "INV-7" },
                             },
-                        ],
-                    },
-                    {
-                        role: "assistant",
-                        content: [
                             {
                                 type: "tool_use",
                                 id: "call_policy",

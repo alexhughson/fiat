@@ -1,5 +1,6 @@
 import {
     isCoreOp,
+    isForeignOp,
     namespaceOf,
     opData,
     type DialectOp,
@@ -195,7 +196,7 @@ export function dropForeignResiduals(
 ): Program {
     const kept: Program = [];
     for (const op of program) {
-        if (isCoreOp(op) || namespaceOf(op) === dialectName) {
+        if (!isForeignOp(op, dialectName)) {
             kept.push(op);
             continue;
         }

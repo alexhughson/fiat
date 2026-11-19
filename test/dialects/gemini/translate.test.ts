@@ -83,11 +83,6 @@ describe("gemini translation", () => {
                                     id: "call_invoice",
                                 },
                             },
-                        ],
-                    },
-                    {
-                        role: "user",
-                        parts: [
                             {
                                 functionResponse: {
                                     name: "lookup_policy",
