@@ -106,6 +106,85 @@ describe("gemini lower request stages", () => {
         ]);
     });
 
+    test("lowerToolResults names each result after the nearest earlier llm.tool_call with its id, across interleaved ids and a later call that reuses an id", () => {
+        const weatherCall: Program[number] = {
+            op: "llm.tool_call",
+            id: "call_0",
+            name: "get_weather",
+            arguments: {},
+        };
+        const cityCall: Program[number] = {
+            op: "llm.tool_call",
+            id: "call_1",
+            name: "get_city",
+            arguments: {},
+        };
+        const timeCall: Program[number] = {
+            op: "llm.tool_call",
+            id: "call_0",
+            name: "get_time",
+            arguments: {},
+        };
+        const functionResponse = (
+            name: string,
+            id: string,
+            response: Record<string, unknown>,
+        ) => ({
+            op: "gemini.content",
+            content: {
+                role: "user",
+                parts: [{ functionResponse: { name, response, id } }],
+            },
+        });
+        expect(
+            lowerToolResults([
+                weatherCall,
+                cityCall,
+                {
+                    op: "llm.tool_result",
+                    id: "call_0",
+                    content: '{"temp_c":21}',
+                },
+                {
+                    op: "llm.tool_result",
+                    id: "call_1",
+                    content: '{"city":"Paris"}',
+                },
+                timeCall,
+                {
+                    op: "llm.tool_result",
+                    id: "call_0",
+                    content: '{"time":"14:05"}',
+                },
+            ]),
+        ).toEqual([
+            weatherCall,
+            cityCall,
+            functionResponse("get_weather", "call_0", { temp_c: 21 }),
+            functionResponse("get_city", "call_1", { city: "Paris" }),
+            timeCall,
+            functionResponse("get_time", "call_0", { time: "14:05" }),
+        ]);
+    });
+
+    test("lowerToolResults throws for a result whose only call with its id comes later", () => {
+        expect(() =>
+            lowerToolResults([
+                {
+                    op: "llm.tool_result",
+                    id: "call_0",
+                    content: '{"temp_c":21}',
+                },
+                {
+                    op: "llm.tool_call",
+                    id: "call_0",
+                    name: "get_time",
+                    arguments: {},
+                },
+            ]),
+        ).toThrow("functionResponse.name");
+    });
+
     test("lowerRequestTexts turns user/assistant llm.text into a gemini.content and leaves system text untouched", () => {
         expect(
             lowerRequestTexts([

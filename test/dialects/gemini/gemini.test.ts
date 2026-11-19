@@ -3,6 +3,7 @@ import {
     GeminiTranslator,
     LintError,
     OpenAIChatTranslator,
+    type Program,
 } from "../../../src/index";
 import {
     geminiFunctionCallResponseFixture,
@@ -396,7 +397,11 @@ describe("gemini requests", () => {
         ).toThrow(LintError);
     });
 
-    test("mixed text and native multimodal request parts round-trip in order", () => {
+    test("mixed text, inline image, and native file request parts round-trip in order", () => {
+        const fileData = {
+            mimeType: "application/pdf",
+            fileUri: "gs://bucket/doc.pdf",
+        };
         const body = {
             model,
             contents: [
@@ -410,12 +415,7 @@ describe("gemini requests", () => {
                             },
                         },
                         { text: "describe this" },
-                        {
-                            fileData: {
-                                mimeType: "application/pdf",
-                                fileUri: "gs://bucket/doc.pdf",
-                            },
-                        },
+                        { fileData },
                         { text: "briefly" },
                     ],
                 },
@@ -424,7 +424,25 @@ describe("gemini requests", () => {
 
         expect(
             GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
-        ).toEqual(body);
+        ).toEqual({
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "abc",
+                            },
+                        },
+                        { text: "describe this" },
+                        { fileData },
+                        { text: "briefly" },
+                    ],
+                },
+            ],
+        });
     });
 
     test("REST inline image data raises to portable image ops", () => {
@@ -461,6 +479,192 @@ describe("gemini requests", () => {
             },
             { op: "llm.text", role: "user", content: "answer briefly" },
         ]);
+        expect(
+            GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("camel-case inlineData raises to the same media ops as inline_data", () => {
+        const kinds: [string, string][] = [
+            ["image/png", "llm.image"],
+            ["audio/wav", "llm.audio"],
+            ["application/pdf", "llm.document"],
+            ["video/mp4", "llm.video"],
+        ];
+        for (const [mediaType, op] of kinds) {
+            const camel = {
+                model,
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            {
+                                inlineData: {
+                                    mimeType: mediaType,
+                                    data: "eA==",
+                                },
+                            },
+                        ],
+                    },
+                ],
+            };
+            const raised = [
+                { op: "llm.model", model },
+                {
+                    op,
+                    role: "user",
+                    source: { type: "base64", mediaType, data: "eA==" },
+                },
+            ];
+
+            expect(GeminiTranslator.fromBody(camel)).toEqual(raised);
+            for (const blob of [
+                { mime_type: mediaType, data: "eA==" },
+                { mimeType: mediaType, data: "eA==" },
+            ]) {
+                expect(
+                    GeminiTranslator.fromBody({
+                        model,
+                        contents: [
+                            {
+                                role: "user",
+                                parts: [{ inline_data: blob }],
+                            },
+                        ],
+                    }),
+                ).toEqual(raised);
+            }
+        }
+    });
+
+    test("an inlineData part with no mimeType fails like an inline_data part with no mime_type", () => {
+        for (const part of [
+            { inlineData: { data: "eA==" } },
+            { inline_data: { data: "eA==" } },
+        ]) {
+            expect(() =>
+                GeminiTranslator.fromBody({
+                    model,
+                    contents: [{ role: "user", parts: [part] }],
+                }),
+            ).toThrow("expected a string, got undefined");
+        }
+    });
+
+    test("an inline media part that also sets another Gemini part field fails instead of dropping the media", () => {
+        const image = { mimeType: "image/png", data: "aW1hZ2U=" };
+        const snakeImage = { mime_type: "image/png", data: "aW1hZ2U=" };
+        for (const [part, fields] of [
+            [{ inlineData: image, text: "hi" }, "text"],
+            [{ inline_data: snakeImage, text: "hi" }, "text"],
+            [{ inline_data: snakeImage, inlineData: image }, "inlineData"],
+            [
+                {
+                    inlineData: image,
+                    fileData: {
+                        mimeType: "image/png",
+                        fileUri: "gs://bucket/image.png",
+                    },
+                },
+                "fileData",
+            ],
+            [
+                {
+                    inlineData: image,
+                    functionResponse: {
+                        name: "describe",
+                        id: "call_1",
+                        response: {},
+                    },
+                },
+                "functionResponse",
+            ],
+        ] as const) {
+            expect(() =>
+                GeminiTranslator.fromBody({
+                    model,
+                    contents: [{ role: "user", parts: [part] }],
+                }),
+            ).toThrow(`gemini inline media part: unsupported fields ${fields}`);
+        }
+    });
+
+    test("an inlineData image with a snake-case mime_type lowers into OpenAI Chat", () => {
+        const program = GeminiTranslator.fromBody({
+            model: "gpt-4o",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        { text: "what is this?" },
+                        {
+                            inlineData: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+
+        expect(OpenAIChatTranslator.toBody(program)).toEqual({
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: "what is this?" },
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: "data:image/png;base64,aW1hZ2U=",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("inline media parts with other part or blob fields stay native in both key forms", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inlineData: {
+                                mimeType: "video/mp4",
+                                data: "dmlkZW8=",
+                            },
+                            videoMetadata: { fps: 2 },
+                        },
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                                display_name: "chart.png",
+                            },
+                        },
+                        {
+                            inlineData: {
+                                mimeType: "image/png",
+                                data: "aW1hZ2U=",
+                                displayName: "chart.png",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(
+            GeminiTranslator.fromBody(body)
+                .slice(1)
+                .map((op) => op.op),
+        ).toEqual(["gemini.content", "gemini.content", "gemini.content"]);
         expect(
             GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
         ).toEqual(body);
@@ -905,6 +1109,113 @@ describe("gemini responses", () => {
         expect(GeminiTranslator.toResponse(program)).toEqual(wire);
     });
 
+    test("STOP raises to tool_use only when the candidate holds a functionCall part", () => {
+        const stopsOf = (parts: unknown[], finishReason: string) =>
+            GeminiTranslator.fromResponse({
+                model,
+                candidates: [
+                    { content: { role: "model", parts }, finishReason },
+                ],
+            }).filter((op) => op.op === "response.stop");
+        const call = {
+            functionCall: { id: "call_1", name: "get_weather", args: {} },
+        };
+
+        expect(stopsOf([call], "STOP")).toEqual([
+            { op: "response.stop", reason: "tool_use" },
+        ]);
+        expect(stopsOf([{ text: "It is sunny." }], "STOP")).toEqual([
+            { op: "response.stop", reason: "end_turn" },
+        ]);
+        expect(stopsOf([call], "MAX_TOKENS")).toEqual([
+            { op: "response.stop", reason: "max_tokens" },
+        ]);
+    });
+
+    test("a functionCall outside the current candidate does not make a text response raise to tool_use", () => {
+        const textResponse = {
+            model,
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [{ text: "The answer is 19." }],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+        };
+        const callContent = (appliesTo: "request" | "response") =>
+            ({
+                op: "gemini.content",
+                content: {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                id: "history_9",
+                                name: "lookup",
+                                args: { code: 37 },
+                            },
+                        },
+                    ],
+                },
+                appliesTo,
+            }) as const;
+        const stops = (program: Program) =>
+            program.filter((op) => op.op === "response.stop");
+
+        const history = GeminiTranslator.fromResponse(textResponse, {
+            beforeRaise: (lower) => [callContent("request"), ...lower],
+        });
+        expect(history).toContainEqual({
+            op: "llm.tool_call",
+            id: "history_9",
+            name: "lookup",
+            arguments: { code: 37 },
+        });
+        expect(stops(history)).toEqual([
+            { op: "response.stop", reason: "end_turn" },
+        ]);
+
+        // The earlier response ends in MAX_TOKENS, and the current text
+        // response is already raised, so no gemini.content op of its own
+        // comes before its finish reason.
+        const earlierResponse = GeminiTranslator.fromResponse(textResponse, {
+            beforeRaise: (lower) => [
+                callContent("response"),
+                { op: "gemini.finish_reason", value: "MAX_TOKENS" },
+                ...lower.map((op) =>
+                    op.op === "gemini.content"
+                        ? {
+                              op: "llm.text",
+                              role: "assistant",
+                              content: "The answer is 19.",
+                          }
+                        : op,
+                ),
+            ],
+        });
+        expect(stops(earlierResponse)).toEqual([
+            { op: "response.stop", reason: "max_tokens" },
+            { op: "response.stop", reason: "end_turn" },
+        ]);
+    });
+
+    test("a functionCall response with STOP lowers back to finishReason STOP", () => {
+        const program = GeminiTranslator.fromResponse(
+            geminiFunctionCallResponseFixture,
+        );
+
+        expect(program).toContainEqual({
+            op: "response.stop",
+            reason: "tool_use",
+        });
+        expect(GeminiTranslator.toResponse(program)).toEqual(
+            geminiFunctionCallResponseFixture,
+        );
+    });
+
     test("unmapped finish reasons halt instead of guessing", () => {
         expect(() =>
             GeminiTranslator.fromResponse({
@@ -1007,13 +1318,77 @@ describe("gemini stream responses", () => {
                 name: "lookup",
                 arguments: '{"x":"1"}',
             },
-            { op: "response.stop", reason: "end_turn" },
+            { op: "response.stop", reason: "tool_use" },
         ]);
         expect(
             GeminiTranslator.toStreamResponse(
                 GeminiTranslator.fromStreamResponse(chunk),
             ),
         ).toEqual(chunk);
+    });
+
+    test("a stream chunk raises STOP to tool_use only when the chunk holds a functionCall part", () => {
+        const opsOf = (parts: unknown[], finishReason?: string) =>
+            GeminiTranslator.fromStreamResponse({
+                candidates: [
+                    {
+                        content: { role: "model", parts },
+                        ...(finishReason ? { finishReason } : {}),
+                    },
+                ],
+            });
+
+        expect(opsOf([{ text: "It is sunny." }], "STOP")).toEqual([
+            {
+                op: "response.text_delta",
+                role: "assistant",
+                content: "It is sunny.",
+            },
+            { op: "response.stop", reason: "end_turn" },
+        ]);
+        expect(
+            opsOf([{ functionCall: { name: "lookup", args: { x: "1" } } }]),
+        ).toEqual([
+            {
+                op: "response.tool_call_delta",
+                index: 0,
+                name: "lookup",
+                arguments: '{"x":"1"}',
+            },
+        ]);
+    });
+
+    test("a tool_call_delta with response.stop tool_use lowers to a functionCall chunk with STOP", () => {
+        expect(
+            GeminiTranslator.toStreamResponse([
+                {
+                    op: "response.tool_call_delta",
+                    index: 0,
+                    id: "call_1",
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                },
+                { op: "response.stop", reason: "tool_use" },
+            ]),
+        ).toEqual({
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            {
+                                functionCall: {
+                                    name: "get_weather",
+                                    args: { city: "Paris" },
+                                    id: "call_1",
+                                },
+                            },
+                        ],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+        });
     });
 
     test("usage-only chunks raise and lower without synthesizing an empty candidate", () => {

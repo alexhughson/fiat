@@ -15,6 +15,7 @@ import {
 import * as reasoning from "../../core/reasoning.js";
 import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
 import { summaryFromText, summaryText } from "./raise.js";
+import { messageItem } from "./wire.js";
 import type {
     WireContentPart,
     WireFunctionCall,
@@ -55,6 +56,35 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+// One chunk of another provider's stream can hold a delta and a stop reason:
+// Gemini's API sends text and finishReason "STOP" together. A Responses stream
+// has no event that holds both, so the finish reason, usage, and model beside
+// it become a terminal event after the delta event. A program without a finish
+// reason stays one event.
+export function splitStreamEvents(program: Program): Program[] {
+    const hasDelta = program.some(
+        (op) =>
+            op.op === "response.text_delta" ||
+            op.op === "response.tool_call_delta",
+    );
+    const hasFinishReason = program.some(
+        (op) => op.op === "openai_responses.finish_reason",
+    );
+    if (!hasDelta || !hasFinishReason) return [program];
+    return [
+        program.filter((op) => !isTerminalEventOp(op)),
+        program.filter(isTerminalEventOp),
+    ];
+}
+
+function isTerminalEventOp(op: Op): boolean {
+    return (
+        op.op === "response.model" ||
+        op.op === "openai_responses.finish_reason" ||
+        op.op === "openai_responses.usage"
+    );
+}
 
 const REASONING_ITEM = "openai_responses.reasoning_item";
 
@@ -152,11 +182,7 @@ export function lowerRequestTexts(program: Program): Program {
         return [
             {
                 op: "openai_responses.input",
-                item: {
-                    type: "message" as const,
-                    role: text.role,
-                    content: [{ type: "input_text", text: text.content }],
-                },
+                item: messageItem(text.role, text.content),
             },
         ];
     });

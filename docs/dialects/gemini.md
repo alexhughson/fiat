@@ -18,10 +18,10 @@ path. Code: `src/dialects/gemini/`.
 | minimal Google Search / code execution tools | `llm.server_tool`       |
 | portable `functionCallingConfig` modes       | `llm.tool_choice`       |
 | JSON response schema config                  | `llm.output`            |
-| REST `inline_data` image parts               | `llm.image`             |
-| REST `inline_data` audio parts               | `llm.audio`             |
-| REST `inline_data` PDF parts                 | `llm.document`          |
-| REST `inline_data` video parts               | `llm.video`             |
+| `inline_data` / `inlineData` image parts     | `llm.image`             |
+| `inline_data` / `inlineData` audio parts     | `llm.audio`             |
+| `inline_data` / `inlineData` PDF parts       | `llm.document`          |
+| `inline_data` / `inlineData` video parts     | `llm.video`             |
 
 ## Dialect ops
 
@@ -37,10 +37,18 @@ path. Code: `src/dialects/gemini/`.
 | `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
 | `gemini.body_field`        | unknown top-level field                                                                                                                                        |
 
+Gemini returns `finishReason: "STOP"` also when the model asks for a function
+call, so raising a response body or a stream chunk writes `response.stop` with
+`tool_use` when `finishReason` is `STOP` and the candidate holds a
+`functionCall` part, and lowering writes `STOP` for `tool_use`. A stream that
+sends the `functionCall` part and `STOP` in different chunks raises to
+`end_turn`.
+
 ## Lints
 
-- A bare `llm.tool_result` needs a known function name from an
-  `llm.tool_call` or the `gemini.part_meta` that names the result.
+- A bare `llm.tool_result` needs a known function name from the
+  `gemini.part_meta` that names the result or from the nearest earlier
+  `llm.tool_call` with its id; a later call with that id gives no name.
 - Multiple response candidates are rejected.
 - `toolConfig` with several `allowedFunctionNames` has no core equivalent.
 - Forced server-tool choices throw; Gemini can force function tools only.
@@ -203,10 +211,15 @@ omits the synthetic id again.
 - Native `thinkingLevel` reaching Gemini 2.5 is legalized to budgets by
   default.
 - Configured built-ins and URL context stay as `gemini.tool` residuals.
-- REST `inline_data` image/audio/PDF/video parts raise to portable media ops.
-  Gemini file URIs and SDK camelCase media parts stay as content-bearing
-  `gemini.content` residuals unless they are text/function-call/function-
-  response parts.
+- `inline_data` and `inlineData` image/audio/PDF/video parts in user
+  content raise to `llm.image`, `llm.audio`, `llm.document`, and `llm.video`,
+  and Gemini lowering writes them back as `inline_data`. Gemini file URIs,
+  and inline parts with other fields on the part or its blob, such as
+  `videoMetadata` or `mediaResolution`, stay as content-bearing
+  `gemini.content` residuals. An inline image/audio/PDF/video part in user
+  content that also sets `text`, `functionCall`, `functionResponse`,
+  `file_data`, or `fileData`, or sets both `inline_data` and `inlineData`,
+  throws.
 - URL image/document sources cannot lower directly to GenerateContent; upload
   them and pass native Gemini file data, or use base64 data.
 - Media model validation is hard failure even in lenient mode. It never drops

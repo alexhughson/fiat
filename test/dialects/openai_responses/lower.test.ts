@@ -22,6 +22,7 @@ describe("openai_responses lower request stages", () => {
                 { op: "llm.model", model: "m" },
                 { op: "llm.text", role: "system", content: "sys" },
                 { op: "llm.text", role: "user", content: "hi" },
+                { op: "llm.text", role: "assistant", content: "hello" },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
@@ -32,6 +33,14 @@ describe("openai_responses lower request stages", () => {
                     type: "message",
                     role: "user",
                     content: [{ type: "input_text", text: "hi" }],
+                },
+            },
+            {
+                op: "openai_responses.input",
+                item: {
+                    type: "message",
+                    role: "assistant",
+                    content: "hello",
                 },
             },
         ]);

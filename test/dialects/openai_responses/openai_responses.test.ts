@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { LintError, OpenAIResponsesTranslator } from "../../../src/index";
+import { OpenAIResponsesDialect } from "../../../src/dialects/openai_responses/index";
 
 describe("openai_responses requests", () => {
     test("a responses body becomes core ops and round-trips", () => {
@@ -59,6 +60,47 @@ describe("openai_responses requests", () => {
         ).toEqual(body);
     });
 
+    test("assistant history text raises from a string or a text part and lowers as string content", () => {
+        const user = {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "hi" }],
+        };
+        const body = {
+            model: "gpt-4o-mini",
+            input: [
+                user,
+                { type: "message", role: "assistant", content: "hello" },
+            ],
+        };
+        const withPart = (type: string) => ({
+            model: "gpt-4o-mini",
+            input: [
+                user,
+                {
+                    type: "message",
+                    role: "assistant",
+                    content: [{ type, text: "hello" }],
+                },
+            ],
+        });
+        const program = [
+            { op: "llm.model", model: "gpt-4o-mini" },
+            { op: "llm.text", role: "user", content: "hi" },
+            { op: "llm.text", role: "assistant", content: "hello" },
+        ];
+
+        expect(OpenAIResponsesTranslator.fromBody(body)).toEqual(program);
+        expect(
+            OpenAIResponsesTranslator.fromBody(withPart("output_text")),
+        ).toEqual(program);
+        expect(
+            OpenAIResponsesTranslator.fromBody(withPart("input_text")),
+        ).toEqual(program);
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual(body);
+        expect(OpenAIResponsesDialect.request.toWire(program)).toEqual(body);
+    });
+
     test("function tool extras round-trip in the responses dialect", () => {
         const body = {
             model: "gpt-4o-mini",
@@ -74,6 +116,33 @@ describe("openai_responses requests", () => {
             ],
         };
 
+        expect(
+            OpenAIResponsesTranslator.toBody(
+                OpenAIResponsesTranslator.fromBody(body),
+            ),
+        ).toEqual(body);
+    });
+
+    test("instructions raise ahead of the conversation when the body writes input first", () => {
+        const body = {
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [{ type: "input_text", text: "hi" }],
+                },
+            ],
+            temperature: 0.2,
+            instructions: "Reply tersely.",
+        };
+
+        expect(OpenAIResponsesTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model: "gpt-4o-mini" },
+            { op: "llm.text", role: "system", content: "Reply tersely." },
+            { op: "llm.text", role: "user", content: "hi" },
+            { op: "llm.temperature", value: 0.2 },
+        ]);
         expect(
             OpenAIResponsesTranslator.toBody(
                 OpenAIResponsesTranslator.fromBody(body),

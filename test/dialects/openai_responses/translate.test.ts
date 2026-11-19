@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
     AnthropicTranslator,
+    GeminiTranslator,
     LintError,
     OpenAIChatTranslator,
     OpenAIResponsesTranslator,
@@ -31,6 +32,55 @@ describe("openai_responses translation", () => {
             ],
         });
     });
+
+    const userInput = [
+        {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "hi" }],
+        },
+    ];
+    test.each([
+        [
+            "model, input, instructions",
+            {
+                model: "gpt-4o-mini",
+                input: userInput,
+                instructions: "Reply tersely.",
+            },
+        ],
+        [
+            "input, model, instructions",
+            {
+                input: userInput,
+                model: "gpt-4o-mini",
+                instructions: "Reply tersely.",
+            },
+        ],
+    ])(
+        "a responses request with keys in the order %s lowers to Anthropic and Gemini",
+        (_order, body) => {
+            const program = OpenAIResponsesTranslator.fromBody(body);
+
+            expect(program.filter((op) => op.op === "llm.text")).toEqual([
+                { op: "llm.text", role: "system", content: "Reply tersely." },
+                { op: "llm.text", role: "user", content: "hi" },
+            ]);
+            expect(AnthropicTranslator.toBody(program)).toEqual({
+                model: "gpt-4o-mini",
+                max_tokens: 4096,
+                system: "Reply tersely.",
+                messages: [
+                    { role: "user", content: [{ type: "text", text: "hi" }] },
+                ],
+            });
+            expect(GeminiTranslator.toBody(program)).toEqual({
+                model: "gpt-4o-mini",
+                contents: [{ role: "user", parts: [{ text: "hi" }] }],
+                systemInstruction: { parts: [{ text: "Reply tersely." }] },
+            });
+        },
+    );
 
     test("portable server tools translate from Anthropic to OpenAI Responses by name", () => {
         const body = OpenAIResponsesTranslator.toBody(
@@ -86,12 +136,8 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "i am checking the invoice and the policy now.",
-                            },
-                        ],
+                        content:
+                            "i am checking the invoice and the policy now.",
                     },
                     {
                         type: "function_call",
@@ -118,12 +164,8 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "the invoice is paid and refundable within 30 days.",
-                            },
-                        ],
+                        content:
+                            "the invoice is paid and refundable within 30 days.",
                     },
                     {
                         type: "message",
@@ -203,12 +245,8 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "invoice inv_1001 was paid twice. i will issue the refund.",
-                            },
-                        ],
+                        content:
+                            "invoice inv_1001 was paid twice. i will issue the refund.",
                     },
                     {
                         type: "function_call",
@@ -226,12 +264,7 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "refund rf_900 is submitted.",
-                            },
-                        ],
+                        content: "refund rf_900 is submitted.",
                     },
                     {
                         type: "message",
@@ -300,12 +333,7 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "i am resolving the office first.",
-                            },
-                        ],
+                        content: "i am resolving the office first.",
                     },
                     {
                         type: "function_call",
@@ -321,12 +349,7 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "office found. now checking the weather.",
-                            },
-                        ],
+                        content: "office found. now checking the weather.",
                     },
                     {
                         type: "function_call",
@@ -342,12 +365,7 @@ describe("openai_responses translation", () => {
                     {
                         type: "message",
                         role: "assistant",
-                        content: [
-                            {
-                                type: "input_text",
-                                text: "paris hq is sunny and 21c.",
-                            },
-                        ],
+                        content: "paris hq is sunny and 21c.",
                     },
                     {
                         type: "message",
