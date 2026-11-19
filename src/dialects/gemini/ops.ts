@@ -78,6 +78,10 @@ export type GeminiOp =
           part: GeminiPartMeta;
       }
     | {
+          op: "gemini.function_response_id_omitted";
+          of: string;
+      }
+    | {
           op: "gemini.tool";
           tool: WireTool;
           appliesTo?: "request";

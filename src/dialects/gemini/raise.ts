@@ -4,6 +4,7 @@
 import {
     opData,
     type Op,
+    type OpOf,
     type Program,
     type StopReason,
 } from "../../core/ops.js";
@@ -36,14 +37,25 @@ export const raiseStreamResponse: Stage = stagePipeline(
 );
 
 export function raiseContents(program: Program): Program {
+    const toolCalls: ToolCallForMatch[] = [];
     return program.flatMap((op) => {
         if (op.op !== "gemini.content") return [op];
         const contentOp = opData<{
             content: WireContent;
             appliesTo?: "request" | "response";
         }>(op);
-        return raiseContent(contentOp.content, contentOp.appliesTo);
+        return raiseContent(contentOp.content, contentOp.appliesTo, toolCalls);
     });
+}
+
+interface ToolCallForMatch {
+    id: string;
+    name: string;
+    matched: boolean;
+    synthesized?: {
+        call: OpOf<"llm.tool_call">;
+        meta: Extract<GeminiPartMeta, { kind: "functionCall" }>;
+    };
 }
 
 // raiseContents writes a `thought: true` part as assistant llm.text followed
@@ -179,7 +191,8 @@ export function raiseUsage(program: Program): Program {
 
 function raiseContent(
     content: WireContent,
-    appliesTo?: "request" | "response",
+    appliesTo: "request" | "response" | undefined,
+    toolCalls: ToolCallForMatch[],
 ): Op[] {
     const role = content.role;
     if (role == null && appliesTo !== "response") {
@@ -234,16 +247,18 @@ function raiseContent(
                     call.id == null
                         ? `gemini_call_${index}`
                         : asString(call.id, "gemini functionCall.id");
-                out.push({
+                const name = asString(call.name, "gemini functionCall.name");
+                const toolCall: OpOf<"llm.tool_call"> = {
                     op: "llm.tool_call",
                     id,
-                    name: asString(call.name, "gemini functionCall.name"),
+                    name,
                     arguments:
                         call.args == null
                             ? {}
                             : asRecord(call.args, "gemini functionCall.args"),
-                });
-                pushPartMeta(
+                };
+                out.push(toolCall);
+                const partMeta = pushPartMeta(
                     out,
                     part,
                     {
@@ -254,6 +269,14 @@ function raiseContent(
                     },
                     appliesTo,
                 );
+                toolCalls.push({
+                    id,
+                    name,
+                    matched: false,
+                    ...(call.id == null && partMeta?.kind === "functionCall"
+                        ? { synthesized: { call: toolCall, meta: partMeta } }
+                        : {}),
+                });
                 break;
             }
             case "functionResponse": {
@@ -270,11 +293,47 @@ function raiseContent(
                     ["name", "response", "id"],
                     "gemini functionResponse",
                 );
-                const id = asString(response.id, "gemini functionResponse.id");
                 const name = asString(
                     response.name,
                     "gemini functionResponse.name",
                 );
+                let id: string;
+                if (response.id == null) {
+                    const match = toolCalls.find(
+                        (call) => !call.matched && call.name === name,
+                    );
+                    if (!match) {
+                        throw new LintError(
+                            `gemini functionResponse without id: no earlier unmatched functionCall named ${JSON.stringify(name)}`,
+                        );
+                    }
+                    id = match.id;
+                    match.matched = true;
+                } else {
+                    id = asString(response.id, "gemini functionResponse.id");
+                    let matchedById = false;
+                    for (let i = toolCalls.length - 1; i >= 0; i--) {
+                        const call = toolCalls[i]!;
+                        if (call.id !== id) continue;
+                        call.matched = true;
+                        matchedById = true;
+                        break;
+                    }
+                    if (!matchedById) {
+                        const match = toolCalls.find(
+                            (call) =>
+                                !call.matched &&
+                                call.name === name &&
+                                call.synthesized != null,
+                        );
+                        if (match?.synthesized) {
+                            match.id = id;
+                            match.synthesized.call.id = id;
+                            match.synthesized.meta.id = id;
+                            match.matched = true;
+                        }
+                    }
+                }
                 const responseBody =
                     response.response == null
                         ? undefined
@@ -290,15 +349,20 @@ function raiseContent(
                             ? "{}"
                             : toolResultContent(responseBody),
                 });
-                // Only the function name stays in the dialect op, with the
-                // tool result's id under `of` so lowering can find the
-                // result whatever sits between the two ops — unless a
-                // second result reuses the id, in which case each part_meta
-                // must sit after its own result and before the next result
-                // with that id. The call id lives in the llm.tool_result,
-                // and lowering rebuilds the response object from its
-                // content.
+                // Only the function name stays in part_meta, with the tool
+                // result's id under `of` so lowering can find the result
+                // whatever sits between the two ops — unless a second result
+                // reuses the id, in which case each part_meta must sit after
+                // its own result and before the next result with that id. The
+                // call id lives in the llm.tool_result, and lowering rebuilds
+                // the response object from its content.
                 pushPartMeta(out, part, { kind, of: id, name }, appliesTo);
+                if (response.id == null) {
+                    out.push({
+                        op: "gemini.function_response_id_omitted",
+                        of: id,
+                    });
+                }
                 break;
             }
         }
@@ -412,12 +476,14 @@ function raiseStreamContent(
                     ["name", "args", "id"],
                     "gemini functionCall",
                 );
+                const id =
+                    call.id == null
+                        ? `gemini_call_${index}`
+                        : asString(call.id, "gemini functionCall.id");
                 out.push({
                     op: "response.tool_call_delta",
                     index,
-                    ...(call.id == null
-                        ? {}
-                        : { id: asString(call.id, "gemini functionCall.id") }),
+                    id,
                     name: asString(call.name, "gemini functionCall.name"),
                     arguments: JSON.stringify(
                         call.args == null
@@ -431,14 +497,8 @@ function raiseStreamContent(
                     {
                         kind,
                         index,
-                        ...(call.id == null
-                            ? {}
-                            : {
-                                  id: asString(
-                                      call.id,
-                                      "gemini functionCall.id",
-                                  ),
-                              }),
+                        id,
+                        ...(call.id == null ? { idSource: "synthesized" } : {}),
                     },
                     appliesTo,
                 );
@@ -499,22 +559,22 @@ function pushPartMeta(
     part: WirePart,
     base: GeminiPartMeta,
     appliesTo?: "request" | "response",
-): void {
+): GeminiPartMeta | undefined {
     const meta = partExtras(part);
     const hasIdSource = base.kind === "functionCall" && base.idSource != null;
     if (
-        Object.keys(meta).length > 0 ||
-        base.kind === "functionResponse" ||
-        hasIdSource
+        Object.keys(meta).length === 0 &&
+        base.kind !== "functionResponse" &&
+        !hasIdSource
     ) {
-        out.push({
-            op: "gemini.part_meta",
-            part: {
-                ...base,
-                ...(Object.keys(meta).length > 0 ? { meta } : {}),
-            },
-        });
+        return undefined;
     }
+    const raised = {
+        ...base,
+        ...(Object.keys(meta).length > 0 ? { meta } : {}),
+    };
+    out.push({ op: "gemini.part_meta", part: raised });
+    return raised;
 }
 
 function partExtras(part: WirePart): Record<string, unknown> {

@@ -1,8 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
+    AnthropicTranslator,
     GeminiTranslator,
     LintError,
     OpenAIChatTranslator,
+    OpenAIRealtimeTranslator,
+    OpenAIResponsesTranslator,
     type Program,
 } from "../../../src/index";
 import {
@@ -25,6 +28,38 @@ function withWarnSpy<T>(
 }
 
 const model = geminiModelFixture;
+
+function toolHistoryWithOptionalIds(callId?: string, resultId?: string) {
+    return {
+        model,
+        contents: [
+            {
+                role: "model",
+                parts: [
+                    {
+                        functionCall: {
+                            name: "lookup",
+                            args: { key: "x" },
+                            ...(callId ? { id: callId } : {}),
+                        },
+                    },
+                ],
+            },
+            {
+                role: "user",
+                parts: [
+                    {
+                        functionResponse: {
+                            name: "lookup",
+                            response: { value: 17 },
+                            ...(resultId ? { id: resultId } : {}),
+                        },
+                    },
+                ],
+            },
+        ],
+    };
+}
 
 describe("gemini requests", () => {
     test("text, system, tools, tool choice, and function responses round-trip", () => {
@@ -92,6 +127,330 @@ describe("gemini requests", () => {
                     ],
                 },
                 body.contents[2],
+            ],
+        });
+    });
+
+    test("tool history without ids raises deterministic linked ops and round-trips", () => {
+        const body = toolHistoryWithOptionalIds();
+        const program = GeminiTranslator.fromBody(body);
+
+        expect(program).toEqual([
+            { op: "llm.model", model },
+            {
+                op: "llm.tool_call",
+                id: "gemini_call_0",
+                name: "lookup",
+                arguments: { key: "x" },
+            },
+            {
+                op: "gemini.part_meta",
+                part: {
+                    kind: "functionCall",
+                    index: 0,
+                    id: "gemini_call_0",
+                    idSource: "synthesized",
+                },
+            },
+            {
+                op: "llm.tool_result",
+                id: "gemini_call_0",
+                content: '{"value":17}',
+            },
+            {
+                op: "gemini.part_meta",
+                part: {
+                    kind: "functionResponse",
+                    of: "gemini_call_0",
+                    name: "lookup",
+                },
+            },
+            {
+                op: "gemini.function_response_id_omitted",
+                of: "gemini_call_0",
+            },
+        ]);
+        expect(GeminiTranslator.fromBody(body)).toEqual(program);
+        expect(GeminiTranslator.toBody(program)).toEqual(body);
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
+            model,
+            input: [
+                {
+                    type: "function_call",
+                    call_id: "gemini_call_0",
+                    name: "lookup",
+                    arguments: '{"key":"x"}',
+                },
+                {
+                    type: "function_call_output",
+                    call_id: "gemini_call_0",
+                    output: '{"value":17}',
+                },
+            ],
+        });
+    });
+
+    test("a result without an id takes the id of its unmatched same-name call", () => {
+        const body = toolHistoryWithOptionalIds("call_lookup");
+        const program = GeminiTranslator.fromBody(body);
+
+        expect(program).toContainEqual({
+            op: "llm.tool_call",
+            id: "call_lookup",
+            name: "lookup",
+            arguments: { key: "x" },
+        });
+        expect(program).toContainEqual({
+            op: "llm.tool_result",
+            id: "call_lookup",
+            content: '{"value":17}',
+        });
+        expect(program).toContainEqual({
+            op: "gemini.part_meta",
+            part: {
+                kind: "functionResponse",
+                of: "call_lookup",
+                name: "lookup",
+            },
+        });
+        expect(program).toContainEqual({
+            op: "gemini.function_response_id_omitted",
+            of: "call_lookup",
+        });
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
+            model,
+            input: [
+                {
+                    type: "function_call",
+                    call_id: "call_lookup",
+                    name: "lookup",
+                    arguments: '{"key":"x"}',
+                },
+                {
+                    type: "function_call_output",
+                    call_id: "call_lookup",
+                    output: '{"value":17}',
+                },
+            ],
+        });
+        const lowered = GeminiTranslator.toBody(program) as typeof body;
+        expect(lowered.contents[1]).toEqual(body.contents[1]);
+    });
+
+    test("a result id also names an earlier call that omitted its id", () => {
+        const body = toolHistoryWithOptionalIds(undefined, "call_lookup");
+        const program = GeminiTranslator.fromBody(body);
+
+        expect(program).toContainEqual({
+            op: "llm.tool_call",
+            id: "call_lookup",
+            name: "lookup",
+            arguments: { key: "x" },
+        });
+        expect(program).toContainEqual({
+            op: "gemini.part_meta",
+            part: {
+                kind: "functionCall",
+                index: 0,
+                id: "call_lookup",
+                idSource: "synthesized",
+            },
+        });
+        expect(program).toContainEqual({
+            op: "llm.tool_result",
+            id: "call_lookup",
+            content: '{"value":17}',
+        });
+        expect(program).toContainEqual({
+            op: "gemini.part_meta",
+            part: {
+                kind: "functionResponse",
+                of: "call_lookup",
+                name: "lookup",
+            },
+        });
+        expect(GeminiTranslator.toBody(program)).toEqual(body);
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
+            model,
+            input: [
+                {
+                    type: "function_call",
+                    call_id: "call_lookup",
+                    name: "lookup",
+                    arguments: '{"key":"x"}',
+                },
+                {
+                    type: "function_call_output",
+                    call_id: "call_lookup",
+                    output: '{"value":17}',
+                },
+            ],
+        });
+    });
+
+    test("parallel id-less calls to one tool match results sequentially", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: "lookup",
+                                args: { key: "first" },
+                            },
+                        },
+                        {
+                            functionCall: {
+                                name: "lookup",
+                                args: { key: "second" },
+                            },
+                        },
+                    ],
+                },
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "lookup",
+                                response: { value: "first result" },
+                            },
+                        },
+                        {
+                            functionResponse: {
+                                name: "lookup",
+                                response: { value: "second result" },
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+        const program = GeminiTranslator.fromBody(body);
+
+        expect(program.filter((op) => op.op === "llm.tool_result")).toEqual([
+            {
+                op: "llm.tool_result",
+                id: "gemini_call_0",
+                content: '{"value":"first result"}',
+            },
+            {
+                op: "llm.tool_result",
+                id: "gemini_call_1",
+                content: '{"value":"second result"}',
+            },
+        ]);
+        expect(GeminiTranslator.toBody(program)).toEqual(body);
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
+            model,
+            input: [
+                {
+                    type: "function_call",
+                    call_id: "gemini_call_0",
+                    name: "lookup",
+                    arguments: '{"key":"first"}',
+                },
+                {
+                    type: "function_call",
+                    call_id: "gemini_call_1",
+                    name: "lookup",
+                    arguments: '{"key":"second"}',
+                },
+                {
+                    type: "function_call_output",
+                    call_id: "gemini_call_0",
+                    output: '{"value":"first result"}',
+                },
+                {
+                    type: "function_call_output",
+                    call_id: "gemini_call_1",
+                    output: '{"value":"second result"}',
+                },
+            ],
+        });
+    });
+
+    test("id-less Gemini history lowers to linked tool ops in the other request dialects", () => {
+        const program = GeminiTranslator.fromBody(toolHistoryWithOptionalIds());
+
+        expect(OpenAIChatTranslator.toBody(program)).toEqual({
+            model,
+            messages: [
+                {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: "gemini_call_0",
+                            type: "function",
+                            function: {
+                                name: "lookup",
+                                arguments: '{"key":"x"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    role: "tool",
+                    tool_call_id: "gemini_call_0",
+                    content: '{"value":17}',
+                },
+            ],
+            tools: [],
+        });
+        expect(AnthropicTranslator.toBody(program)).toEqual({
+            model,
+            max_tokens: 4096,
+            messages: [
+                {
+                    role: "assistant",
+                    content: [
+                        {
+                            type: "tool_use",
+                            id: "gemini_call_0",
+                            name: "lookup",
+                            input: { key: "x" },
+                        },
+                    ],
+                },
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "tool_result",
+                            tool_use_id: "gemini_call_0",
+                            content: '{"value":17}',
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(OpenAIRealtimeTranslator.toBody(program)).toEqual({
+            model,
+            events: [
+                {
+                    type: "conversation.item.create",
+                    item: {
+                        type: "function_call",
+                        call_id: "gemini_call_0",
+                        name: "lookup",
+                        arguments: '{"key":"x"}',
+                    },
+                },
+                {
+                    type: "conversation.item.create",
+                    item: {
+                        type: "function_call_output",
+                        call_id: "gemini_call_0",
+                        output: '{"value":17}',
+                    },
+                },
+                {
+                    type: "response.create",
+                    response: { output_modalities: ["text"] },
+                },
             ],
         });
     });
@@ -1315,8 +1674,18 @@ describe("gemini stream responses", () => {
             {
                 op: "response.tool_call_delta",
                 index: 0,
+                id: "gemini_call_0",
                 name: "lookup",
                 arguments: '{"x":"1"}',
+            },
+            {
+                op: "gemini.part_meta",
+                part: {
+                    kind: "functionCall",
+                    index: 0,
+                    id: "gemini_call_0",
+                    idSource: "synthesized",
+                },
             },
             { op: "response.stop", reason: "tool_use" },
         ]);
@@ -1352,8 +1721,18 @@ describe("gemini stream responses", () => {
             {
                 op: "response.tool_call_delta",
                 index: 0,
+                id: "gemini_call_0",
                 name: "lookup",
                 arguments: '{"x":"1"}',
+            },
+            {
+                op: "gemini.part_meta",
+                part: {
+                    kind: "functionCall",
+                    index: 0,
+                    id: "gemini_call_0",
+                    idSource: "synthesized",
+                },
             },
         ]);
     });

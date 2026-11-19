@@ -290,6 +290,8 @@ export function lowerStructuredOutput(program: Program): Program {
 // the id does not rename it; a result with no earlier call of its id
 // throws, even when a later call has the id.
 // When several part_metas bind to one result, the later one's name wins.
+// A function_response_id_omitted op resolves to the nearest earlier result
+// with its id. An unmatched one stays in the program for toWire to reject.
 export function lowerToolResults(program: Program): Program {
     const resultIndexesById = new Map<string, number[]>();
     for (let i = 0; i < program.length; i++) {
@@ -302,11 +304,30 @@ export function lowerToolResults(program: Program): Program {
         }
     }
 
-    // metaNameByResultIndex keys a part_meta to the result it answers, so
-    // two results that reuse one id each resolve their own part_meta.
-    const metaNameByResultIndex = new Map<number, string>();
+    // Key metadata to the result it answers, so two results that reuse one
+    // id each resolve their own part_meta.
+    const metaByResultIndex = new Map<
+        number,
+        Extract<GeminiPartMeta, { kind: "functionResponse" }>
+    >();
+    const omittedIdResultIndexes = new Set<number>();
+    const consumedOmissionOps = new Set<number>();
     for (let i = 0; i < program.length; i++) {
         const op = program[i]!;
+        if (op.op === "gemini.function_response_id_omitted") {
+            const { of } = opData<{ of: string }>(op);
+            const indexes = resultIndexesById.get(of);
+            if (indexes == null) continue;
+            let bound: number | undefined;
+            for (const index of indexes) {
+                if (index < i) bound = index;
+                else break;
+            }
+            if (bound == null) continue;
+            omittedIdResultIndexes.add(bound);
+            consumedOmissionOps.add(i);
+            continue;
+        }
         if (op.op !== "gemini.part_meta") continue;
         const meta = opData<{ part: GeminiPartMeta }>(op).part;
         if (meta.kind !== "functionResponse") continue;
@@ -317,7 +338,7 @@ export function lowerToolResults(program: Program): Program {
             if (index < i) bound = index;
             else break;
         }
-        metaNameByResultIndex.set(bound ?? indexes[0]!, meta.name);
+        metaByResultIndex.set(bound ?? indexes[0]!, meta);
     }
 
     const callNames = new Map<string, string>();
@@ -334,13 +355,17 @@ export function lowerToolResults(program: Program): Program {
             out.push(op);
             continue;
         }
+        if (op.op === "gemini.function_response_id_omitted") {
+            if (!consumedOmissionOps.has(i)) out.push(op);
+            continue;
+        }
         if (op.op !== "llm.tool_result") {
             out.push(op);
             continue;
         }
         const result = op as OpOf<"llm.tool_result">;
-        const resolvedName =
-            metaNameByResultIndex.get(i) ?? callNames.get(result.id);
+        const meta = metaByResultIndex.get(i);
+        const resolvedName = meta?.name ?? callNames.get(result.id);
         if (!resolvedName) {
             throw new LintError(
                 `gemini tool_result ${result.id}: cannot serialize without a functionResponse.name`,
@@ -352,7 +377,7 @@ export function lowerToolResults(program: Program): Program {
                 functionResponse: {
                     name: resolvedName,
                     response,
-                    id: result.id,
+                    ...(omittedIdResultIndexes.has(i) ? {} : { id: result.id }),
                 },
             }),
         );
@@ -579,8 +604,11 @@ function injectCurrentTurnThoughtSignatures(program: Program): Program {
             (part) => part.functionCall != null,
         );
         if (partIndex < 0) continue;
-        if (typeof content.parts[partIndex]!.thoughtSignature === "string")
-            continue;
+        const part = content.parts[partIndex]!;
+        // An id-less call came from Gemini with this shape; adding a dummy
+        // signature would break its home round trip.
+        if (part.functionCall?.id == null) continue;
+        if (typeof part.thoughtSignature === "string") continue;
         patches.set(opIndex, partIndex);
     }
     if (patches.size === 0) return program;
@@ -685,9 +713,10 @@ export function collectModelContent(program: Program): Program {
 
 export function collectStreamModelContent(program: Program): Program {
     const out: Program = [];
+    const partMeta = collectResponsePartMeta(program);
     const parts: WirePart[] = [];
 
-    for (const op of program) {
+    for (const [opIndex, op] of program.entries()) {
         switch (op.op) {
             case "response.text_delta": {
                 const text = op as OpOf<"response.text_delta">;
@@ -706,13 +735,40 @@ export function collectStreamModelContent(program: Program): Program {
                         "gemini stream response lower: tool_call_delta requires a function name",
                     );
                 }
-                parts.push({
-                    functionCall: {
-                        name: call.name,
-                        args: parseToolCallDeltaArguments(call),
-                        ...(call.id == null ? {} : { id: call.id }),
-                    },
-                });
+                const responseMeta = partMeta.get(parts.length);
+                const meta = responseMeta?.omitFunctionCallId
+                    ? responseMeta
+                    : undefined;
+                parts.push(
+                    withPartMeta(
+                        {
+                            functionCall: {
+                                name: call.name,
+                                args: parseToolCallDeltaArguments(call),
+                                ...(meta || call.id == null
+                                    ? {}
+                                    : { id: call.id }),
+                            },
+                        },
+                        meta,
+                    ),
+                );
+                break;
+            }
+            case "gemini.part_meta": {
+                const meta = opData<{ part: GeminiPartMeta }>(op).part;
+                const previous = program[opIndex - 1];
+                const appliedToCall =
+                    meta.kind === "functionCall" &&
+                    previous?.op === "response.tool_call_delta" &&
+                    meta.index === parts.length - 1;
+                if (
+                    meta.kind !== "functionCall" ||
+                    meta.idSource !== "synthesized" ||
+                    !appliedToCall
+                ) {
+                    out.push(op);
+                }
                 break;
             }
             default:

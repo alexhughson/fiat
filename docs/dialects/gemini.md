@@ -24,17 +24,18 @@ path. Code: `src/dialects/gemini/`.
 
 ## Dialect ops
 
-| op                         | purpose                                                                                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gemini.content`           | one request content or response candidate content                                                                                                              |
-| `gemini.part_meta`         | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta` |
-| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                                                                  |
-| `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                          |
-| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                            |
-| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                     |
-| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                                                                       |
-| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
-| `gemini.body_field`        | unknown top-level field                                                                                                                                        |
+| op                                    | purpose                                                                                                                                                                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gemini.content`                      | one request content or response candidate content                                                                                                                                                                         |
+| `gemini.part_meta`                    | part metadata such as `thoughtSignature`; for a `functionCall` part, whether its wire id was absent; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta` |
+| `gemini.function_response_id_omitted` | marks a `functionResponse` part whose wire id was absent; `of` holds its `llm.tool_result` id                                                                                                                             |
+| `gemini.tool`                         | configured built-ins, URL context, and other raw tool objects                                                                                                                                                             |
+| `gemini.generation_config`            | Gemini-only `generationConfig` fields                                                                                                                                                                                     |
+| `gemini.tool_config`                  | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                                                                                       |
+| `gemini.finish_reason`                | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                                                                                |
+| `gemini.usage`                        | shared usage plus `usageMetadata` extras                                                                                                                                                                                  |
+| `gemini.candidate_meta`               | response candidate fields outside content/finish reason                                                                                                                                                                   |
+| `gemini.body_field`                   | unknown top-level field                                                                                                                                                                                                   |
 
 Gemini returns `finishReason: "STOP"` also when the model asks for a function
 call, so raising a response body or a stream chunk writes `response.stop` with
@@ -62,6 +63,40 @@ sends the `functionCall` part and `STOP` in different chunks raises to
   sit after its own result and before the next result with that id. Two
   functionResponse `gemini.part_meta` ops bound to one result lower
   without a throw, and the later one's name wins.
+- A `gemini.function_response_id_omitted` op resolves to the nearest earlier
+  `llm.tool_result` with the id under `of`. Request lowering rejects the op
+  when no earlier result has that id.
+
+## Tool call and result ids
+
+A `functionCall` without an id raises to `llm.tool_call` with the deterministic
+id `gemini_call_<part index>`, where the index counts parts in its model
+content. Parallel calls to one tool therefore receive different ids in part
+order. Complete response bodies and stream chunks use the same rule.
+
+Gemini matches a response with an explicit id to the call with that id. Without
+a response id, raising selects the first earlier unmatched call with the same
+name, which pairs parallel calls to one tool with results in sequential part
+order. The `llm.tool_result` shares that call's id, including when the call has
+a provider id and the result omits its own. When only the result has an id, that
+id also names the earlier id-less call in core. An id-less result with no
+unmatched same-name call fails to raise.
+
+A `functionCall` `gemini.part_meta` records `idSource: "synthesized"` when
+fiat made the call's id. An id-less `functionResponse` raises a
+`gemini.function_response_id_omitted` op directly after its part_meta:
+
+```ts
+{
+    op: "gemini.function_response_id_omitted";
+    of: string;
+}
+```
+
+Gemini lowering reads both markers to omit the id on each wire part that
+omitted one, so a home round trip preserves which wire parts had ids. Other
+dialects lower the shared core ids normally, so each tool result refers to its
+tool call.
 
 ## Tool results
 
@@ -142,8 +177,8 @@ with that id, or the nearest later one when no earlier result exists. A
 part_meta's position is free when one result has the id; when two results
 reuse one id, each part_meta must sit after its own result and before the
 next result with that id, because each part_meta binds to the nearest
-earlier result. Request lowering reads only `of` and `name`;
-the keys under `meta` are not written back to the request body. A part_meta
+earlier result. Request lowering reads `of` and `name`; the keys under
+`meta` are not written back to the request body. A part_meta
 whose `of` names no `llm.tool_result` in the program — for example after a
 transform cuts the answered turn out of a history — holds only the name of
 a part that no longer exists, so lowering removes the op and writes the
@@ -192,10 +227,6 @@ When a Gemini response program is appended to the next Gemini request, lowering
 reattaches the exact `thoughtSignature` to the historical `functionCall` part.
 If a transform separates a text or functionCall part from its
 `gemini.part_meta`, lowering throws instead of guessing.
-
-Some Gemini models omit `functionCall.id`. Raising synthesizes a core id such
-as `gemini_call_0`; `gemini.part_meta` marks it so lowering back to Gemini
-omits the synthetic id again.
 
 ## Model-specific behavior
 
