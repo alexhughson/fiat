@@ -1127,23 +1127,6 @@ describe("recorded openai responses stream lifecycle events", () => {
                                     functionCall: {
                                         name: "get_weather",
                                         args: { city: "Paris" },
-                                    },
-                                },
-                            ],
-                        },
-                    },
-                ],
-            },
-            {
-                candidates: [
-                    {
-                        content: {
-                            role: "model",
-                            parts: [
-                                {
-                                    functionCall: {
-                                        name: "get_weather",
-                                        args: { city: "Paris" },
                                         id: "call_bacfd278dcbc4b9a813a875c",
                                     },
                                 },
@@ -1167,7 +1150,7 @@ describe("recorded openai responses stream lifecycle events", () => {
         ]);
     });
 
-    test("envelope and completed argument values raise to shared ops", () => {
+    test("envelope values and the completed function item raise to shared ops", () => {
         expect(
             OpenAIResponsesTranslator.fromStreamResponse(textStreamEvents[0]),
         ).toEqual(
@@ -1180,17 +1163,81 @@ describe("recorded openai responses stream lifecycle events", () => {
             ]),
         );
 
-        const argumentsDone = toolCallStreamEvents.find(
-            (event) => event.type === "response.function_call_arguments.done",
+        const itemDone = toolCallStreamEvents.find(
+            (event) =>
+                event.type === "response.output_item.done" &&
+                event.item.type === "function_call",
         );
         expect(
-            OpenAIResponsesTranslator.fromStreamResponse(argumentsDone),
+            OpenAIResponsesTranslator.fromStreamResponse(itemDone),
         ).toContainEqual({
             op: "response.tool_call_delta",
             index: 1,
+            id: "call_bacfd278dcbc4b9a813a875c",
             name: "get_weather",
             arguments: '{"city": "Paris"}',
         });
+    });
+
+    test("argument completion stays dialect-only instead of repeating the core call", () => {
+        const argumentsDone = toolCallStreamEvents.find(
+            (event) => event.type === "response.function_call_arguments.done",
+        );
+        const raised =
+            OpenAIResponsesTranslator.fromStreamResponse(argumentsDone);
+
+        expect(
+            raised.filter((op) => op.op === "response.tool_call_delta"),
+        ).toEqual([]);
+        expect(raised).toEqual(
+            expect.arrayContaining([
+                {
+                    op: "openai_responses.body_field",
+                    key: "name",
+                    value: "get_weather",
+                    appliesTo: "response",
+                },
+                {
+                    op: "openai_responses.body_field",
+                    key: "arguments",
+                    value: '{"city": "Paris"}',
+                    appliesTo: "response",
+                },
+            ]),
+        );
+    });
+
+    test("Gemini receives the item start and one complete function call", () => {
+        const parts = geminiChunks(toolCallStreamEvents).flatMap((chunk) => {
+            const body = chunk as {
+                candidates?: {
+                    content?: { parts?: Record<string, unknown>[] };
+                }[];
+            };
+            return (
+                body.candidates?.flatMap(
+                    (candidate) => candidate.content?.parts ?? [],
+                ) ?? []
+            );
+        });
+        const calls = parts.filter((part) => "functionCall" in part);
+
+        expect(calls).toHaveLength(2);
+        expect(calls).toEqual([
+            {
+                functionCall: {
+                    name: "get_weather",
+                    id: "call_bacfd278dcbc4b9a813a875c",
+                },
+            },
+            {
+                functionCall: {
+                    name: "get_weather",
+                    id: "call_bacfd278dcbc4b9a813a875c",
+                    args: { city: "Paris" },
+                },
+            },
+        ]);
     });
 
     test("an argument fragment has no Gemini chunk", () => {

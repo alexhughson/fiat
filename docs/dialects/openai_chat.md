@@ -8,7 +8,7 @@ OpenAI Chat Completions (`POST /v1/chat/completions`). Code:
 | wire                                  | core                    |
 | ------------------------------------- | ----------------------- |
 | `model`                               | `llm.model`             |
-| response body or stream chunk `id`    | `response.id`           |
+| response body `id`                    | `response.id`           |
 | `temperature`                         | `llm.temperature`       |
 | `max_tokens`, `max_completion_tokens` | `llm.max_output_tokens` |
 | `tools[].function`                    | `llm.tool`              |
@@ -66,8 +66,9 @@ models lower them as `max_tokens`.
 
 ## Stream responses
 
-A stream chunk writes `response.id` as its top-level `id` and `llm.model` as
-`model`. Text and function-call fragments use the core delta ops.
+Raising a stream chunk keeps its `id` in `openai_chat.body_field`. Lowering
+writes `response.id` as the chunk's top-level `id` and `llm.model` as `model`.
+Text and function-call fragments use the core delta ops.
 
 ## Out of scope
 

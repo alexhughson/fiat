@@ -77,7 +77,7 @@ and `toStreamResponse` writes the same event back.
 | `response.failed`                                            | `response.id`, `llm.model`, `response.usage`                  |
 | `response.output_text.delta`                                 | `response.text_delta`                                         |
 | `response.function_call_arguments.delta`                     | `response.tool_call_delta` with an argument fragment          |
-| `response.function_call_arguments.done`                      | `response.tool_call_delta` with complete arguments            |
+| `response.function_call_arguments.done`                      | no shared op                                                  |
 | `response.output_item.added` / `.done` for a `function_call` | `response.tool_call_delta`                                    |
 | other output items                                           | no shared op                                                  |
 | `response.content_part.added` / `.done`                      | no shared op                                                  |
@@ -85,15 +85,18 @@ and `toStreamResponse` writes the same event back.
 
 A stop reason is present only when the response status has a core mapping, and
 usage is present only when the event reports it. `output_index` becomes the
-delta op's `index`; completed arguments become its `arguments`; and a function
-item's `call_id` and `name` become its `id` and `name`.
+delta op's `index`, and a function item's `call_id` and `name` become its `id`
+and `name`. Only `response.output_item.done` raises the complete arguments;
+`response.function_call_arguments.done` keeps them in saved fields so the same
+completed call does not raise a second core op.
 
 Every event keeps its `type` and `sequence_number` in
 `openai_responses.body_field` residuals. `item_id`, `content_index`, `logprobs`,
-the response envelope fields outside the shared values, and whole content
-parts and output items also stay in residuals. Lowering combines those fields
-with the shared ops without supplying an event type, response status, id,
-index, or argument text that the event did not report.
+the saved response envelope, and whole content parts and output items also
+stay in residuals. These saved fields keep a copy of the event for the round
+trip, including values that also raise into core ops. Lowering combines the
+saved fields with the shared ops without supplying an event type, response
+status, id, index, or argument text that the event did not report.
 
 ## Out of scope
 

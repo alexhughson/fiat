@@ -448,26 +448,7 @@ export function streamResponseFromWire(wire: unknown): Program {
                 },
             ];
         case "response.function_call_arguments.done":
-            return [
-                ...streamEventParams(event, [
-                    "output_index",
-                    "name",
-                    "arguments",
-                ]),
-                {
-                    op: "response.tool_call_delta",
-                    ...streamOutputIndex(event),
-                    ...(event.name != null
-                        ? {
-                              name: asString(event.name, "stream event.name"),
-                          }
-                        : {}),
-                    arguments: asString(
-                        event.arguments,
-                        "stream event.arguments",
-                    ),
-                },
-            ];
+            return streamEventParams(event, []);
         case "response.output_item.added":
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
@@ -692,6 +673,9 @@ function raisedStreamEventToWire(program: Program): unknown {
                 type,
             );
             const tool = parts.tool;
+            if (!tool && type === "response.function_call_arguments.done") {
+                return event;
+            }
             if (tool?.arguments == null) {
                 throw new LintError(
                     `openai_responses stream response toWire: ${type} requires response.tool_call_delta.arguments`,

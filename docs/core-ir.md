@@ -97,9 +97,10 @@ response program can be appended to the next request program.
 ## Response id
 
 `response.id` holds the id that a provider's API gave to one response. A
-dialect raises the op from the id field of a complete response
-body or a stream's response envelope, and writes the op's `id` into the same
-field when it lowers a program to that shape.
+dialect raises the op from the id field of a complete response body and writes
+the op's `id` into the same field when it lowers a complete response body.
+`openai_responses` also raises the op from a stream's response envelope; the
+other dialects keep stream ids in dialect-specific fields when raising.
 
 ```ts
 {
