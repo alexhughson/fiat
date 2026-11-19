@@ -25,6 +25,12 @@ export interface Codec {
     // wire event (it throws on a multi-op program). Callers emitting several
     // ops per turn must call toWire once per op instead of once for the batch.
     eventPerOp?: boolean;
+    // Set on a stream codec whose lowered program can hold the ops of more
+    // than one wire event: one Gemini chunk holds text and a finish reason,
+    // which a Responses stream sends as two events. Returns the ops of each
+    // wire event, in the order the events are sent. toWire then serializes
+    // each returned program as one event.
+    splitEvents?: (program: Program) => Program[];
 }
 
 export interface Dialect {

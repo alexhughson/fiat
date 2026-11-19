@@ -1038,6 +1038,60 @@ describe("gemini translation", () => {
         ]);
     });
 
+    test("a gemini functionCall response with STOP lowers to tool-call stop reasons", () => {
+        const program = GeminiTranslator.fromResponse({
+            model: "models/gemini-3.5-flash",
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            {
+                                functionCall: {
+                                    id: "call_1",
+                                    name: "get_weather",
+                                    args: { city: "Paris" },
+                                },
+                            },
+                        ],
+                    },
+                    finishReason: "STOP",
+                },
+            ],
+        });
+
+        const chat = OpenAIChatTranslator.toResponse(program) as {
+            choices: {
+                message: { tool_calls: unknown };
+                finish_reason: string;
+            }[];
+        };
+        const anthropic = AnthropicTranslator.toResponse(program) as Record<
+            string,
+            unknown
+        >;
+        expect(chat.choices[0]!.message.tool_calls).toEqual([
+            {
+                id: "call_1",
+                type: "function",
+                function: {
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                },
+            },
+        ]);
+        expect(chat.choices[0]!.finish_reason).toBe("tool_calls");
+        expect(anthropic.content).toEqual([
+            {
+                type: "tool_use",
+                id: "call_1",
+                name: "get_weather",
+                input: { city: "Paris" },
+            },
+        ]);
+        expect(anthropic.stop_reason).toBe("tool_use");
+    });
+
     test("an anthropic response id lowers into the gemini responseId", () => {
         const response = GeminiTranslator.toResponse(
             AnthropicTranslator.fromResponse({

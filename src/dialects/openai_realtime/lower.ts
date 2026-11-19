@@ -47,6 +47,34 @@ export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
 
+// One chunk of another provider's stream can hold a delta and a stop reason:
+// Gemini's API sends text and finishReason "STOP" together. A Realtime stream
+// has no event that holds both, so the finish reason, and the usage beside it,
+// become a response.done event after the delta event. A program without a
+// finish reason stays one event.
+export function splitStreamEvents(program: Program): Program[] {
+    const hasDelta = program.some(
+        (op) =>
+            op.op === "response.text_delta" ||
+            op.op === "response.tool_call_delta",
+    );
+    const hasFinishReason = program.some(
+        (op) => op.op === "openai_realtime.finish_reason",
+    );
+    if (!hasDelta || !hasFinishReason) return [program];
+    return [
+        program.filter((op) => !isDoneEventOp(op)),
+        program.filter(isDoneEventOp),
+    ];
+}
+
+function isDoneEventOp(op: Op): boolean {
+    return (
+        op.op === "openai_realtime.finish_reason" ||
+        op.op === "openai_realtime.usage"
+    );
+}
+
 // Sampling remains session/model dependent in Realtime GA. Model is accepted
 // here because the calls validation body needs it beside the event batch.
 export function rejectSessionConfig(program: Program): Program {
