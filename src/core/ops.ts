@@ -36,6 +36,8 @@ export type UrlMediaSource = {
     filename?: string;
 };
 export type ImageSource = { type: "url"; url: string } | Base64MediaSource;
+export type ImageDetail =
+    "low" | "medium" | "high" | "ultra_high" | "auto" | "original";
 export type AudioSource = Base64MediaSource;
 export type DocumentSource = UrlMediaSource | Base64MediaSource;
 export type VideoSource = Base64MediaSource;
@@ -61,7 +63,12 @@ export type CoreOp =
           content: string;
           signature?: { dialect: string; value: string };
       }
-    | { op: "llm.image"; role: "user"; source: ImageSource }
+    | {
+          op: "llm.image";
+          role: "user";
+          source: ImageSource;
+          detail?: ImageDetail;
+      }
     | { op: "llm.audio"; role: "user"; source: AudioSource }
     | { op: "llm.document"; role: "user"; source: DocumentSource }
     | { op: "llm.video"; role: "user"; source: VideoSource }

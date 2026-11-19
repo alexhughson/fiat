@@ -7,6 +7,7 @@ import {
     OpenAIChatTranslator,
     OpenAIRealtimeTranslator,
     OpenAIResponsesTranslator,
+    type Program,
     type Stage,
 } from "../src/index";
 
@@ -107,6 +108,133 @@ describe("request translation", () => {
         });
         expect(() => AnthropicTranslator.toBody(core)).toThrow(
             "gpt-4o: Anthropic Messages does not support image input",
+        );
+    });
+
+    test("image detail translates between OpenAI Responses, Gemini, and OpenAI Chat", () => {
+        const core = OpenAIResponsesTranslator.fromBody({
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_image",
+                            image_url: "data:image/png;base64,aW1hZ2U=",
+                            detail: "low",
+                        },
+                    ],
+                },
+            ],
+        });
+        const geminiBody = {
+            model: "gemini-3.5-flash-lite",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                            mediaResolution: { level: "MEDIA_RESOLUTION_LOW" },
+                        },
+                    ],
+                },
+            ],
+        };
+        const routed = core.map((op) =>
+            op.op === "llm.model"
+                ? { op: "llm.model" as const, model: "gemini-3.5-flash-lite" }
+                : op,
+        );
+
+        expect(GeminiTranslator.toBody(routed)).toEqual(geminiBody);
+
+        const geminiCore = GeminiTranslator.fromBody(geminiBody);
+        expect(
+            OpenAIResponsesTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o-mini" },
+                ...geminiCore.slice(1),
+            ]),
+        ).toEqual({
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_image",
+                            image_url: "data:image/png;base64,aW1hZ2U=",
+                            detail: "low",
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o-mini" },
+                ...geminiCore.slice(1),
+            ]),
+        ).toEqual({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: "data:image/png;base64,aW1hZ2U=",
+                                detail: "low",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("Anthropic keeps the image and drops its detail level", () => {
+        const program = [
+            { op: "llm.model", model: "claude-sonnet-4-6" },
+            { op: "llm.max_output_tokens", value: 100 },
+            {
+                op: "llm.image",
+                role: "user",
+                source: {
+                    type: "url",
+                    url: "https://example.com/invoice.png",
+                },
+                detail: "low",
+            },
+        ] satisfies Program;
+        expect(AnthropicTranslator.toBody(program)).toEqual({
+            model: "claude-sonnet-4-6",
+            max_tokens: 100,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image",
+                            source: {
+                                type: "url",
+                                url: "https://example.com/invoice.png",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(() =>
+            AnthropicTranslator.toBody(program, { strict: true }),
+        ).toThrow(
+            'dropped llm.image detail "low": anthropic_messages has no field for image detail',
         );
     });
 

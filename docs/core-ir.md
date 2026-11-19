@@ -29,7 +29,7 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 | `llm.thinking`           | `effort`                                  | portable effort; dialects choose wire form |
 | `llm.text`               | `role`, `content`                         | one text unit; see [page](ops/llm.text.md) |
 | `llm.reasoning`          | `id`, `content`                           | model reasoning; see Reasoning below       |
-| `llm.image`              | `role:"user"`, `source`                   | image URL or base64 image data             |
+| `llm.image`              | `role:"user"`, `source`, `detail?`        | image URL or base64 image data             |
 | `llm.audio`              | `role:"user"`, `source`                   | base64 audio data                          |
 | `llm.document`           | `role:"user"`, `source`                   | PDF URL or base64 PDF data                 |
 | `llm.video`              | `role:"user"`, `source`                   | base64 video data                          |
@@ -46,11 +46,17 @@ Audio is base64-only and requires `audio/*`. Documents are PDFs only and use
 either `{ type:"url", url }` or `{ type:"base64", mediaType:"application/pdf",
 data, filename? }`. Video is base64-only and requires `video/*`.
 
-Provider-owned file ids, provider file URIs, image detail knobs, tool config,
-usage fields beyond the token-count parts, and message metadata stay in
-dialect residual ops. Residuals that preserve user content are marked so
-translating them to another backend throws instead of warning and dropping
-the content.
+An image may carry `detail?`: `low`, `medium`, `high`, `ultra_high`, `auto`,
+or `original`. OpenAI's four values and Gemini's four per-part media-resolution
+levels raise onto this param; absent means the provider's default. Lowering to
+OpenAI drops `medium` and `ultra_high` with a warning. Lowering to Gemini writes
+no level for `auto` and drops `original` with a warning. Anthropic drops every
+level with a warning. Lowering never substitutes a nearby level.
+
+Provider-owned file ids, provider file URIs, tool config, usage fields beyond
+the token-count parts, and message metadata stay in dialect residual ops.
+Residuals that preserve user content are marked so translating them to another
+backend throws instead of warning and dropping the content.
 
 ## Reasoning
 

@@ -8,7 +8,11 @@ import {
     type StopReason,
 } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
-import { documentSourceFromUrl, imageSourceFromUrl } from "../../core/media.js";
+import {
+    documentSourceFromUrl,
+    imageSourceFromUrl,
+    openAIImageDetailFromWire,
+} from "../../core/media.js";
 import * as reasoning from "../../core/reasoning.js";
 import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
@@ -377,7 +381,7 @@ function raiseImagePart(
     }
     assertOnlyKeys(
         part,
-        ["type", "image_url"],
+        ["type", "image_url", "detail"],
         "openai_responses input_image part",
     );
     if (typeof part.image_url !== "string") {
@@ -385,6 +389,13 @@ function raiseImagePart(
             "openai_responses input_image.image_url: expected a string",
         );
     }
+    const detail =
+        part.detail === undefined
+            ? undefined
+            : openAIImageDetailFromWire(
+                  part.detail,
+                  "openai_responses input_image.detail",
+              );
     return {
         op: "llm.image",
         role: "user",
@@ -392,6 +403,7 @@ function raiseImagePart(
             part.image_url,
             "openai_responses input_image.image_url",
         ),
+        ...(detail ? { detail } : {}),
     };
 }
 

@@ -11,10 +11,11 @@ import {
     assertDocumentSource,
     dataUrlFromBase64,
     mediaDataUrlFromBase64,
+    openAIImageDetailToWire,
 } from "../../core/media.js";
 import { dropReasoning } from "../../core/reasoning.js";
 import * as usage from "../../core/usage.js";
-import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
 import { lowerFinishReason } from "./raise.js";
 import type {
     OpenAIChatMessageMeta,
@@ -91,7 +92,7 @@ export function lowerRequestTexts(program: Program): Program {
     });
 }
 
-export function lowerRequestImages(program: Program): Program {
+export function lowerRequestImages(program: Program, target?: Target): Program {
     return program.flatMap((op) => {
         if (op.op !== "llm.image") return [op];
         const image = op as OpOf<"llm.image">;
@@ -100,6 +101,11 @@ export function lowerRequestImages(program: Program): Program {
                 `openai_chat request lower: unsupported image role ${JSON.stringify(image.role)}`,
             );
         }
+        const detail = openAIImageDetailToWire(
+            image.detail,
+            "openai_chat image_url.detail",
+            target?.strict,
+        );
         return [
             {
                 op: "openai_chat.message",
@@ -113,6 +119,7 @@ export function lowerRequestImages(program: Program): Program {
                                     image.source.type === "url"
                                         ? image.source.url
                                         : dataUrlFromBase64(image.source),
+                                ...(detail ? { detail } : {}),
                             },
                         },
                     ],

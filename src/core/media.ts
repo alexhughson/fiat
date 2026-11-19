@@ -2,10 +2,12 @@ import type {
     AudioSource,
     Base64MediaSource,
     DocumentSource,
+    ImageDetail,
     ImageSource,
     UrlMediaSource,
     VideoSource,
 } from "./ops.js";
+import { lintOrWarn } from "./lint.js";
 
 export type MediaKind = "image" | "audio" | "document" | "video";
 
@@ -70,6 +72,45 @@ export function mediaDataUrlFromBase64(
 
 export function assertImageMediaType(mediaType: string, context: string): void {
     assertMediaType("image", mediaType, context);
+}
+
+export function openAIImageDetailFromWire(
+    value: unknown,
+    context: string,
+): ImageDetail {
+    switch (value) {
+        case "low":
+        case "high":
+        case "auto":
+        case "original":
+            return value;
+        default:
+            throw new Error(
+                `${context}: expected one of "low", "high", "auto", "original"`,
+            );
+    }
+}
+
+export function openAIImageDetailToWire(
+    detail: ImageDetail | undefined,
+    context: string,
+    strict?: boolean,
+): string | undefined {
+    if (detail == null) return undefined;
+    switch (detail) {
+        case "low":
+        case "high":
+        case "auto":
+        case "original":
+            return detail;
+        case "medium":
+        case "ultra_high":
+            lintOrWarn(
+                strict,
+                `dropped llm.image detail ${JSON.stringify(detail)}: ${context} has no equivalent level`,
+            );
+            return undefined;
+    }
 }
 
 export function assertAudioSource(source: AudioSource, context: string): void {

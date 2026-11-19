@@ -129,26 +129,66 @@ describe("openai_chat requests", () => {
         expect(OpenAIChatTranslator.toBody(program)).toEqual(body);
     });
 
-    test("image metadata fails loudly until a dialect image meta op exists", () => {
-        expect(() =>
-            OpenAIChatTranslator.fromBody({
-                model: "gpt-4o",
-                messages: [
-                    {
-                        role: "user",
-                        content: [
-                            {
-                                type: "image_url",
-                                image_url: {
-                                    url: "https://example.com/invoice.png",
-                                    detail: "high",
-                                },
+    test("image detail raises onto llm.image and round-trips", () => {
+        const body = {
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: "https://example.com/invoice.png",
+                                detail: "high",
                             },
-                        ],
-                    },
-                ],
-            }),
-        ).toThrow("unsupported fields detail");
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(OpenAIChatTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model: "gpt-4o" },
+            {
+                op: "llm.image",
+                role: "user",
+                source: {
+                    type: "url",
+                    url: "https://example.com/invoice.png",
+                },
+                detail: "high",
+            },
+        ]);
+        expect(
+            OpenAIChatTranslator.toBody(OpenAIChatTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("an image detail value outside the openai list throws on raise", () => {
+        for (const detail of ["ultra", null]) {
+            expect(() =>
+                OpenAIChatTranslator.fromBody({
+                    model: "gpt-4o",
+                    messages: [
+                        {
+                            role: "user",
+                            content: [
+                                {
+                                    type: "image_url",
+                                    image_url: {
+                                        url: "https://example.com/invoice.png",
+                                        detail,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            ).toThrow(
+                'openai_chat image_url.detail: expected one of "low", "high", "auto", "original"',
+            );
+        }
     });
 
     test("non-image data URLs do not enter the portable image op", () => {

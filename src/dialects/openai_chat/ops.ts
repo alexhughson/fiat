@@ -14,6 +14,7 @@ export interface WireContentPart {
     text?: string;
     image_url?: {
         url?: string;
+        detail?: string;
         [key: string]: unknown;
     };
     input_audio?: {

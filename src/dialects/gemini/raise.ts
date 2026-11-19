@@ -3,6 +3,7 @@
 
 import {
     opData,
+    type ImageDetail,
     type Op,
     type Program,
     type StopReason,
@@ -408,9 +409,30 @@ function mediaPart(
             `gemini inline media part: unsupported fields ${conflicts.join(", ")}`,
         );
     }
-    // A part or blob with other fields, such as `videoMetadata` or
-    // `mediaResolution`, stays a gemini.content residual.
-    if (!hasOnlyKeys(data, [mimeKey, "data"]) || !hasOnlyKeys(part, [key])) {
+    const resolutionKey =
+        part.mediaResolution != null
+            ? "mediaResolution"
+            : part.media_resolution != null
+              ? "media_resolution"
+              : undefined;
+    const partKeys =
+        resolutionKey != null && kind === "image"
+            ? [key, resolutionKey]
+            : [key];
+    // A mediaResolution with numTokens or other fields stays native: this
+    // change carries only its level, and dropping the other fields would lose
+    // provider data.
+    if (!hasOnlyKeys(data, [mimeKey, "data"]) || !hasOnlyKeys(part, partKeys)) {
+        return undefined;
+    }
+    const resolution =
+        resolutionKey == null
+            ? undefined
+            : asRecord(part[resolutionKey], `gemini ${resolutionKey}`);
+    if (
+        resolution &&
+        (resolution.level === undefined || !hasOnlyKeys(resolution, ["level"]))
+    ) {
         return undefined;
     }
     const source = base64Source(
@@ -420,14 +442,46 @@ function mediaPart(
         `gemini ${key}`,
     );
     switch (kind) {
-        case "image":
-            return { op: "llm.image", role: "user", source };
+        case "image": {
+            const detail = resolution
+                ? imageDetailFromWire(resolution, `gemini ${resolutionKey}`)
+                : undefined;
+            return {
+                op: "llm.image",
+                role: "user",
+                source,
+                ...(detail ? { detail } : {}),
+            };
+        }
         case "audio":
             return { op: "llm.audio", role: "user", source };
         case "document":
             return { op: "llm.document", role: "user", source };
         case "video":
             return { op: "llm.video", role: "user", source };
+    }
+}
+
+function imageDetailFromWire(
+    value: Record<string, unknown>,
+    context: string,
+): ImageDetail | undefined {
+    const level = asString(value.level, `${context}.level`);
+    switch (level) {
+        case "MEDIA_RESOLUTION_LOW":
+            return "low";
+        case "MEDIA_RESOLUTION_MEDIUM":
+            return "medium";
+        case "MEDIA_RESOLUTION_HIGH":
+            return "high";
+        case "MEDIA_RESOLUTION_ULTRA_HIGH":
+            return "ultra_high";
+        case "MEDIA_RESOLUTION_UNSPECIFIED":
+            return undefined;
+        default:
+            throw new Error(
+                `${context}: unsupported media resolution level ${JSON.stringify(level)}`,
+            );
     }
 }
 
