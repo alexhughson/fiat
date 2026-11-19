@@ -109,6 +109,32 @@ describe("openai_responses translation", () => {
         },
     );
 
+    test("Responses document input round-trips without a model-name allowlist", () => {
+        const body = {
+            model: "gpt-6-luna",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_file",
+                            file_data:
+                                "data:application/pdf;base64,JVBERi0xLjQ=",
+                            filename: "blank.pdf",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(
+            OpenAIResponsesTranslator.toBody(
+                OpenAIResponsesTranslator.fromBody(body),
+            ),
+        ).toEqual(body);
+    });
+
     const userInput = [
         {
             type: "message",
