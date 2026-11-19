@@ -58,7 +58,14 @@ field.
   with citations or other provider-only extras stay as content-bearing
   Anthropic residuals.
 
+## Stream responses
+
+Lowering a complete response to stream events writes `response.id` and
+`llm.model` into `message_start.message`. A lone delta or `message_delta` has
+no field for either value, so stream lowering drops those ops with warnings.
+Text and function-call fragments use the core delta ops.
+
 ## Out of scope
 
-Streaming events, provider-neutral provider file handles, audio/video, prompt
-caching markers, and citations.
+Provider-neutral provider file handles, audio/video, prompt caching markers,
+and citations.

@@ -43,6 +43,20 @@ call, so raising a response body or a stream chunk writes `response.stop` with
 sends the `functionCall` part and `STOP` in different chunks raises to
 `end_turn`.
 
+## Stream responses
+
+A stream chunk writes `llm.model` as `modelVersion` and `response.id` as
+`responseId`. When a stop reason arrives without content, the chunk's candidate
+holds `finishReason` without `content`; lowering does not add an empty text
+part.
+
+A Gemini `functionCall.args` value is a complete JSON object, not a fragment of
+JSON text. Lowering drops an argument-only `response.tool_call_delta` with a
+warning and emits no chunk for it. A named call with complete arguments writes
+`args`; a named call that has not reported arguments omits the optional `args`
+key. Provider-only fields from another dialect are dropped with warnings, so an
+event holding only those fields also emits no chunk.
+
 ## Lints
 
 - A bare `llm.tool_result` needs a known function name from the
@@ -251,5 +265,5 @@ when they are not portable core images.
 
 ## Out of scope
 
-Streaming, Interactions API, multiple candidates, cache/batch/countTokens,
-and response media core ops.
+Interactions API, multiple candidates, cache/batch/countTokens, and response
+media core ops.

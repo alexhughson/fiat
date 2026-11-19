@@ -8,7 +8,7 @@ OpenAI Chat Completions (`POST /v1/chat/completions`). Code:
 | wire                                  | core                    |
 | ------------------------------------- | ----------------------- |
 | `model`                               | `llm.model`             |
-| response `id`                         | `response.id`           |
+| response body or stream chunk `id`    | `response.id`           |
 | `temperature`                         | `llm.temperature`       |
 | `max_tokens`, `max_completion_tokens` | `llm.max_output_tokens` |
 | `tools[].function`                    | `llm.tool`              |
@@ -64,7 +64,12 @@ models lower them as `max_tokens`.
 - Media model validation is hard failure even in lenient mode. It never drops
   media.
 
+## Stream responses
+
+A stream chunk writes `response.id` as its top-level `id` and `llm.model` as
+`model`. Text and function-call fragments use the core delta ops.
+
 ## Out of scope
 
-Streaming chunks, image `detail` metadata, file-backed images, video inputs,
-and `logprobs`. The Responses API is modeled separately as `openai_responses`.
+Image `detail` metadata, file-backed images, video inputs, and `logprobs`. The
+Responses API is modeled separately as `openai_responses`.

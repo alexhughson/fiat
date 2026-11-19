@@ -64,9 +64,43 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 - Media model validation is hard failure even in lenient mode. It never drops
   media.
 
+## Stream events
+
+The OpenAI Responses API sends each stream event to a proxy as one SSE `data`
+body. `OpenAIResponsesTranslator.fromStreamResponse` raises that event body,
+and `toStreamResponse` writes the same event back.
+
+| event the Responses API sends to the proxy                   | shared ops in the raised program                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------- |
+| `response.created`, `response.in_progress`                   | `response.id`, `llm.model`                                    |
+| `response.completed`, `response.incomplete`                  | `response.id`, `llm.model`, `response.stop`, `response.usage` |
+| `response.failed`                                            | `response.id`, `llm.model`, `response.usage`                  |
+| `response.output_text.delta`                                 | `response.text_delta`                                         |
+| `response.function_call_arguments.delta`                     | `response.tool_call_delta` with an argument fragment          |
+| `response.function_call_arguments.done`                      | `response.tool_call_delta` with complete arguments            |
+| `response.output_item.added` / `.done` for a `function_call` | `response.tool_call_delta`                                    |
+| other output items                                           | no shared op                                                  |
+| `response.content_part.added` / `.done`                      | no shared op                                                  |
+| `response.output_text.done`                                  | no shared op                                                  |
+
+A stop reason is present only when the response status has a core mapping, and
+usage is present only when the event reports it. `output_index` becomes the
+delta op's `index`; completed arguments become its `arguments`; and a function
+item's `call_id` and `name` become its `id` and `name`.
+
+Every event keeps its `type` and `sequence_number` in
+`openai_responses.body_field` residuals. `item_id`, `content_index`, `logprobs`,
+the response envelope fields outside the shared values, and whole content
+parts and output items also stay in residuals. Lowering combines those fields
+with the shared ops without supplying an event type, response status, id,
+index, or argument text that the event did not report.
+
 ## Out of scope
 
-Structured output lowering, streaming output item protocols beyond text/tool
-deltas, audio/video input, image `detail` metadata, and provider-neutral
-representations for MCP, file search, computer use, provider file ids, or image
-generation.
+Structured output lowering; stream events for reasoning
+(`response.reasoning_text.*`, `response.reasoning_summary_part.*`,
+`response.reasoning_summary_text.*`), refusals (`response.refusal.*`),
+annotations (`response.output_text.annotation.added`), built-in tools, audio,
+compaction, queued responses, and the stream `error` event; audio/video input,
+image `detail` metadata, and provider-neutral representations for MCP, file
+search, computer use, provider file ids, or image generation.

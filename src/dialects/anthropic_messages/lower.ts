@@ -61,6 +61,7 @@ export const lowerStreamResponseStages: Stage[] = [
     lowerReasoning,
     applyTextMeta,
     lowerCompleteResponseToStreamEvents,
+    dropStreamResponseEnvelope,
     lowerStreamTextDeltas,
     lowerStreamToolCallDeltas,
     lowerStreamStopAndUsage,
@@ -763,6 +764,18 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
     }
     out.push(streamEvent({ type: "message_stop" }));
     return [...out, ...passthrough];
+}
+
+// lowerCompleteResponseToStreamEvents writes these values to message_start.
+// A lone delta or message_delta has no field for either value.
+export function dropStreamResponseEnvelope(program: Program): Program {
+    return program.flatMap((op) => {
+        if (op.op !== "response.id" && op.op !== "llm.model") return [op];
+        console.warn(
+            `metamodel: anthropic_messages stream response lower dropped ${op.op}; a delta or terminal event has no field for it`,
+        );
+        return [];
+    });
 }
 
 export function lowerStreamTextDeltas(program: Program): Program {

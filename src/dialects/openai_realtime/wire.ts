@@ -355,10 +355,14 @@ export function streamResponseToWire(program: Program): unknown {
     let usage: Record<string, unknown> | undefined;
     const event: Record<string, unknown> = {};
     let eventType: string | undefined;
+    let responseId: string | undefined;
     let sawTextDelta = false;
 
     for (const op of program) {
         switch (op.op) {
+            case "response.id":
+                responseId = (op as OpOf<"response.id">).id;
+                break;
             case "response.text_delta":
                 sawTextDelta = true;
                 text += (op as OpOf<"response.text_delta">).content;
@@ -455,6 +459,7 @@ export function streamResponseToWire(program: Program): unknown {
             "stream event.response",
         );
         applyStatus(response, finishReason);
+        if (responseId != null) response.id = responseId;
         if (usage) response.usage = usage;
         return { type: "response.done", ...event, response };
     }

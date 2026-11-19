@@ -311,7 +311,10 @@ export function streamResponseToWire(program: Program): unknown {
     for (const op of program) {
         switch (op.op) {
             case "llm.model":
-                body.model = op.model;
+                body.modelVersion = (op as OpOf<"llm.model">).model;
+                break;
+            case "response.id":
+                body.responseId = (op as OpOf<"response.id">).id;
                 break;
             case "gemini.content":
                 if (content)
@@ -356,13 +359,20 @@ export function streamResponseToWire(program: Program): unknown {
                 ...(finishReason ? { finishReason } : {}),
             },
         ];
-    } else if (finishReason || Object.keys(candidateMeta).length > 0) {
+    } else if (finishReason) {
+        body.candidates = [{ finishReason }];
+    } else if (Object.keys(candidateMeta).length > 0) {
         throw new Error(
-            "gemini stream response toWire: finishReason or candidate metadata requires candidate content",
+            "gemini stream response toWire: candidate metadata requires candidate content",
         );
     }
     if (usage) body.usageMetadata = usage;
-    if (!body.candidates && !body.usageMetadata && !body.model) {
+    if (
+        !body.candidates &&
+        !body.usageMetadata &&
+        !body.modelVersion &&
+        !body.responseId
+    ) {
         throw new Error("gemini stream response toWire: empty stream chunk");
     }
     return body;

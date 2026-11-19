@@ -711,7 +711,10 @@ export function collectModelContent(program: Program): Program {
     return collectModelContentForResponse(program, true);
 }
 
-export function collectStreamModelContent(program: Program): Program {
+export function collectStreamModelContent(
+    program: Program,
+    target?: Target,
+): Program {
     const out: Program = [];
     const parts: WirePart[] = [];
 
@@ -730,14 +733,22 @@ export function collectStreamModelContent(program: Program): Program {
             case "response.tool_call_delta": {
                 const call = op as OpOf<"response.tool_call_delta">;
                 if (!call.name) {
+                    if (call.id == null && call.arguments != null) {
+                        lintOrWarn(
+                            target?.strict,
+                            "gemini stream response lower: dropped tool_call_delta argument fragment; functionCall.args requires a complete JSON object",
+                        );
+                        break;
+                    }
                     throw new LintError(
                         "gemini stream response lower: tool_call_delta requires a function name",
                     );
                 }
+                const args = parseToolCallDeltaArguments(call);
                 parts.push({
                     functionCall: {
                         name: call.name,
-                        args: parseToolCallDeltaArguments(call),
+                        ...(args == null ? {} : { args }),
                         ...(call.id == null ? {} : { id: call.id }),
                     },
                 });
@@ -934,8 +945,8 @@ function parseToolResultObject(
 
 function parseToolCallDeltaArguments(
     call: OpOf<"response.tool_call_delta">,
-): Record<string, unknown> {
-    if (call.arguments == null) return {};
+): Record<string, unknown> | undefined {
+    if (call.arguments == null) return undefined;
     let parsed: unknown;
     try {
         parsed = JSON.parse(call.arguments);

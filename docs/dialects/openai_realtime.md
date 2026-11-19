@@ -45,5 +45,13 @@ events, optionally with top-level call/session fields such as `model`.
   unless supplied by the caller.
 - Prefix system text lowers to `response.create.response.instructions`.
   Interleaved system text throws.
-- Streaming deltas are out of scope; parse `response.done` for final output.
 - WebRTC setup, auth, and live connection management are out of scope.
+
+## Stream responses
+
+Text and function-call fragments use the core delta ops. A terminal
+`response.done` writes `response.id` as `response.id`; its response object has
+no model field, so stream lowering drops `llm.model` with a warning. When the
+selected event is not `response.done`, stream lowering also drops
+`response.id` with a warning. Other Realtime stream event families remain out
+of scope.

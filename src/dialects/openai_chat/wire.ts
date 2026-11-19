@@ -404,6 +404,9 @@ export function streamResponseToWire(program: Program): unknown {
             case "llm.model":
                 body.model = op.model;
                 break;
+            case "response.id":
+                body.id = (op as OpOf<"response.id">).id;
+                break;
             case "response.text_delta": {
                 const text = op as OpOf<"response.text_delta">;
                 delta.role ??= text.role ?? "assistant";

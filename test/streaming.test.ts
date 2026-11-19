@@ -7,6 +7,10 @@ import {
     OpenAIRealtimeTranslator,
     OpenAIResponsesTranslator,
 } from "../src/index";
+import {
+    textStreamEvents,
+    toolCallStreamEvents,
+} from "./fixtures/openai_responses_stream";
 
 function withWarnSpy<T>(
     run: (warn: ReturnType<typeof spyOn<Console, "warn">>) => T,
@@ -159,17 +163,16 @@ describe("stream response conversion", () => {
                 },
                 {
                     op: "openai_responses.body_field",
-                    key: "output_index",
-                    value: 0,
-                    appliesTo: "response",
-                },
-                {
-                    op: "openai_responses.body_field",
                     key: "content_index",
                     value: 0,
                     appliesTo: "response",
                 },
-                { op: "response.text_delta", role: "assistant", content: "hi" },
+                {
+                    op: "response.text_delta",
+                    index: 0,
+                    role: "assistant",
+                    content: "hi",
+                },
             ],
         );
         expect(
@@ -234,9 +237,8 @@ describe("stream response conversion", () => {
                 },
             },
         };
-        // A real stream also holds response.created, response.in_progress, and
-        // response.function_call_arguments.done; the raise throws on those
-        // three event types, so this stream leaves them out.
+        // The recorded streams below also cover response.created,
+        // response.in_progress, and response.function_call_arguments.done.
         const stream = [
             {
                 type: "response.output_item.added",
@@ -293,6 +295,8 @@ describe("stream response conversion", () => {
                 name: "get_weather",
                 arguments: '{"city":"Halifax"}',
             },
+            { op: "response.id", id: "resp_1" },
+            { op: "llm.model", model: "gpt-4.1" },
             { op: "response.stop", reason: "tool_use" },
             {
                 op: "response.usage",
@@ -930,5 +934,290 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                 GeminiTranslator.fromStreamResponse(stopOnly),
             ),
         ).toEqual(realtimeDoneEvent);
+    });
+});
+
+describe("recorded openai responses stream lifecycle events", () => {
+    // Recorded from glm-5.3 through LunaRoute's Responses endpoint on
+    // 2026-11-19. The fixtures omit only response.reasoning_text.* events.
+    function geminiChunks(events: readonly unknown[]): unknown[] {
+        return events.flatMap((event) => {
+            const raised = OpenAIResponsesTranslator.fromStreamResponse(event);
+            expect(raised.length).toBeGreaterThan(0);
+            expect(OpenAIResponsesTranslator.toStreamResponse(raised)).toEqual(
+                event,
+            );
+            return GeminiTranslator.toStreamResponses(raised);
+        });
+    }
+
+    test("a minimal response.created event raises and round-trips", () => {
+        const event = {
+            type: "response.created",
+            sequence_number: 0,
+            response: {
+                id: "resp_check_b1",
+                object: "response",
+                created_at: 1763596800,
+                status: "in_progress",
+                model: "gpt-6-luna",
+                output: [],
+            },
+        };
+        const raised = OpenAIResponsesTranslator.fromStreamResponse(event);
+
+        expect(raised).toEqual([
+            {
+                op: "openai_responses.body_field",
+                key: "type",
+                value: "response.created",
+                appliesTo: "response",
+            },
+            {
+                op: "openai_responses.body_field",
+                key: "sequence_number",
+                value: 0,
+                appliesTo: "response",
+            },
+            { op: "response.id", id: "resp_check_b1" },
+            { op: "llm.model", model: "gpt-6-luna" },
+            {
+                op: "openai_responses.body_field",
+                key: "response",
+                value: {
+                    object: "response",
+                    created_at: 1763596800,
+                    status: "in_progress",
+                    output: [],
+                },
+                appliesTo: "response",
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponse(raised)).toEqual(
+            event,
+        );
+    });
+
+    test("terminal envelope ops keep existing cross-provider calls working", () => {
+        const raised = OpenAIResponsesTranslator.fromStreamResponse({
+            type: "response.completed",
+            response: {
+                id: "resp_check_b1",
+                status: "completed",
+                model: "gpt-6-luna",
+                output: [],
+                usage: {
+                    input_tokens: 3,
+                    input_tokens_details: {
+                        cached_tokens: 0,
+                        cache_write_tokens: 0,
+                    },
+                    output_tokens: 2,
+                    output_tokens_details: { reasoning_tokens: 0 },
+                    total_tokens: 5,
+                },
+            },
+        });
+
+        expect(OpenAIChatTranslator.toStreamResponse(raised)).toMatchObject({
+            id: "resp_check_b1",
+            model: "gpt-6-luna",
+            choices: [{ finish_reason: "stop" }],
+        });
+        expect(AnthropicTranslator.toStreamResponses(raised)).toEqual([
+            {
+                type: "message_delta",
+                delta: { stop_reason: "end_turn" },
+                usage: {
+                    input_tokens: 3,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0,
+                    output_tokens: 2,
+                    output_tokens_details: { thinking_tokens: 0 },
+                },
+            },
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(raised)).toEqual([
+            {
+                type: "response.done",
+                response: {
+                    status: "completed",
+                    status_details: null,
+                    id: "resp_check_b1",
+                    usage: {
+                        input_tokens: 3,
+                        input_token_details: { cached_tokens: 0 },
+                        output_tokens: 2,
+                        total_tokens: 5,
+                    },
+                },
+            },
+        ]);
+    });
+
+    test("every recorded text event round-trips and lowers to Gemini", () => {
+        expect(geminiChunks(textStreamEvents)).toEqual([
+            {
+                responseId: "resp_54641cf2ebdc46159b14a430cb48a317",
+                modelVersion: "glm-5.3",
+            },
+            {
+                responseId: "resp_54641cf2ebdc46159b14a430cb48a317",
+                modelVersion: "glm-5.3",
+            },
+            {
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [{ text: "streams now work" }],
+                        },
+                    },
+                ],
+            },
+            {
+                responseId: "resp_54641cf2ebdc46159b14a430cb48a317",
+                modelVersion: "glm-5.3",
+                candidates: [{ finishReason: "STOP" }],
+                usageMetadata: {
+                    promptTokenCount: 21,
+                    cachedContentTokenCount: 0,
+                    candidatesTokenCount: 4,
+                    thoughtsTokenCount: 72,
+                    totalTokenCount: 97,
+                },
+            },
+        ]);
+    });
+
+    test("every recorded function-call event round-trips and lowers to Gemini", () => {
+        expect(geminiChunks(toolCallStreamEvents)).toEqual([
+            {
+                responseId: "resp_0e6b06f8ae2d4af7a2cafd061d44e206",
+                modelVersion: "glm-5.3",
+            },
+            {
+                responseId: "resp_0e6b06f8ae2d4af7a2cafd061d44e206",
+                modelVersion: "glm-5.3",
+            },
+            {
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [
+                                {
+                                    functionCall: {
+                                        name: "get_weather",
+                                        id: "call_bacfd278dcbc4b9a813a875c",
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [
+                                {
+                                    functionCall: {
+                                        name: "get_weather",
+                                        args: { city: "Paris" },
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [
+                                {
+                                    functionCall: {
+                                        name: "get_weather",
+                                        args: { city: "Paris" },
+                                        id: "call_bacfd278dcbc4b9a813a875c",
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                responseId: "resp_0e6b06f8ae2d4af7a2cafd061d44e206",
+                modelVersion: "glm-5.3",
+                candidates: [{ finishReason: "STOP" }],
+                usageMetadata: {
+                    promptTokenCount: 167,
+                    cachedContentTokenCount: 0,
+                    candidatesTokenCount: 11,
+                    thoughtsTokenCount: 27,
+                    totalTokenCount: 205,
+                },
+            },
+        ]);
+    });
+
+    test("envelope and completed argument values raise to shared ops", () => {
+        expect(
+            OpenAIResponsesTranslator.fromStreamResponse(textStreamEvents[0]),
+        ).toEqual(
+            expect.arrayContaining([
+                {
+                    op: "response.id",
+                    id: "resp_54641cf2ebdc46159b14a430cb48a317",
+                },
+                { op: "llm.model", model: "glm-5.3" },
+            ]),
+        );
+
+        const argumentsDone = toolCallStreamEvents.find(
+            (event) => event.type === "response.function_call_arguments.done",
+        );
+        expect(
+            OpenAIResponsesTranslator.fromStreamResponse(argumentsDone),
+        ).toContainEqual({
+            op: "response.tool_call_delta",
+            index: 1,
+            name: "get_weather",
+            arguments: '{"city": "Paris"}',
+        });
+    });
+
+    test("an argument fragment has no Gemini chunk", () => {
+        const fragment = toolCallStreamEvents.find(
+            (event) => event.type === "response.function_call_arguments.delta",
+        );
+        expect(
+            GeminiTranslator.toStreamResponses(
+                OpenAIResponsesTranslator.fromStreamResponse(fragment),
+            ),
+        ).toEqual([]);
+    });
+
+    test("out-of-scope event families still throw by name", () => {
+        for (const type of [
+            "response.reasoning_text.delta",
+            "response.reasoning_text.done",
+            "response.reasoning_summary_text.delta",
+            "response.refusal.delta",
+            "response.web_search_call.in_progress",
+            "response.output_text.annotation.added",
+        ]) {
+            expect(() =>
+                OpenAIResponsesTranslator.fromStreamResponse({ type }),
+            ).toThrow(
+                `openai_responses stream response: unsupported event type "${type}"`,
+            );
+        }
     });
 });

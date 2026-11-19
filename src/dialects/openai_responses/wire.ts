@@ -430,36 +430,57 @@ export function streamResponseFromWire(wire: unknown): Program {
     switch (type) {
         case "response.output_text.delta":
             return [
-                ...streamEventParams(event, ["delta"]),
+                ...streamEventParams(event, ["output_index", "delta"]),
                 {
                     op: "response.text_delta",
                     role: "assistant",
+                    ...streamOutputIndex(event),
                     content: asString(event.delta, "stream event.delta"),
                 },
             ];
         case "response.function_call_arguments.delta":
             return [
-                ...streamEventParams(event, ["delta"]),
+                ...streamEventParams(event, ["output_index", "delta"]),
                 {
                     op: "response.tool_call_delta",
-                    ...(event.output_index != null
+                    ...streamOutputIndex(event),
+                    arguments: asString(event.delta, "stream event.delta"),
+                },
+            ];
+        case "response.function_call_arguments.done":
+            return [
+                ...streamEventParams(event, [
+                    "output_index",
+                    "name",
+                    "arguments",
+                ]),
+                {
+                    op: "response.tool_call_delta",
+                    ...streamOutputIndex(event),
+                    ...(event.name != null
                         ? {
-                              index: asNumber(
-                                  event.output_index,
-                                  "stream event.output_index",
-                              ),
+                              name: asString(event.name, "stream event.name"),
                           }
                         : {}),
-                    arguments: asString(event.delta, "stream event.delta"),
+                    arguments: asString(
+                        event.arguments,
+                        "stream event.arguments",
+                    ),
                 },
             ];
         case "response.output_item.added":
         case "response.output_item.done":
             return streamOutputItemEvent(event, type);
+        case "response.content_part.added":
+        case "response.content_part.done":
+        case "response.output_text.done":
+            return streamEventParams(event, []);
+        case "response.created":
+        case "response.in_progress":
         case "response.completed":
         case "response.incomplete":
         case "response.failed":
-            return streamTerminalEvent(event);
+            return streamEnvelopeEvent(event);
         default:
             throw new LintError(
                 `openai_responses stream response: unsupported event type ${JSON.stringify(type)}`,
@@ -468,6 +489,13 @@ export function streamResponseFromWire(wire: unknown): Program {
 }
 
 export function streamResponseToWire(program: Program): unknown {
+    const hasSourceEventType = program.some(
+        (op) =>
+            op.op === "openai_responses.body_field" &&
+            opData<{ key: string }>(op).key === "type",
+    );
+    if (hasSourceEventType) return raisedStreamEventToWire(program);
+
     let text = "";
     const toolDeltas: OpOf<"response.tool_call_delta">[] = [];
     let finishReason: string | undefined;
@@ -582,6 +610,177 @@ export function streamResponseToWire(program: Program): unknown {
     return event;
 }
 
+// An event raised from this dialect carries its original type and otherwise
+// unknown fields. Rebuild only the shared values that raising removed, and
+// add no value that the source event did not contain.
+function raisedStreamEventToWire(program: Program): unknown {
+    const event: Record<string, unknown> = {};
+    const parts: {
+        text: string;
+        hasTextDelta: boolean;
+        textIndex?: number;
+        tool?: OpOf<"response.tool_call_delta">;
+        responseId?: string;
+        modelName?: string;
+        usage?: Record<string, unknown>;
+    } = { text: "", hasTextDelta: false };
+
+    for (const op of program) {
+        switch (op.op) {
+            case "response.text_delta": {
+                const textDelta = op as OpOf<"response.text_delta">;
+                parts.hasTextDelta = true;
+                parts.text += textDelta.content;
+                parts.textIndex ??= textDelta.index;
+                break;
+            }
+            case "response.tool_call_delta":
+                parts.tool = op as OpOf<"response.tool_call_delta">;
+                break;
+            case "response.id":
+                parts.responseId = (op as OpOf<"response.id">).id;
+                break;
+            case "llm.model":
+                parts.modelName = (op as OpOf<"llm.model">).model;
+                break;
+            case "openai_responses.finish_reason":
+                // The original status and incomplete details stay in the
+                // response residual; this op repeats what they already say.
+                break;
+            case "openai_responses.usage":
+                parts.usage = mergeUsageObjects(
+                    parts.usage ?? {},
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                    USAGE_DETAILS_KEYS,
+                );
+                break;
+            case "openai_responses.body_field": {
+                const param = opData<{ key: string; value: unknown }>(op);
+                event[param.key] = param.value;
+                break;
+            }
+            default:
+                throw new LintError(
+                    `openai_responses stream response toWire: no serialization for op "${op.op}"`,
+                );
+        }
+    }
+
+    const type = asString(event.type, "stream event.type");
+    switch (type) {
+        case "response.output_text.delta":
+            rejectEnvelopeOpsOutsideEnvelope(
+                parts.responseId,
+                parts.modelName,
+                type,
+            );
+            if (!parts.hasTextDelta) {
+                throw new LintError(
+                    "openai_responses stream response toWire: response.output_text.delta requires response.text_delta.content",
+                );
+            }
+            if (parts.textIndex != null) {
+                event.output_index = parts.textIndex;
+            }
+            event.delta = parts.text;
+            return event;
+        case "response.function_call_arguments.delta":
+        case "response.function_call_arguments.done": {
+            rejectEnvelopeOpsOutsideEnvelope(
+                parts.responseId,
+                parts.modelName,
+                type,
+            );
+            const tool = parts.tool;
+            if (tool?.arguments == null) {
+                throw new LintError(
+                    `openai_responses stream response toWire: ${type} requires response.tool_call_delta.arguments`,
+                );
+            }
+            if (tool.index != null) event.output_index = tool.index;
+            if (type === "response.function_call_arguments.done") {
+                if (tool.name != null) event.name = tool.name;
+                event.arguments = tool.arguments;
+            } else {
+                event.delta = tool.arguments;
+            }
+            return event;
+        }
+        case "response.output_item.added":
+        case "response.output_item.done": {
+            rejectEnvelopeOpsOutsideEnvelope(
+                parts.responseId,
+                parts.modelName,
+                type,
+            );
+            const item = {
+                ...asRecord(event.item, "stream event.item"),
+            };
+            if (item.type === "function_call") {
+                const tool = parts.tool;
+                if (!tool) {
+                    throw new LintError(
+                        `openai_responses stream response toWire: ${type} requires response.tool_call_delta`,
+                    );
+                }
+                if (tool.index != null) event.output_index = tool.index;
+                if (tool.id != null) item.call_id = tool.id;
+                if (tool.name != null) item.name = tool.name;
+                if (
+                    type === "response.output_item.done" &&
+                    tool.arguments != null
+                ) {
+                    item.arguments = tool.arguments;
+                }
+            }
+            event.item = item;
+            return event;
+        }
+        case "response.content_part.added":
+        case "response.content_part.done":
+        case "response.output_text.done":
+            rejectEnvelopeOpsOutsideEnvelope(
+                parts.responseId,
+                parts.modelName,
+                type,
+            );
+            return event;
+        case "response.created":
+        case "response.in_progress":
+        case "response.completed":
+        case "response.incomplete":
+        case "response.failed": {
+            const response = {
+                ...asRecord(event.response ?? {}, "stream event.response"),
+            };
+            if (parts.responseId != null) response.id = parts.responseId;
+            if (parts.modelName != null) response.model = parts.modelName;
+            if (parts.usage != null) response.usage = parts.usage;
+            event.response = response;
+            return event;
+        }
+        default:
+            throw new LintError(
+                `openai_responses stream response toWire: unsupported raised event type ${JSON.stringify(type)}`,
+            );
+    }
+}
+
+function rejectEnvelopeOpsOutsideEnvelope(
+    responseId: string | undefined,
+    modelName: string | undefined,
+    type: string,
+): void {
+    if (responseId == null && modelName == null) return;
+    const ops = [
+        ...(responseId != null ? ['"response.id"'] : []),
+        ...(modelName != null ? ['"llm.model"'] : []),
+    ].join(", ");
+    throw new LintError(
+        `openai_responses stream response toWire: ${ops} has no field on a ${JSON.stringify(type)} event`,
+    );
+}
+
 // A Responses stream has no event that holds a delta and a stop reason, and
 // this function returns one event. Writing the delta event alone would drop
 // the stop reason, so the program is rejected. toStreamResponses splits such a
@@ -623,29 +822,36 @@ function streamEventParams(
     return program;
 }
 
+function streamOutputIndex(
+    event: Record<string, unknown>,
+): { index: number } | Record<string, never> {
+    return event.output_index != null
+        ? {
+              index: asNumber(event.output_index, "stream event.output_index"),
+          }
+        : {};
+}
+
 function streamOutputItemEvent(
     event: Record<string, unknown>,
     type: string,
 ): Program {
-    const program = streamEventParams(event, ["item"]);
     const item = asRecord(event.item, "stream event.item");
+    const isFunctionCall = item.type === "function_call";
+    const program = streamEventParams(
+        event,
+        isFunctionCall ? ["item", "output_index"] : ["item"],
+    );
     program.push({
         op: "openai_responses.body_field",
         key: "item",
         value: item,
         appliesTo: "response",
     });
-    if (item.type !== "function_call") return program;
+    if (!isFunctionCall) return program;
     program.push({
         op: "response.tool_call_delta",
-        ...(event.output_index != null
-            ? {
-                  index: asNumber(
-                      event.output_index,
-                      "stream event.output_index",
-                  ),
-              }
-            : {}),
+        ...streamOutputIndex(event),
         ...(item.call_id != null
             ? { id: asString(item.call_id, "stream event.item.call_id") }
             : {}),
@@ -664,22 +870,30 @@ function streamOutputItemEvent(
     return program;
 }
 
-function streamTerminalEvent(event: Record<string, unknown>): Program {
+function streamEnvelopeEvent(event: Record<string, unknown>): Program {
     const program = streamEventParams(event, ["response"]);
     const response =
         event.response == null
             ? undefined
             : asRecord(event.response, "stream event.response");
-    if (response != null) {
-        const { usage: _usage, ...responseMeta } = response;
-        if (Object.keys(responseMeta).length > 0) {
-            program.push({
-                op: "openai_responses.body_field",
-                key: "response",
-                value: responseMeta,
-                appliesTo: "response",
-            });
-        }
+    const responseMeta: Record<string, unknown> =
+        response == null ? {} : { ...response };
+    if (typeof responseMeta.id === "string") {
+        program.push({ op: "response.id", id: responseMeta.id });
+        delete responseMeta.id;
+    }
+    if (typeof responseMeta.model === "string") {
+        program.push({ op: "llm.model", model: responseMeta.model });
+        delete responseMeta.model;
+    }
+    if (responseMeta.usage != null) delete responseMeta.usage;
+    if (Object.keys(responseMeta).length > 0) {
+        program.push({
+            op: "openai_responses.body_field",
+            key: "response",
+            value: responseMeta,
+            appliesTo: "response",
+        });
     }
     const status =
         response?.status == null

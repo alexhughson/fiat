@@ -85,7 +85,7 @@ not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 
 | op                         | fields                                 | notes                                                              |
 | -------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
-| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below   |
+| `response.id`              | `id`                                   | the provider's id for a response; see Response id below            |
 | `response.stop`            | normalized stop reason                 | provider enum values map here                                      |
 | `response.usage`           | six optional token-count parts         | non-overlapping parts, no total; see [page](ops/response.usage.md) |
 | `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                  |
@@ -96,10 +96,10 @@ response program can be appended to the next request program.
 
 ## Response id
 
-`response.id` holds the id that a provider's API gave to one complete
-response. A dialect raises the op from the id field of a complete response
-body, and writes the op's `id` into the same field when it lowers a program to
-a complete response body.
+`response.id` holds the id that a provider's API gave to one response. A
+dialect raises the op from the id field of a complete response
+body or a stream's response envelope, and writes the op's `id` into the same
+field when it lowers a program to that shape.
 
 ```ts
 {
@@ -122,9 +122,16 @@ ops, the last one is written. When a program holds none, four dialects invent
 an id and `gemini` writes no `responseId`.
 
 Lowering a program to a request body removes `response.id`, like every other
-`response.*` op. Among the stream codecs, only the `anthropic_messages` one
-that lowers a complete response to stream events reads the op: it writes the
-id into `message_start.message.id`.
+`response.*` op. Among the stream codecs, `anthropic_messages` writes the id
+into `message_start.message.id` when it lowers a complete response to stream
+events; `openai_responses` writes it into the `response` object of an event
+raised from `response.created`, `response.in_progress`, `response.completed`,
+`response.incomplete`, or `response.failed`; `gemini` writes it as `responseId`
+on a chunk; `openai_chat` writes it as the chunk's `id`; and `openai_realtime`
+writes it into `response.done.response.id`. A lone Anthropic delta or terminal
+event has no id field, so Anthropic stream lowering drops the op with a
+warning; Realtime does the same when the selected event is not
+`response.done`.
 
 ## Host ops
 

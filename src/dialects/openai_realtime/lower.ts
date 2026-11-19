@@ -42,6 +42,7 @@ export const lowerStreamResponseStages: Stage[] = [
     dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
+    dropStreamResponseEnvelope,
 ];
 
 export const lowerStreamResponse: Stage = stagePipeline(
@@ -72,8 +73,30 @@ export function splitStreamEvents(program: Program): Program[] {
 function isDoneEventOp(op: Op): boolean {
     return (
         op.op === "openai_realtime.finish_reason" ||
-        op.op === "openai_realtime.usage"
+        op.op === "openai_realtime.usage" ||
+        op.op === "response.id"
     );
+}
+
+// Realtime's response.done has an id but no model field; its delta events
+// have neither. Keep an id with the terminal event when the program has one.
+export function dropStreamResponseEnvelope(program: Program): Program {
+    const hasDoneEvent = program.some(
+        (op) =>
+            op.op === "openai_realtime.finish_reason" ||
+            op.op === "openai_realtime.usage" ||
+            (op.op === "openai_realtime.event_param" &&
+                opData<{ eventType: string }>(op).eventType ===
+                    "response.done"),
+    );
+    return program.flatMap((op) => {
+        if (op.op === "response.id" && hasDoneEvent) return [op];
+        if (op.op !== "response.id" && op.op !== "llm.model") return [op];
+        console.warn(
+            `metamodel: openai_realtime stream response lower dropped ${op.op}; the selected event has no field for it`,
+        );
+        return [];
+    });
 }
 
 // Sampling remains session/model dependent in Realtime GA. Model is accepted
