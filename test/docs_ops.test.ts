@@ -90,6 +90,20 @@ test("docs/ops/llm.text.md shows the type of llm.text that src/core/ops.ts decla
     );
 });
 
+test("docs/core-ir.md shows the previous response types that src/core/ops.ts declares", () => {
+    const source = read("../src/core/ops.ts");
+    const page = read("../docs/core-ir.md");
+    for (const op of [
+        "request.previous_response",
+        "response.previous_response",
+    ]) {
+        expect(source).toContain(`| { op: "${op}"; responseId: string }`);
+        expect(page).toContain(
+            `### \`${op}\`\n\n\`\`\`ts\n{\n    op: "${op}";\n    responseId: string;\n}\n\`\`\``,
+        );
+    }
+});
+
 // The two examples on docs/ops/response.usage.md, in page order. Each In
 // block is the usage object of a whole response body, so each run rebuilds
 // the body around it.

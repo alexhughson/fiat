@@ -5,10 +5,10 @@
 // residuals raise left behind. Extend by appending to the stage arrays.
 
 import { opData, type Op, type OpOf, type Program } from "../../core/ops.js";
-import { LintError } from "../../core/lint.js";
+import { LintError, lintOrWarn } from "../../core/lint.js";
 import { dropReasoning } from "../../core/reasoning.js";
 import * as usage from "../../core/usage.js";
-import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
 import { lowerStopReason } from "./raise.js";
 import type {
     WireConversationItemCreateEvent,
@@ -18,6 +18,7 @@ import type {
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    lowerPreviousResponse,
     dropReasoning,
     rejectSessionConfig,
     lintMidConversationSystem,
@@ -30,6 +31,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    lowerPreviousResponse,
     dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
@@ -39,6 +41,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    lowerPreviousResponse,
     dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
@@ -47,6 +50,30 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+export function lowerPreviousResponse(
+    program: Program,
+    target?: Target,
+): Program {
+    return program.filter((op) => {
+        if (op.op === "response.previous_response") {
+            if (
+                target?.kind === "response" ||
+                target?.kind === "response_stream"
+            ) {
+                lintOrWarn(
+                    target.strict,
+                    `dropped response.previous_response "${op.responseId}": openai_realtime has no field for a stored previous response`,
+                );
+            }
+            return false;
+        }
+        if (op.op !== "request.previous_response") return true;
+        throw new LintError(
+            "openai_realtime request lower: cannot lower request.previous_response because response.create cannot retrieve a stored response",
+        );
+    });
+}
 
 // One chunk of another provider's stream can hold a delta and a stop reason:
 // Gemini's API sends text and finishReason "STOP" together. A Realtime stream

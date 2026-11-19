@@ -13,7 +13,7 @@ import {
     type OpOf,
     type Program,
 } from "../../core/ops.js";
-import { LintError } from "../../core/lint.js";
+import { LintError, lintOrWarn } from "../../core/lint.js";
 import {
     assertDocumentSource,
     assertImageMediaType,
@@ -28,6 +28,7 @@ import type {
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    lowerPreviousResponse,
     lowerReasoning,
     lintMidConversationSystem,
     lowerThinking,
@@ -47,6 +48,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    lowerPreviousResponse,
     lowerReasoning,
     applyTextMeta,
     dropEmptyText,
@@ -58,6 +60,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    lowerPreviousResponse,
     lowerReasoning,
     applyTextMeta,
     lowerCompleteResponseToStreamEvents,
@@ -69,6 +72,30 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+export function lowerPreviousResponse(
+    program: Program,
+    target?: Target,
+): Program {
+    return program.filter((op) => {
+        if (op.op === "response.previous_response") {
+            if (
+                target?.kind === "response" ||
+                target?.kind === "response_stream"
+            ) {
+                lintOrWarn(
+                    target.strict,
+                    `dropped response.previous_response "${op.responseId}": anthropic_messages has no field for a stored previous response`,
+                );
+            }
+            return false;
+        }
+        if (op.op !== "request.previous_response") return true;
+        throw new LintError(
+            "anthropic_messages request lower: cannot lower request.previous_response because the Messages API cannot retrieve a stored response",
+        );
+    });
+}
 
 const REDACTED_THINKING = "anthropic_messages.redacted_thinking";
 

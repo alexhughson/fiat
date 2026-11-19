@@ -46,6 +46,7 @@ export type CoreOp =
     | { op: "llm.max_output_tokens"; value: number }
     | { op: "request.user"; value: string }
     | { op: "request.stream"; value: boolean }
+    | { op: "request.previous_response"; responseId: string }
     | { op: "request.stop_sequences"; value: string[] }
     | { op: "llm.thinking"; effort: ThinkingEffort }
     | { op: "llm.text"; role: Role; content: string }
@@ -95,6 +96,7 @@ export type CoreOp =
       }
     | { op: "meta.trace"; traceId: string }
     | { op: "response.id"; id: string }
+    | { op: "response.previous_response"; responseId: string }
     // The token-count parts of a response's usage. The parts do not overlap
     // and there is no total: each lowering computes its provider's own sum
     // from the parts that are present. An absent param means the source
