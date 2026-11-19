@@ -253,9 +253,13 @@ export function responseToWire(program: Program): unknown {
         }
     }
 
-    if (!content && finishReason == null)
+    if (
+        !content &&
+        finishReason == null &&
+        Object.keys(candidateMeta).length === 0
+    )
         throw new Error(
-            "gemini response toWire: program has no candidate content",
+            "gemini response toWire: program has no candidate content, finish reason, or candidate metadata",
         );
     body.candidates = [
         {

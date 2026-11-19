@@ -731,7 +731,7 @@ export function lowerUsageCounts(program: Program): Program {
 // its part list, appended at the end. Response part_meta residuals re-apply
 // vendor extras by part index, then are consumed.
 export function collectModelContent(program: Program): Program {
-    return collectModelContentForResponse(program, true);
+    return collectModelContentForResponse(program);
 }
 
 export function collectStreamModelContent(program: Program): Program {
@@ -781,10 +781,7 @@ export function collectStreamModelContent(program: Program): Program {
     return out;
 }
 
-function collectModelContentForResponse(
-    program: Program,
-    requireContent: boolean,
-): Program {
+function collectModelContentForResponse(program: Program): Program {
     const out: Program = [];
     const partMeta = collectResponsePartMeta(program);
     const parts: WirePart[] = [];
@@ -848,10 +845,7 @@ function collectModelContentForResponse(
         }
     }
 
-    const hasFinishReason = program.some(
-        (op) => op.op === "gemini.finish_reason",
-    );
-    if (parts.length > 0 || (requireContent && !hasFinishReason)) {
+    if (parts.length > 0) {
         out.push({
             op: "gemini.content",
             content: { role: "model", parts },

@@ -1385,6 +1385,41 @@ describe("gemini responses", () => {
         });
     });
 
+    test("a metadata-only candidate round-trips without invented content", () => {
+        for (const candidate of [
+            { index: 0 },
+            {
+                safetyRatings: [
+                    {
+                        category: "HARM_CATEGORY_HARASSMENT",
+                        probability: "NEGLIGIBLE",
+                    },
+                ],
+            },
+        ]) {
+            const wire = { candidates: [candidate] };
+            const program = GeminiTranslator.fromResponse(wire);
+
+            expect(program).toEqual([
+                {
+                    op: "gemini.candidate_meta",
+                    candidate,
+                    appliesTo: "response",
+                },
+            ]);
+            expect(GeminiTranslator.toResponse(program)).toEqual(wire);
+        }
+    });
+
+    test("an empty candidate throws when lowering names no candidate data", () => {
+        const program = GeminiTranslator.fromResponse({ candidates: [{}] });
+
+        expect(program).toEqual([]);
+        expect(() => GeminiTranslator.toResponse(program)).toThrow(
+            "program has no candidate content, finish reason, or candidate metadata",
+        );
+    });
+
     test("a finish reason side op requires the stop it names", () => {
         const stop = {
             op: "response.stop",
