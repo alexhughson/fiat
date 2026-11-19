@@ -219,8 +219,8 @@ omits the synthetic id again.
   `MEDIA_RESOLUTION_UNSPECIFIED` raises no detail. Lowering writes
   `mediaResolution: { level }`, writes no level for `auto`, and drops `original`
   with a warning. A `mediaResolution` with `numTokens` or other fields, with a
-  missing or null level, or on a non-image part, stays a content-bearing
-  `gemini.content` residual. The
+  missing, null, or non-string level, or on a non-image part, stays a
+  content-bearing `gemini.content` residual. The
   request-wide `generationConfig.mediaResolution` also stays a residual and
   sets no image detail. Gemini file URIs and inline parts with other fields on
   the part or its blob, such as `videoMetadata`, stay as content-bearing

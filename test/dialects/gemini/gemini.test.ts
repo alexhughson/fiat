@@ -686,6 +686,30 @@ describe("gemini requests", () => {
         expect(GeminiTranslator.toBody(program)).toEqual(body);
     });
 
+    test("mediaResolution with a numeric level stays a native Gemini residual", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                            mediaResolution: { level: 1 },
+                        },
+                    ],
+                },
+            ],
+        };
+        const program = GeminiTranslator.fromBody(body);
+
+        expect(program.slice(1).map((op) => op.op)).toEqual(["gemini.content"]);
+        expect(GeminiTranslator.toBody(program)).toEqual(body);
+    });
+
     test("mediaResolution on a non-image inline part stays native", () => {
         const body = {
             model,
