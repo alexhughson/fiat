@@ -190,6 +190,43 @@ describe("gemini requests", () => {
         });
     });
 
+    test("id synthesis does not reuse a part index across model contents", () => {
+        const history = toolHistoryWithOptionalIds();
+        const body = {
+            model,
+            contents: [...history.contents, ...history.contents],
+        };
+        const program = GeminiTranslator.fromBody(body);
+
+        expect(program.filter((op) => op.op === "llm.tool_call")).toEqual([
+            {
+                op: "llm.tool_call",
+                id: "gemini_call_0",
+                name: "lookup",
+                arguments: { key: "x" },
+            },
+            {
+                op: "llm.tool_call",
+                id: "gemini_call_0_1",
+                name: "lookup",
+                arguments: { key: "x" },
+            },
+        ]);
+        expect(program.filter((op) => op.op === "llm.tool_result")).toEqual([
+            {
+                op: "llm.tool_result",
+                id: "gemini_call_0",
+                content: '{"value":17}',
+            },
+            {
+                op: "llm.tool_result",
+                id: "gemini_call_0_1",
+                content: '{"value":17}',
+            },
+        ]);
+        expect(GeminiTranslator.toBody(program)).toEqual(body);
+    });
+
     test("a result without an id takes the id of its unmatched same-name call", () => {
         const body = toolHistoryWithOptionalIds("call_lookup");
         const program = GeminiTranslator.fromBody(body);

@@ -58,6 +58,17 @@ interface ToolCallForMatch {
     };
 }
 
+function synthesizeCallId(partIndex: number, earlierCalls: { id: string }[]) {
+    const base = `gemini_call_${partIndex}`;
+    let id = base;
+    let suffix = 1;
+    while (earlierCalls.some((call) => call.id === id)) {
+        id = `${base}_${suffix}`;
+        suffix++;
+    }
+    return id;
+}
+
 // raiseContents writes a `thought: true` part as assistant llm.text followed
 // by a gemini.part_meta that holds `thought`. A thought part with fields other
 // than thought and thoughtSignature keeps that shape.
@@ -95,13 +106,18 @@ export function raiseThoughts(program: Program): Program {
 }
 
 export function raiseStreamContents(program: Program): Program {
+    const toolCalls: { id: string }[] = [];
     return program.flatMap((op) => {
         if (op.op !== "gemini.content") return [op];
         const contentOp = opData<{
             content: WireContent;
             appliesTo?: "request" | "response";
         }>(op);
-        return raiseStreamContent(contentOp.content, contentOp.appliesTo);
+        return raiseStreamContent(
+            contentOp.content,
+            contentOp.appliesTo,
+            toolCalls,
+        );
     });
 }
 
@@ -245,7 +261,7 @@ function raiseContent(
                 );
                 const id =
                     call.id == null
-                        ? `gemini_call_${index}`
+                        ? synthesizeCallId(index, toolCalls)
                         : asString(call.id, "gemini functionCall.id");
                 const name = asString(call.name, "gemini functionCall.name");
                 const toolCall: OpOf<"llm.tool_call"> = {
@@ -448,7 +464,8 @@ function isMediaLikePart(part: WirePart): boolean {
 
 function raiseStreamContent(
     content: WireContent,
-    appliesTo?: "request" | "response",
+    appliesTo: "request" | "response" | undefined,
+    toolCalls: { id: string }[],
 ): Op[] {
     const role = content.role;
     if (role !== "model") {
@@ -478,8 +495,9 @@ function raiseStreamContent(
                 );
                 const id =
                     call.id == null
-                        ? `gemini_call_${index}`
+                        ? synthesizeCallId(index, toolCalls)
                         : asString(call.id, "gemini functionCall.id");
+                toolCalls.push({ id });
                 out.push({
                     op: "response.tool_call_delta",
                     index,
