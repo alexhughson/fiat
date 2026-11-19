@@ -419,9 +419,9 @@ function mediaPart(
         resolutionKey != null && kind === "image"
             ? [key, resolutionKey]
             : [key];
-    // A mediaResolution with numTokens or other fields stays native: this
-    // change carries only its level, and dropping the other fields would lose
-    // provider data.
+    // A mediaResolution with numTokens, other fields, or a missing/null level
+    // stays native: this change carries only its level, and dropping the other
+    // fields would lose provider data.
     if (!hasOnlyKeys(data, [mimeKey, "data"]) || !hasOnlyKeys(part, partKeys)) {
         return undefined;
     }
@@ -431,7 +431,7 @@ function mediaPart(
             : asRecord(part[resolutionKey], `gemini ${resolutionKey}`);
     if (
         resolution &&
-        (resolution.level === undefined || !hasOnlyKeys(resolution, ["level"]))
+        (resolution.level == null || !hasOnlyKeys(resolution, ["level"]))
     ) {
         return undefined;
     }

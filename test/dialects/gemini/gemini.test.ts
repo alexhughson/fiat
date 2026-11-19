@@ -662,6 +662,30 @@ describe("gemini requests", () => {
         expect(GeminiTranslator.toBody(program)).toEqual(body);
     });
 
+    test("mediaResolution with a null level stays a native Gemini residual", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                            mediaResolution: { level: null },
+                        },
+                    ],
+                },
+            ],
+        };
+        const program = GeminiTranslator.fromBody(body);
+
+        expect(program.slice(1).map((op) => op.op)).toEqual(["gemini.content"]);
+        expect(GeminiTranslator.toBody(program)).toEqual(body);
+    });
+
     test("mediaResolution on a non-image inline part stays native", () => {
         const body = {
             model,
@@ -686,30 +710,40 @@ describe("gemini requests", () => {
         expect(GeminiTranslator.toBody(program)).toEqual(body);
     });
 
-    test("an unknown media resolution level throws", () => {
-        expect(() =>
-            GeminiTranslator.fromBody({
-                model,
-                contents: [
-                    {
-                        role: "user",
-                        parts: [
-                            {
-                                inline_data: {
-                                    mime_type: "image/png",
-                                    data: "aW1hZ2U=",
+    test("malformed mediaResolution shapes and unknown levels throw", () => {
+        const invalidResolutions: [unknown, string][] = [
+            [
+                "MEDIA_RESOLUTION_LOW",
+                'gemini mediaResolution: expected an object, got "MEDIA_RESOLUTION_LOW"',
+            ],
+            [42, "gemini mediaResolution: expected an object, got 42"],
+            [
+                { level: "MEDIA_RESOLUTION_HUGE" },
+                'gemini mediaResolution: unsupported media resolution level "MEDIA_RESOLUTION_HUGE"',
+            ],
+        ];
+
+        for (const [mediaResolution, message] of invalidResolutions) {
+            expect(() =>
+                GeminiTranslator.fromBody({
+                    model,
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [
+                                {
+                                    inline_data: {
+                                        mime_type: "image/png",
+                                        data: "aW1hZ2U=",
+                                    },
+                                    mediaResolution,
                                 },
-                                mediaResolution: {
-                                    level: "MEDIA_RESOLUTION_HUGE",
-                                },
-                            },
-                        ],
-                    },
-                ],
-            }),
-        ).toThrow(
-            'gemini mediaResolution: unsupported media resolution level "MEDIA_RESOLUTION_HUGE"',
-        );
+                            ],
+                        },
+                    ],
+                }),
+            ).toThrow(message);
+        }
     });
 
     test("request-wide mediaResolution stays residual and reaches no image", () => {
