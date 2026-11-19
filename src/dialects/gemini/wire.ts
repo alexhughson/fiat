@@ -253,21 +253,25 @@ export function responseToWire(program: Program): unknown {
         }
     }
 
-    if (
-        !content &&
-        finishReason == null &&
-        Object.keys(candidateMeta).length === 0
-    )
+    const hasCandidate =
+        content != null ||
+        finishReason != null ||
+        Object.keys(candidateMeta).length > 0;
+    // Usage belongs to the response, so it does not justify an empty candidate.
+    // The SDK marks candidates optional; an entirely empty program still throws.
+    if (!hasCandidate && usage == null)
         throw new Error(
             "gemini response toWire: program has no candidate content, finish reason, or candidate metadata",
         );
-    body.candidates = [
-        {
-            ...candidateMeta,
-            ...(content ? { content } : {}),
-            ...(finishReason ? { finishReason } : {}),
-        },
-    ];
+    if (hasCandidate) {
+        body.candidates = [
+            {
+                ...candidateMeta,
+                ...(content ? { content } : {}),
+                ...(finishReason ? { finishReason } : {}),
+            },
+        ];
+    }
     if (usage) body.usageMetadata = usage;
     return body;
 }

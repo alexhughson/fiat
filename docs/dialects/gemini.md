@@ -63,9 +63,10 @@ substituting a nearby stop reason.
 A response candidate may omit `content` or send `content: {}`. Both forms raise
 without content ops. Lowering omits the optional `content` key when the
 candidate has no parts but has a finish reason or candidate metadata. A
-candidate with no parts, no finish reason, and no metadata throws during lowering. A
-`continuationToken` remains in `gemini.candidate_meta` and round-trips to
-Gemini.
+candidate with no parts, no finish reason, and no metadata throws during
+lowering. A response with usage but no candidate data omits optional
+`candidates`. A `continuationToken` remains in `gemini.candidate_meta` and
+round-trips to Gemini.
 
 ## Lints
 
