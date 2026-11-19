@@ -117,6 +117,33 @@ describe("gemini requests", () => {
         ).toEqual(body);
     });
 
+    test.each(["user", "model"] as const)(
+        "systemInstruction role %s raises and round-trips",
+        (role) => {
+            const body = {
+                model,
+                systemInstruction: {
+                    role,
+                    parts: [{ text: "Answer briefly." }],
+                },
+                contents: [{ role: "user", parts: [{ text: "Hi" }] }],
+            };
+
+            const program = GeminiTranslator.fromBody(body);
+            expect(program).toEqual([
+                { op: "llm.model", model },
+                { op: "gemini.system_instruction_role", role },
+                {
+                    op: "llm.text",
+                    role: "system",
+                    content: "Answer briefly.",
+                },
+                { op: "llm.text", role: "user", content: "Hi" },
+            ]);
+            expect(GeminiTranslator.toBody(program)).toEqual(body);
+        },
+    );
+
     test("Anthropic tool_result error metadata warns and drops for Gemini", () => {
         withWarnSpy((warn) => {
             const body = GeminiTranslator.toBody([

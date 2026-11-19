@@ -67,6 +67,11 @@ export type GeminiOp =
           content: WireContent;
           appliesTo?: "request" | "response";
       }
+    | {
+          op: "gemini.system_instruction_role";
+          role: "user" | "model";
+          appliesTo?: "request";
+      }
     | { op: "gemini.finish_reason"; value: string }
     | {
           op: "gemini.usage";

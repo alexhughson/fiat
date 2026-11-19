@@ -24,17 +24,18 @@ path. Code: `src/dialects/gemini/`.
 
 ## Dialect ops
 
-| op                         | purpose                                                                                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gemini.content`           | one request content or response candidate content                                                                                                              |
-| `gemini.part_meta`         | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta` |
-| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                                                                  |
-| `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                          |
-| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                            |
-| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                     |
-| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                                                                       |
-| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
-| `gemini.body_field`        | unknown top-level field                                                                                                                                        |
+| op                               | purpose                                                                                                                                                        |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gemini.content`                 | one request content or response candidate content                                                                                                              |
+| `gemini.system_instruction_role` | optional `systemInstruction.role`; Gemini lowering preserves it, and other dialects warn and drop it                                                           |
+| `gemini.part_meta`               | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta` |
+| `gemini.tool`                    | configured built-ins, URL context, and other raw tool objects                                                                                                  |
+| `gemini.generation_config`       | Gemini-only `generationConfig` fields                                                                                                                          |
+| `gemini.tool_config`             | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                            |
+| `gemini.finish_reason`           | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                     |
+| `gemini.usage`                   | shared usage plus `usageMetadata` extras                                                                                                                       |
+| `gemini.candidate_meta`          | response candidate fields outside content/finish reason                                                                                                        |
+| `gemini.body_field`              | unknown top-level field                                                                                                                                        |
 
 Gemini returns `finishReason: "STOP"` also when the model asks for a function
 call, so raising a response body or a stream chunk writes `response.stop` with

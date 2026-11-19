@@ -72,6 +72,7 @@ export function requestToWire(program: Program): unknown {
     const body: Record<string, unknown> = {};
     const contents: WireContent[] = [];
     const systemParts: WirePart[] = [];
+    let systemRole: WireContent["role"];
     const tools: WireTool[] = [];
     const functionDeclarations: WireFunctionDeclaration[] = [];
     const declaredTools = declaredToolsByName(program, "gemini request lower");
@@ -123,6 +124,9 @@ export function requestToWire(program: Program): unknown {
             case "gemini.content":
                 contents.push(opData<{ content: WireContent }>(op).content);
                 break;
+            case "gemini.system_instruction_role":
+                systemRole = opData<{ role: "user" | "model" }>(op).role;
+                break;
             case "gemini.tool":
                 flushFunctionDeclarations();
                 tools.push(opData<{ tool: WireTool }>(op).tool);
@@ -154,7 +158,12 @@ export function requestToWire(program: Program): unknown {
     }
 
     if (contents.length > 0) body.contents = contents;
-    if (systemParts.length > 0) body.systemInstruction = { parts: systemParts };
+    if (systemParts.length > 0 || systemRole !== undefined) {
+        body.systemInstruction = {
+            ...(systemRole !== undefined ? { role: systemRole } : {}),
+            parts: systemParts,
+        };
+    }
     flushFunctionDeclarations();
     if (tools.length > 0) body.tools = tools;
     if (!body.model)
@@ -392,16 +401,26 @@ function roleFromWire(value: unknown, what: string): "user" | "model" {
 
 function systemInstructionFromWire(value: unknown): Op[] {
     const content = asRecord(value, "systemInstruction");
-    assertOnlyKeys(content, ["parts"], "systemInstruction");
-    return asArray(content.parts, "systemInstruction.parts").map((part) => {
-        const record = asRecord(part, "systemInstruction part");
-        assertOnlyKeys(record, ["text"], "systemInstruction part");
-        return {
-            op: "llm.text",
-            role: "system",
-            content: asString(record.text, "systemInstruction part.text"),
-        };
-    });
+    assertOnlyKeys(content, ["role", "parts"], "systemInstruction");
+    const program: Op[] = [];
+    if (content.role != null) {
+        program.push({
+            op: "gemini.system_instruction_role",
+            role: roleFromWire(content.role, "systemInstruction.role"),
+        });
+    }
+    program.push(
+        ...asArray(content.parts, "systemInstruction.parts").map((part) => {
+            const record = asRecord(part, "systemInstruction part");
+            assertOnlyKeys(record, ["text"], "systemInstruction part");
+            return {
+                op: "llm.text",
+                role: "system",
+                content: asString(record.text, "systemInstruction part.text"),
+            } as const;
+        }),
+    );
+    return program;
 }
 
 function generationConfigFromWire(value: unknown): Program {

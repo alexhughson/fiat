@@ -33,6 +33,29 @@ describe("openai_responses translation", () => {
         });
     });
 
+    test("a Gemini system instruction role drops without dropping its text", () => {
+        const program = GeminiTranslator.fromBody({
+            model: "glm-5.3",
+            systemInstruction: {
+                role: "user",
+                parts: [{ text: "Answer briefly." }],
+            },
+            contents: [{ role: "user", parts: [{ text: "Hi" }] }],
+        });
+
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
+            model: "glm-5.3",
+            instructions: "Answer briefly.",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [{ type: "input_text", text: "Hi" }],
+                },
+            ],
+        });
+    });
+
     const userInput = [
         {
             type: "message",
