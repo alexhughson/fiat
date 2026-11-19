@@ -17,7 +17,9 @@ import {
     documentSourceFromUrl,
     imageSourceFromUrl,
 } from "../../core/media.js";
+import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { asNumber, asRecord } from "../../core/wire.js";
 import type {
     OpenAIChatMessageMeta,
     WireContentPart,
@@ -55,8 +57,12 @@ export function raiseFinishReasons(program: Program): Program {
     );
 }
 
-// Maps the cross-provider counts onto response.usage; any vendor-specific
-// fields stay behind as a droppable openai_chat.usage residual.
+// Maps the token-count parts of the wire usage object onto response.usage.
+// OpenAI reports totals with the details inside them: prompt_tokens holds the
+// cached and cache-write counts, completion_tokens holds the reasoning count.
+// The reference defaults each details key to 0, so a present details object
+// reports its parts even when a key is missing. The modality fields and the
+// prediction counts stay behind as a residual.
 export function raiseUsage(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "openai_chat.usage") return [op];
@@ -64,27 +70,116 @@ export function raiseUsage(program: Program): Program {
             usage: Record<string, unknown>;
             appliesTo?: "request" | "response";
         }>(op);
-        const { prompt_tokens, completion_tokens, ...rest } = usageOp.usage;
-        const out: Op[] = [
+        const wireUsage = usageOp.usage;
+        const promptDetails = detailsObject(
+            wireUsage.prompt_tokens_details,
+            "usage.prompt_tokens_details",
+        );
+        const completionDetails = detailsObject(
+            wireUsage.completion_tokens_details,
+            "usage.completion_tokens_details",
+        );
+        const cached =
+            promptDetails == null
+                ? undefined
+                : asNumber(
+                      promptDetails.cached_tokens ?? 0,
+                      "usage.prompt_tokens_details.cached_tokens",
+                  );
+        const cacheWrite =
+            promptDetails == null
+                ? undefined
+                : asNumber(
+                      promptDetails.cache_write_tokens ?? 0,
+                      "usage.prompt_tokens_details.cache_write_tokens",
+                  );
+        const reasoning =
+            completionDetails == null
+                ? undefined
+                : asNumber(
+                      completionDetails.reasoning_tokens ?? 0,
+                      "usage.completion_tokens_details.reasoning_tokens",
+                  );
+        const inputTokens =
+            wireUsage.prompt_tokens == null
+                ? undefined
+                : usage.totalMinusDetails(
+                      asNumber(wireUsage.prompt_tokens, "usage.prompt_tokens"),
+                      [
+                          {
+                              field: "prompt_tokens_details.cached_tokens",
+                              value: cached ?? 0,
+                          },
+                          {
+                              field: "prompt_tokens_details.cache_write_tokens",
+                              value: cacheWrite ?? 0,
+                          },
+                      ],
+                      "prompt_tokens",
+                      "openai_chat usage",
+                  );
+        const outputTokens =
+            wireUsage.completion_tokens == null
+                ? undefined
+                : usage.totalMinusDetails(
+                      asNumber(
+                          wireUsage.completion_tokens,
+                          "usage.completion_tokens",
+                      ),
+                      [
+                          {
+                              field: "completion_tokens_details.reasoning_tokens",
+                              value: reasoning ?? 0,
+                          },
+                      ],
+                      "completion_tokens",
+                      "openai_chat usage",
+                  );
+        const counts: usage.UsageCounts = {
+            ...(inputTokens != null ? { inputTokens } : {}),
+            ...(cached != null ? { cacheReadTokens: cached } : {}),
+            ...(cacheWrite != null ? { cacheWriteTokens: cacheWrite } : {}),
+            ...(outputTokens != null ? { outputTokens } : {}),
+            ...(reasoning != null ? { reasoningTokens: reasoning } : {}),
+        };
+        const computedTotal = usage.sumParts(counts, usage.ALL_PARTS);
+        if (
+            typeof wireUsage.total_tokens === "number" &&
+            computedTotal != null &&
+            wireUsage.total_tokens !== computedTotal
+        ) {
+            usage.warnTotalMismatch(
+                "openai_chat",
+                "total_tokens",
+                wireUsage.total_tokens,
+                computedTotal,
+            );
+        }
+        const residual = usage.shrinkUsage(
+            wireUsage,
+            ["prompt_tokens", "completion_tokens", "total_tokens"],
             {
-                op: "response.usage",
-                ...(prompt_tokens != null
-                    ? { inputTokens: prompt_tokens as number }
-                    : {}),
-                ...(completion_tokens != null
-                    ? { outputTokens: completion_tokens as number }
-                    : {}),
+                prompt_tokens_details: ["cached_tokens", "cache_write_tokens"],
+                completion_tokens_details: ["reasoning_tokens"],
             },
-        ];
-        if (Object.keys(rest).length > 0) {
+        );
+        const out: Op[] = [{ op: "response.usage", ...counts }];
+        if (residual) {
             out.push({
                 op: "openai_chat.usage",
-                usage: rest,
+                usage: residual,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
             });
         }
         return out;
     });
+}
+
+function detailsObject(
+    value: unknown,
+    what: string,
+): Record<string, unknown> | undefined {
+    return value == null ? undefined : asRecord(value, what);
 }
 
 function raiseMessage(message: WireMessage): Op[] {
