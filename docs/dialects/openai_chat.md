@@ -49,7 +49,8 @@ models lower them as `max_tokens`.
 - A program that must lower to a body holding `"tools": []`, with or without
   tool history, holds an `openai_chat.body_field` op with key `tools` and
   value `[]`; when the program also declares `llm.tool` ops, the `llm.tool`
-  ops write `tools` and the `openai_chat.body_field` op changes nothing.
+  ops write `tools`, the `openai_chat.body_field` op's value is dropped with
+  a warning, and the call still returns.
 - Responses with `n > 1` are rejected.
 - Chat has no field for reasoning: `llm.reasoning` is dropped with a warning.
 - Response envelope and usage residuals are response-only and are not resent

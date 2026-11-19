@@ -212,7 +212,13 @@ export function requestToWire(program: Program): unknown {
         }
     }
     if (messages.length > 0) body.messages = messages;
-    if (tools.length > 0) body.tools = tools;
+    if (tools.length > 0) {
+        if (Object.hasOwn(body, "tools"))
+            console.warn(
+                'metamodel: openai_chat dropped the "tools" value of an openai_chat.body_field op because the program declares llm.tool ops',
+            );
+        body.tools = tools;
+    }
     if (!body.model)
         throw new Error(
             "openai_chat request toWire: program has no llm.model op",
