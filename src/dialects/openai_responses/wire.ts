@@ -31,6 +31,7 @@ export function requestFromWire(wire: unknown): Program {
     const body = asRecord(wire, "openai_responses request body");
     const program: Program = [];
     let pendingToolChoice: unknown;
+    let inputStart: number | undefined;
     for (const [key, value] of Object.entries(body)) {
         switch (key) {
             case "model":
@@ -39,9 +40,12 @@ export function requestFromWire(wire: unknown): Program {
                     model: asString(value, "model"),
                 });
                 break;
+            // JSON key order carries no meaning to OpenAI, so a body that
+            // writes `input` before `instructions` still gets its system text
+            // ahead of the conversation ops.
             case "instructions":
                 if (value != null)
-                    program.push({
+                    program.splice(inputStart ?? program.length, 0, {
                         op: "llm.text",
                         role: "system",
                         content: asString(value, "instructions"),
@@ -82,6 +86,7 @@ export function requestFromWire(wire: unknown): Program {
                 }
                 break;
             case "input":
+                inputStart = program.length;
                 program.push(...inputFromWire(value));
                 break;
             case "tools":
@@ -494,6 +499,11 @@ export function streamResponseToWire(program: Program): unknown {
         }
     }
 
+    rejectDeltaWithFinishReason(
+        sawTextDelta || toolDeltas.length > 0,
+        finishReason,
+    );
+
     if (sawTextDelta) {
         event.type ??= "response.output_text.delta";
         event.item_id ??= `msg_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -559,6 +569,20 @@ export function streamResponseToWire(program: Program): unknown {
         event.response = response;
     }
     return event;
+}
+
+// A Responses stream has no event that holds a delta and a stop reason, and
+// this function returns one event. Writing the delta event alone would drop
+// the stop reason, so the program is rejected. toStreamResponses splits such a
+// program before it calls this function.
+function rejectDeltaWithFinishReason(
+    hasDelta: boolean,
+    finishReason: string | undefined,
+): void {
+    if (!hasDelta || finishReason == null) return;
+    throw new LintError(
+        `openai_responses stream response toWire: the program holds a delta and the stop reason "${finishReason}", which a Responses stream sends as two events; toStreamResponses returns both`,
+    );
 }
 
 function inputFromWire(input: unknown): Program {

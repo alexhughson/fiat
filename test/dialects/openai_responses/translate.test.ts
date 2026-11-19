@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
     AnthropicTranslator,
+    GeminiTranslator,
     LintError,
     OpenAIChatTranslator,
     OpenAIResponsesTranslator,
@@ -31,6 +32,55 @@ describe("openai_responses translation", () => {
             ],
         });
     });
+
+    const userInput = [
+        {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "hi" }],
+        },
+    ];
+    test.each([
+        [
+            "model, input, instructions",
+            {
+                model: "gpt-4o-mini",
+                input: userInput,
+                instructions: "Reply tersely.",
+            },
+        ],
+        [
+            "input, model, instructions",
+            {
+                input: userInput,
+                model: "gpt-4o-mini",
+                instructions: "Reply tersely.",
+            },
+        ],
+    ])(
+        "a responses request with keys in the order %s lowers to Anthropic and Gemini",
+        (_order, body) => {
+            const program = OpenAIResponsesTranslator.fromBody(body);
+
+            expect(program.filter((op) => op.op === "llm.text")).toEqual([
+                { op: "llm.text", role: "system", content: "Reply tersely." },
+                { op: "llm.text", role: "user", content: "hi" },
+            ]);
+            expect(AnthropicTranslator.toBody(program)).toEqual({
+                model: "gpt-4o-mini",
+                max_tokens: 4096,
+                system: "Reply tersely.",
+                messages: [
+                    { role: "user", content: [{ type: "text", text: "hi" }] },
+                ],
+            });
+            expect(GeminiTranslator.toBody(program)).toEqual({
+                model: "gpt-4o-mini",
+                contents: [{ role: "user", parts: [{ text: "hi" }] }],
+                systemInstruction: { parts: [{ text: "Reply tersely." }] },
+            });
+        },
+    );
 
     test("portable server tools translate from Anthropic to OpenAI Responses by name", () => {
         const body = OpenAIResponsesTranslator.toBody(

@@ -392,6 +392,11 @@ export function streamResponseToWire(program: Program): unknown {
         }
     }
 
+    rejectDeltaWithFinishReason(
+        sawTextDelta || toolDeltas.length > 0,
+        finishReason,
+    );
+
     if (sawTextDelta) {
         return {
             type: eventType ?? "response.output_text.delta",
@@ -444,6 +449,20 @@ export function streamResponseToWire(program: Program): unknown {
         return { type: "response.done", ...event, response };
     }
     return { type: eventType ?? "response.done", ...event };
+}
+
+// A Realtime stream has no event that holds a delta and a stop reason, and
+// this function returns one event. Writing the delta event alone would drop
+// the stop reason, so the program is rejected. toStreamResponses splits such a
+// program before it calls this function.
+function rejectDeltaWithFinishReason(
+    hasDelta: boolean,
+    finishReason: string | undefined,
+): void {
+    if (!hasDelta || finishReason == null) return;
+    throw new LintError(
+        `openai_realtime stream response toWire: the program holds a delta and the stop reason "${finishReason}", which a Realtime stream sends as two events; toStreamResponses returns both`,
+    );
 }
 
 function parseRequestEvent(

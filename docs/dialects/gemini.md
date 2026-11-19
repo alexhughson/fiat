@@ -36,10 +36,18 @@ path. Code: `src/dialects/gemini/`.
 | `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
 | `gemini.body_field`        | unknown top-level field                                                                                                                                        |
 
+Gemini returns `finishReason: "STOP"` also when the model asks for a function
+call, so raising a response body or a stream chunk writes `response.stop` with
+`tool_use` when `finishReason` is `STOP` and the candidate holds a
+`functionCall` part, and lowering writes `STOP` for `tool_use`. A stream that
+sends the `functionCall` part and `STOP` in different chunks raises to
+`end_turn`.
+
 ## Lints
 
-- A bare `llm.tool_result` needs a known function name from an
-  `llm.tool_call` or the `gemini.part_meta` that names the result.
+- A bare `llm.tool_result` needs a known function name from the
+  `gemini.part_meta` that names the result or from the nearest earlier
+  `llm.tool_call` with its id; a later call with that id gives no name.
 - Multiple response candidates are rejected.
 - `toolConfig` with several `allowedFunctionNames` has no core equivalent.
 - Forced server-tool choices throw; Gemini can force function tools only.
