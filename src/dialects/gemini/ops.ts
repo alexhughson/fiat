@@ -30,6 +30,7 @@ export interface WireFunctionDeclaration {
     name: string;
     description?: string;
     parameters?: Record<string, unknown>;
+    parametersJsonSchema?: Record<string, unknown>;
 }
 
 export type WireTool = Record<string, unknown>;
@@ -80,6 +81,20 @@ export type GeminiOp =
     | {
           op: "gemini.tool";
           tool: WireTool;
+          appliesTo?: "request";
+      }
+    | {
+          // The wire key a functionDeclaration's parameter schema came under.
+          // Only gemini has two spellings: `parameters` holds a Google Schema
+          // object and `parametersJsonSchema` holds plain JSON Schema. Raise
+          // writes this op with "parameters" for the `parameters` spelling and
+          // for a declaration with no parameter schema; the
+          // `parametersJsonSchema` spelling and tools from other dialects have
+          // no op, and the lowering writes their plain JSON Schema under
+          // `parametersJsonSchema`.
+          op: "gemini.tool_meta";
+          name: string;
+          parametersSpelling: "parameters" | "parametersJsonSchema";
           appliesTo?: "request";
       }
     | {

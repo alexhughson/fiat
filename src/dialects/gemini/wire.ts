@@ -75,6 +75,19 @@ export function requestToWire(program: Program): unknown {
     const tools: WireTool[] = [];
     const functionDeclarations: WireFunctionDeclaration[] = [];
     const declaredTools = declaredToolsByName(program, "gemini request lower");
+    const parametersSpellings = new Map<
+        string,
+        "parameters" | "parametersJsonSchema"
+    >();
+    for (const op of program) {
+        if (op.op === "gemini.tool_meta") {
+            const meta = opData<{
+                name: string;
+                parametersSpelling: "parameters" | "parametersJsonSchema";
+            }>(op);
+            parametersSpellings.set(meta.name, meta.parametersSpelling);
+        }
+    }
     const flushFunctionDeclarations = (): void => {
         if (functionDeclarations.length === 0) return;
         tools.push({ functionDeclarations: [...functionDeclarations] });
@@ -105,7 +118,14 @@ export function requestToWire(program: Program): unknown {
                 systemParts.push({ text: (op as OpOf<"llm.text">).content });
                 break;
             case "llm.tool":
-                functionDeclarations.push(toolToWire(op as OpOf<"llm.tool">));
+                functionDeclarations.push(
+                    toolToWire(
+                        op as OpOf<"llm.tool">,
+                        parametersSpellings.get(
+                            (op as OpOf<"llm.tool">).name,
+                        ) ?? "parametersJsonSchema",
+                    ),
+                );
                 break;
             case "llm.server_tool":
                 flushFunctionDeclarations();
@@ -126,6 +146,10 @@ export function requestToWire(program: Program): unknown {
             case "gemini.tool":
                 flushFunctionDeclarations();
                 tools.push(opData<{ tool: WireTool }>(op).tool);
+                break;
+            case "gemini.tool_meta":
+                // Consumed above: it names the key the tool's schema lowers
+                // under, and writes nothing of its own.
                 break;
             case "gemini.generation_config":
                 mergeBodyRecord(
@@ -442,17 +466,27 @@ function toolFromWire(value: unknown): Program {
     if (keys.length !== 1 || keys[0] !== "functionDeclarations") {
         return [{ op: "gemini.tool", tool }];
     }
-    return asArray(tool.functionDeclarations, "tool.functionDeclarations").map(
-        (declaration) => {
-            const fn = asRecord(declaration, "functionDeclaration");
-            assertOnlyKeys(
-                fn,
-                ["name", "description", "parameters"],
-                "functionDeclaration",
+    return asArray(
+        tool.functionDeclarations,
+        "tool.functionDeclarations",
+    ).flatMap((declaration) => {
+        const fn = asRecord(declaration, "functionDeclaration");
+        assertOnlyKeys(
+            fn,
+            ["name", "description", "parameters", "parametersJsonSchema"],
+            "functionDeclaration",
+        );
+        if (fn.parameters != null && fn.parametersJsonSchema != null) {
+            throw new LintError(
+                "functionDeclaration: parameters and parametersJsonSchema are mutually exclusive",
             );
-            return {
+        }
+        const jsonSchemaSpelling = fn.parametersJsonSchema != null;
+        const name = asString(fn.name, "functionDeclaration.name");
+        const ops: Program = [
+            {
                 op: "llm.tool",
-                name: asString(fn.name, "functionDeclaration.name"),
+                name,
                 ...(fn.description != null
                     ? {
                           description: asString(
@@ -461,10 +495,21 @@ function toolFromWire(value: unknown): Program {
                           ),
                       }
                     : {}),
-                inputSchema: (fn.parameters ?? {}) as JsonSchema,
-            };
-        },
-    );
+                inputSchema: ((jsonSchemaSpelling
+                    ? fn.parametersJsonSchema
+                    : fn.parameters) ?? {}) as JsonSchema,
+            },
+        ];
+        if (!jsonSchemaSpelling) {
+            ops.push({
+                op: "gemini.tool_meta",
+                name,
+                parametersSpelling: "parameters",
+                appliesTo: "request",
+            });
+        }
+        return ops;
+    });
 }
 
 function serverToolFromWire(tool: Record<string, unknown>): Op | undefined {
@@ -512,12 +557,22 @@ function defaultServerToolName(kind: ServerToolKind): string {
     }
 }
 
-function toolToWire(op: OpOf<"llm.tool">): WireFunctionDeclaration {
-    return {
+function toolToWire(
+    op: OpOf<"llm.tool">,
+    parametersSpelling: "parameters" | "parametersJsonSchema",
+): WireFunctionDeclaration {
+    // A schema from the parametersJsonSchema spelling or from another dialect
+    // is plain JSON Schema, and it goes back under parametersJsonSchema: the
+    // live API answers 400 for a keyword Google's Schema object lacks, such
+    // as additionalProperties, under parameters. A schema from the
+    // parameters spelling is a Google Schema object and goes back under the
+    // same key.
+    const declaration: WireFunctionDeclaration = {
         name: op.name,
         ...(op.description != null ? { description: op.description } : {}),
-        parameters: op.inputSchema,
     };
+    declaration[parametersSpelling] = op.inputSchema;
+    return declaration;
 }
 
 function toolConfigFromWire(value: unknown): Program {

@@ -3,6 +3,8 @@ import {
     AnthropicTranslator,
     GeminiTranslator,
     OpenAIChatTranslator,
+    OpenAIRealtimeTranslator,
+    OpenAIResponsesTranslator,
 } from "../../../src/index";
 import {
     geminiPlannerProgram,
@@ -124,7 +126,7 @@ describe("gemini translation", () => {
                                 name: "lookup_invoice",
                                 description:
                                     "Fetch invoice status by invoice id.",
-                                parameters: {
+                                parametersJsonSchema: {
                                     type: "object",
                                     properties: {
                                         invoice_id: { type: "string" },
@@ -135,7 +137,7 @@ describe("gemini translation", () => {
                             {
                                 name: "lookup_policy",
                                 description: "Fetch refund policy by plan.",
-                                parameters: {
+                                parametersJsonSchema: {
                                     type: "object",
                                     properties: {
                                         plan: { type: "string" },
@@ -252,7 +254,7 @@ describe("gemini translation", () => {
                             {
                                 name: "lookup_invoice",
                                 description: "fetch invoice state",
-                                parameters: {
+                                parametersJsonSchema: {
                                     type: "object",
                                     properties: {
                                         invoice_id: { type: "string" },
@@ -263,7 +265,7 @@ describe("gemini translation", () => {
                             {
                                 name: "issue_refund",
                                 description: "submit a refund",
-                                parameters: {
+                                parametersJsonSchema: {
                                     type: "object",
                                     properties: {
                                         invoice_id: { type: "string" },
@@ -375,7 +377,7 @@ describe("gemini translation", () => {
                                 name: "lookup_office",
                                 description:
                                     "Resolve an office name from a city.",
-                                parameters: {
+                                parametersJsonSchema: {
                                     type: "object",
                                     properties: {
                                         city: { type: "string" },
@@ -386,7 +388,7 @@ describe("gemini translation", () => {
                             {
                                 name: "get_weather",
                                 description: "Fetch the weather for an office.",
-                                parameters: {
+                                parametersJsonSchema: {
                                     type: "object",
                                     properties: {
                                         office: { type: "string" },
@@ -472,11 +474,189 @@ describe("gemini translation", () => {
             tools: [
                 {
                     functionDeclarations: [
-                        { name: "calc", parameters: { type: "object" } },
+                        {
+                            name: "calc",
+                            parametersJsonSchema: { type: "object" },
+                        },
                     ],
                 },
             ],
         });
+    });
+
+    test("a strict openai_responses function tool lowers to gemini under parametersJsonSchema", () => {
+        const body = GeminiTranslator.toBody(
+            OpenAIResponsesTranslator.fromBody({
+                model: "gpt-6-luna",
+                input: "Fetch the status of key abc.",
+                tools: [
+                    {
+                        type: "function",
+                        name: "get_key_status",
+                        description: "Fetch the status of one key.",
+                        strict: true,
+                        parameters: {
+                            type: "object",
+                            properties: { key: { type: "string" } },
+                            required: ["key"],
+                            additionalProperties: false,
+                        },
+                    },
+                ],
+            }),
+        ) as Record<string, unknown>;
+
+        expect(body.tools).toEqual([
+            {
+                functionDeclarations: [
+                    {
+                        name: "get_key_status",
+                        description: "Fetch the status of one key.",
+                        parametersJsonSchema: {
+                            type: "object",
+                            properties: { key: { type: "string" } },
+                            required: ["key"],
+                            additionalProperties: false,
+                        },
+                    },
+                ],
+            },
+        ]);
+    });
+
+    test("a gemini parametersJsonSchema declaration lowers to the other dialects as a function tool with that schema", () => {
+        const program = GeminiTranslator.fromBody({
+            model: "gemini-3.5-flash-lite",
+            contents: [{ role: "user", parts: [{ text: "Look up item 7." }] }],
+            tools: [
+                {
+                    functionDeclarations: [
+                        {
+                            name: "lookup_item",
+                            description: "Look up one item",
+                            parametersJsonSchema: {
+                                type: "object",
+                                properties: { item: { type: "integer" } },
+                                required: ["item"],
+                                additionalProperties: false,
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+        const schema = {
+            type: "object",
+            properties: { item: { type: "integer" } },
+            required: ["item"],
+            additionalProperties: false,
+        };
+
+        expect(
+            (
+                OpenAIResponsesTranslator.toBody(program) as Record<
+                    string,
+                    unknown
+                >
+            ).tools,
+        ).toEqual([
+            {
+                type: "function",
+                name: "lookup_item",
+                description: "Look up one item",
+                parameters: schema,
+            },
+        ]);
+        expect(
+            (OpenAIChatTranslator.toBody(program) as Record<string, unknown>)
+                .tools,
+        ).toEqual([
+            {
+                type: "function",
+                function: {
+                    name: "lookup_item",
+                    description: "Look up one item",
+                    parameters: schema,
+                },
+            },
+        ]);
+        expect(
+            (AnthropicTranslator.toBody(program) as Record<string, unknown>)
+                .tools,
+        ).toEqual([
+            {
+                name: "lookup_item",
+                description: "Look up one item",
+                input_schema: schema,
+            },
+        ]);
+        const realtimeBody = OpenAIRealtimeTranslator.toBody(program) as {
+            events: Array<Record<string, unknown>>;
+        };
+        const create = realtimeBody.events.find(
+            (event) => event.type === "response.create",
+        ) as { response: { tools?: unknown } };
+        expect(create.response.tools).toEqual([
+            {
+                type: "function",
+                name: "lookup_item",
+                description: "Look up one item",
+                parameters: schema,
+            },
+        ]);
+    });
+
+    test("a gemini parameters declaration lowers to the other dialects with its schema verbatim", () => {
+        const program = GeminiTranslator.fromBody({
+            model: "gemini-3.5-flash-lite",
+            contents: [{ role: "user", parts: [{ text: "Look up item 7." }] }],
+            tools: [
+                {
+                    functionDeclarations: [
+                        {
+                            name: "lookup_item",
+                            description: "Look up one item",
+                            parameters: {
+                                type: "OBJECT",
+                                properties: { item: { type: "INTEGER" } },
+                                required: ["item"],
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+        const schema = {
+            type: "OBJECT",
+            properties: { item: { type: "INTEGER" } },
+            required: ["item"],
+        };
+
+        expect(
+            (
+                OpenAIResponsesTranslator.toBody(program) as Record<
+                    string,
+                    unknown
+                >
+            ).tools,
+        ).toEqual([
+            {
+                type: "function",
+                name: "lookup_item",
+                description: "Look up one item",
+                parameters: schema,
+            },
+        ]);
+        expect(
+            (AnthropicTranslator.toBody(program) as Record<string, unknown>)
+                .tools,
+        ).toEqual([
+            {
+                name: "lookup_item",
+                description: "Look up one item",
+                input_schema: schema,
+            },
+        ]);
     });
 
     test("a gemini body with a string tool result raises back to the same content", () => {

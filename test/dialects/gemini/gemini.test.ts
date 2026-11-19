@@ -69,6 +69,12 @@ describe("gemini requests", () => {
                     required: ["city"],
                 },
             },
+            {
+                op: "gemini.tool_meta",
+                name: "get_weather",
+                parametersSpelling: "parameters",
+                appliesTo: "request",
+            },
             { op: "llm.tool_choice", value: { name: "get_weather" } },
         ]);
         expect(
@@ -92,6 +98,120 @@ describe("gemini requests", () => {
                     ],
                 },
                 body.contents[2],
+            ],
+        });
+    });
+
+    test("a functionDeclaration with parametersJsonSchema raises to the same llm.tool and round-trips", () => {
+        const body = {
+            model,
+            contents: [{ role: "user", parts: [{ text: "Look up item 7." }] }],
+            tools: [
+                {
+                    functionDeclarations: [
+                        {
+                            name: "lookup_item",
+                            description: "Look up one item",
+                            parametersJsonSchema: {
+                                type: "object",
+                                properties: { item: { type: "integer" } },
+                                required: ["item"],
+                                additionalProperties: false,
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(GeminiTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model },
+            { op: "llm.text", role: "user", content: "Look up item 7." },
+            {
+                op: "llm.tool",
+                name: "lookup_item",
+                description: "Look up one item",
+                inputSchema: {
+                    type: "object",
+                    properties: { item: { type: "integer" } },
+                    required: ["item"],
+                    additionalProperties: false,
+                },
+            },
+        ]);
+        expect(
+            GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("a functionDeclaration with parameters and parametersJsonSchema fails loudly", () => {
+        expect(() =>
+            GeminiTranslator.fromBody({
+                model,
+                contents: [
+                    { role: "user", parts: [{ text: "Look up item 7." }] },
+                ],
+                tools: [
+                    {
+                        functionDeclarations: [
+                            {
+                                name: "lookup_item",
+                                description: "Look up one item",
+                                parameters: { type: "OBJECT" },
+                                parametersJsonSchema: { type: "object" },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).toThrow(
+            "functionDeclaration: parameters and parametersJsonSchema are mutually exclusive",
+        );
+    });
+
+    test("a functionDeclaration with no parameter schema keeps lowering under parameters", () => {
+        const body = {
+            model,
+            contents: [{ role: "user", parts: [{ text: "Say ping." }] }],
+            tools: [
+                {
+                    functionDeclarations: [
+                        { name: "no_args", description: "Takes no arguments." },
+                    ],
+                },
+            ],
+        };
+
+        expect(GeminiTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model },
+            { op: "llm.text", role: "user", content: "Say ping." },
+            {
+                op: "llm.tool",
+                name: "no_args",
+                description: "Takes no arguments.",
+                inputSchema: {},
+            },
+            {
+                op: "gemini.tool_meta",
+                name: "no_args",
+                parametersSpelling: "parameters",
+                appliesTo: "request",
+            },
+        ]);
+        expect(
+            GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
+        ).toEqual({
+            ...body,
+            tools: [
+                {
+                    functionDeclarations: [
+                        {
+                            name: "no_args",
+                            description: "Takes no arguments.",
+                            parameters: {},
+                        },
+                    ],
+                },
             ],
         });
     });

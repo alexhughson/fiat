@@ -24,17 +24,18 @@ path. Code: `src/dialects/gemini/`.
 
 ## Dialect ops
 
-| op                         | purpose                                                                                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gemini.content`           | one request content or response candidate content                                                                                                              |
-| `gemini.part_meta`         | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta` |
-| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                                                                  |
-| `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                          |
-| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                            |
-| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                     |
-| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                                                                       |
-| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
-| `gemini.body_field`        | unknown top-level field                                                                                                                                        |
+| op                         | purpose                                                                                                                                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gemini.content`           | one request content or response candidate content                                                                                                                                                      |
+| `gemini.part_meta`         | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta`                                         |
+| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                                                                                                          |
+| `gemini.tool_meta`         | the wire key a `functionDeclaration`'s parameter schema came under; absent for the `parametersJsonSchema` spelling and for tools from other dialects, whose schemas lower under `parametersJsonSchema` |
+| `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                                                                  |
+| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                                                                    |
+| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                                                             |
+| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                                                                                                               |
+| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                                                                |
+| `gemini.body_field`        | unknown top-level field                                                                                                                                                                                |
 
 Gemini returns `finishReason: "STOP"` also when the model asks for a function
 call, so raising a response body or a stream chunk writes `response.stop` with
@@ -53,6 +54,10 @@ sends the `functionCall` part and `STOP` in different chunks raises to
 - Forced server-tool choices throw; Gemini can force function tools only.
 - `llm.output` conflicts with existing native `responseMimeType` or
   `responseSchema`.
+- A `functionDeclaration` that sets both `parameters` and
+  `parametersJsonSchema` fails loudly; Gemini's reference marks the two
+  fields mutually exclusive, and the live API answers 400 for a request
+  body that sets both.
 - A `gemini.part_meta` for a text or functionCall part must stay adjacent
   to the lowered part it annotates. A functionResponse `gemini.part_meta`
   names its `llm.tool_result` by id under `of`, and lowering binds it to
@@ -62,6 +67,106 @@ sends the `functionCall` part and `STOP` in different chunks raises to
   sit after its own result and before the next result with that id. Two
   functionResponse `gemini.part_meta` ops bound to one result lower
   without a throw, and the later one's name wins.
+
+## Tool declarations
+
+A `functionDeclaration` names its parameter schema in one of two spellings:
+`parameters` holds a Google `Schema` object, an OpenAPI 3.0 subset whose
+`type` values are upper case, and `parametersJsonSchema` holds plain JSON
+Schema. Both spellings raise to the same `llm.tool` op, whose `inputSchema`
+holds the schema exactly as the request body wrote it.
+
+This section's examples use a proxy which exposes the Gemini API to its
+clients: the proxy raises each request body a client sends into a fiat
+program, edits ops in that program, and lowers the program back into a
+request body to send on to Gemini's API. The declaration below is nested
+inside the `tools` array of a request body the proxy's client sends; it uses
+the `parametersJsonSchema` spelling:
+
+```json
+{
+    "name": "lookup_item",
+    "description": "Look up one item",
+    "parametersJsonSchema": {
+        "type": "object",
+        "properties": {
+            "item": {
+                "type": "integer"
+            }
+        },
+        "required": ["item"],
+        "additionalProperties": false
+    }
+}
+```
+
+`GeminiTranslator.fromBody` raises the declaration to one `llm.tool` op:
+
+```json
+{
+    "op": "llm.tool",
+    "name": "lookup_item",
+    "description": "Look up one item",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "item": {
+                "type": "integer"
+            }
+        },
+        "required": ["item"],
+        "additionalProperties": false
+    }
+}
+```
+
+A declaration in the `parameters` spelling raises to the same `llm.tool` op
+followed by a `gemini.tool_meta` op, which records the spelling so lowering
+writes the schema under the same key again; a declaration with no parameter
+schema also gets the op, so a round trip keeps writing `parameters: {}` as
+before. The op's shape, as `src/dialects/gemini/ops.ts` declares it:
+
+```ts
+{
+    op: "gemini.tool_meta";
+    name: string;
+    parametersSpelling: "parameters" | "parametersJsonSchema";
+    appliesTo?: "request";
+}
+```
+
+The `gemini.tool_meta` op is absent for the `parametersJsonSchema` spelling
+and for an `llm.tool` op raised from another dialect, because every other
+dialect writes plain JSON Schema into `inputSchema`. Lowering writes those
+schemas under `parametersJsonSchema`. When the proxy raises a request body an
+OpenAI Responses client sends, whose function tool declares
+`additionalProperties: false`, and lowers the program into a request body to
+send on to Gemini's API, the declaration the proxy sends is:
+
+```json
+{
+    "name": "get_key_status",
+    "description": "Fetch the status of one key.",
+    "parametersJsonSchema": {
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string"
+            }
+        },
+        "required": ["key"],
+        "additionalProperties": false
+    }
+}
+```
+
+The same schema under `parameters` fails at Gemini's API with HTTP 400
+`Unknown name "additionalProperties"`, because Google's `Schema` object has
+no such field, so a plain JSON Schema reaches Gemini only under
+`parametersJsonSchema`. The OpenAI Responses tool's `strict` field stays in
+its `openai_responses.tool_meta` op, which lowering to Gemini drops with a
+warning; the schema's `additionalProperties: false` keeps the constraint the
+`strict` field asked for.
 
 ## Tool results
 
