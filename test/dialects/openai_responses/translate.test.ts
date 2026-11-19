@@ -33,6 +33,82 @@ describe("openai_responses translation", () => {
         });
     });
 
+    const onePixelPng =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+    test("a Gemini inline image lowers to OpenAI Responses for GPT-6 Luna", () => {
+        const program = GeminiTranslator.fromBody({
+            model: "models/gemini-3.5-flash-lite",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        { text: "What is in this image?" },
+                        {
+                            inlineData: {
+                                mimeType: "image/png",
+                                data: onePixelPng,
+                            },
+                        },
+                    ],
+                },
+            ],
+        }).map((op) =>
+            op.op === "llm.model" ? { ...op, model: "gpt-6-luna" } : op,
+        );
+
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
+            model: "gpt-6-luna",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_text",
+                            text: "What is in this image?",
+                        },
+                        {
+                            type: "input_image",
+                            image_url: `data:image/png;base64,${onePixelPng}`,
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test.each(["gpt-6-luna", "glm-5.3-vision"])(
+        "Responses image input round-trips without a model-name allowlist for %s",
+        (model) => {
+            const body = {
+                model,
+                input: [
+                    {
+                        type: "message",
+                        role: "user",
+                        content: [
+                            {
+                                type: "input_text",
+                                text: "What is in this image?",
+                            },
+                            {
+                                type: "input_image",
+                                image_url: `data:image/png;base64,${onePixelPng}`,
+                            },
+                        ],
+                    },
+                ],
+            };
+
+            expect(
+                OpenAIResponsesTranslator.toBody(
+                    OpenAIResponsesTranslator.fromBody(body),
+                ),
+            ).toEqual(body);
+        },
+    );
+
     const userInput = [
         {
             type: "message",

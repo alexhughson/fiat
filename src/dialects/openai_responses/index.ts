@@ -1,7 +1,6 @@
 import type { Dialect } from "../../core/registry.js";
 import { makeTranslator } from "../../core/translator.js";
 import { DIALECT } from "./ops.js";
-import { legalizations } from "./legalize.js";
 import {
     lowerRequest,
     lowerResponse,
@@ -25,7 +24,6 @@ export const OpenAIResponsesDialect = {
         toWire: requestToWire,
         raise,
         lower: lowerRequest,
-        legalizations,
     },
     response: {
         fromWire: responseFromWire,
