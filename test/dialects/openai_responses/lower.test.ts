@@ -135,13 +135,27 @@ describe("openai_responses lower response stages", () => {
         ]);
     });
 
-    test("lowerUsageCounts fails naming the part a required wire number lacks", () => {
-        expect(() =>
+    test("lowerUsageCounts writes 0 for required numbers whose parts the source did not report", () => {
+        expect(
             lowerUsageCounts([
                 { op: "response.usage", inputTokens: 12, outputTokens: 2 },
             ]),
-        ).toThrow(/no count for input_tokens_details\.cached_tokens/);
-        expect(() =>
+        ).toEqual([
+            {
+                op: "openai_responses.usage",
+                usage: {
+                    input_tokens: 12,
+                    input_tokens_details: {
+                        cached_tokens: 0,
+                        cache_write_tokens: 0,
+                    },
+                    output_tokens: 2,
+                    output_tokens_details: { reasoning_tokens: 0 },
+                    total_tokens: 14,
+                },
+            },
+        ]);
+        expect(
             lowerUsageCounts([
                 {
                     op: "response.usage",
@@ -151,7 +165,21 @@ describe("openai_responses lower response stages", () => {
                     reasoningTokens: 1,
                 },
             ]),
-        ).toThrow(/no count for input_tokens_details\.cache_write_tokens/);
+        ).toEqual([
+            {
+                op: "openai_responses.usage",
+                usage: {
+                    input_tokens: 15,
+                    input_tokens_details: {
+                        cached_tokens: 3,
+                        cache_write_tokens: 0,
+                    },
+                    output_tokens: 3,
+                    output_tokens_details: { reasoning_tokens: 1 },
+                    total_tokens: 18,
+                },
+            },
+        ]);
     });
 
     test("collectOutputItems reunites pending core ops with output_meta templates and synthesizes leftovers", () => {

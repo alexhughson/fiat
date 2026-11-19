@@ -548,7 +548,7 @@ export function anthropicBodyUsage(
     counts: usage.UsageCounts,
 ): Record<string, unknown> {
     return {
-        input_tokens: usage.sumOrThrow(
+        input_tokens: usage.sumOrZero(
             counts,
             ["inputTokens", "toolUsePromptTokens"],
             "input_tokens",
@@ -556,7 +556,7 @@ export function anthropicBodyUsage(
         ),
         cache_read_input_tokens: counts.cacheReadTokens ?? null,
         cache_creation_input_tokens: counts.cacheWriteTokens ?? null,
-        output_tokens: usage.sumOrThrow(
+        output_tokens: usage.sumOrZero(
             counts,
             ["outputTokens", "reasoningTokens"],
             "output_tokens",
@@ -586,7 +586,7 @@ export function anthropicDeltaUsage(
         input_tokens: inputTotal ?? null,
         cache_creation_input_tokens: counts.cacheWriteTokens ?? null,
         cache_read_input_tokens: counts.cacheReadTokens ?? null,
-        output_tokens: usage.sumOrThrow(
+        output_tokens: usage.sumOrZero(
             counts,
             ["outputTokens", "reasoningTokens"],
             "output_tokens",

@@ -16,7 +16,10 @@ The token-count parts of a response's usage. The parts do not overlap and
 there is no total: each dialect's lowering computes its provider's own totals
 by summing the parts that are present. An absent param means the source
 response body carried no count for that part — the count is unknown, not
-zero — and a present 0 means the body reported the count 0.
+zero — and a present 0 means the body reported the count 0. A lowering into a
+wire whose schema requires a number fills a part the source did not report
+with 0 and a warning naming the field; a field the schema allows as null
+gets null.
 
 - `inputTokens` — input tokens the provider did not report as read from or
   written to its prompt cache.

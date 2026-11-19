@@ -426,25 +426,28 @@ describe("openai_responses translation", () => {
         expect(response.id).toBe("msg_01ABC");
     });
 
-    test("an anthropic response without a cache count cannot lower into openai responses, which requires one", () => {
+    test("an anthropic response without a cache count lowers into openai responses with 0s for the parts it lacks", () => {
         // Every key of the responses usage object is a required number, so a
-        // program whose part is absent fails the lowering rather than write a
-        // count nobody reported.
-        expect(() =>
-            OpenAIResponsesTranslator.toResponse(
-                AnthropicTranslator.fromResponse({
-                    id: "msg_nocache",
-                    type: "message",
-                    role: "assistant",
-                    model: "claude-sonnet-4-6",
-                    content: [{ type: "text", text: "It is correct." }],
-                    stop_reason: "end_turn",
-                    usage: { input_tokens: 20, output_tokens: 9 },
-                }),
-            ),
-        ).toThrow(
-            /no count for input_tokens_details\.cached_tokens \(response\.usage\.cacheReadTokens\)/,
-        );
+        // program whose source reported no count fills those fields with 0;
+        // the call returns, which a proxy routing between dialects needs.
+        const response = OpenAIResponsesTranslator.toResponse(
+            AnthropicTranslator.fromResponse({
+                id: "msg_nocache",
+                type: "message",
+                role: "assistant",
+                model: "claude-sonnet-4-6",
+                content: [{ type: "text", text: "It is correct." }],
+                stop_reason: "end_turn",
+                usage: { input_tokens: 20, output_tokens: 9 },
+            }),
+        ) as Record<string, unknown>;
+        expect(response.usage).toEqual({
+            input_tokens: 20,
+            input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+            output_tokens: 9,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: 29,
+        });
     });
 
     test("pause_turn does not become max_output_tokens when targeting openai responses", () => {

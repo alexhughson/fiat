@@ -34,11 +34,13 @@ export function sumParts(
     return total;
 }
 
-// Sum of the parts that are present, or a throw naming the wire field when no
-// part is present. For a wire field the target schema requires as a plain
-// number: writing 0 would claim a count nobody reported, so the lowering
-// fails instead.
-export function sumOrThrow(
+// Sum of the parts that are present, or 0 with a warning when no part is
+// present. For a wire field the target schema requires as a plain number:
+// the source body reported no count for it, and failing the call would block
+// a program whose source dialect reports fewer parts (a proxy routing a
+// Gemini answer to a Responses client), so the lowering writes 0 and the
+// warning names the field.
+export function sumOrZero(
     counts: UsageCounts,
     parts: UsagePart[],
     field: string,
@@ -49,9 +51,10 @@ export function sumOrThrow(
         const names = parts
             .map((part) => `response.usage.${part}`)
             .join(" or ");
-        throw new LintError(
-            `${context}: the program holds no count for ${field} (${names}), and the wire field requires a number`,
+        console.warn(
+            `metamodel: ${context}: the source reported no count for ${field} (${names}); the wire field requires a number, so the lowering writes 0`,
         );
+        return 0;
     }
     return total;
 }

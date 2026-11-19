@@ -339,15 +339,16 @@ export function lowerStopReasons(program: Program): Program {
 
 // Computes the wire usage object from the core parts. Every key of this
 // dialect's usage object is a required number, so a program whose part is
-// absent cannot fill its field: writing 0 would claim a count nobody reported,
-// so the lowering fails naming the missing part. The write-by-lifetime
-// breakdown comes from a residual.
+// absent fills its field with 0 and a warning naming the field: the source
+// reported no count, and a proxy routing a Gemini or Realtime answer to a
+// Responses client needs the call to return. The write-by-lifetime breakdown
+// comes from a residual.
 export function lowerUsageCounts(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "response.usage") return [op];
         const counts = op as OpOf<"response.usage">;
         const context = "openai_responses usage";
-        const inputTokens = usage.sumOrThrow(
+        const inputTokens = usage.sumOrZero(
             counts,
             [
                 "inputTokens",
@@ -358,7 +359,7 @@ export function lowerUsageCounts(program: Program): Program {
             "input_tokens",
             context,
         );
-        const outputTokens = usage.sumOrThrow(
+        const outputTokens = usage.sumOrZero(
             counts,
             ["outputTokens", "reasoningTokens"],
             "output_tokens",
@@ -370,13 +371,13 @@ export function lowerUsageCounts(program: Program): Program {
                 usage: {
                     input_tokens: inputTokens,
                     input_tokens_details: {
-                        cached_tokens: usage.sumOrThrow(
+                        cached_tokens: usage.sumOrZero(
                             counts,
                             ["cacheReadTokens"],
                             "input_tokens_details.cached_tokens",
                             context,
                         ),
-                        cache_write_tokens: usage.sumOrThrow(
+                        cache_write_tokens: usage.sumOrZero(
                             counts,
                             ["cacheWriteTokens"],
                             "input_tokens_details.cache_write_tokens",
@@ -385,7 +386,7 @@ export function lowerUsageCounts(program: Program): Program {
                     },
                     output_tokens: outputTokens,
                     output_tokens_details: {
-                        reasoning_tokens: usage.sumOrThrow(
+                        reasoning_tokens: usage.sumOrZero(
                             counts,
                             ["reasoningTokens"],
                             "output_tokens_details.reasoning_tokens",

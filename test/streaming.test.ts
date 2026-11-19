@@ -769,14 +769,30 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
             }),
         );
 
-        // Every key of the responses usage object is a required number, and a
-        // gemini chunk reports no cache count, so lowering it into a responses
-        // stream fails naming the missing part instead of writing a 0.
-        expect(() =>
-            OpenAIResponsesTranslator.toStreamResponses(raised),
-        ).toThrow(
-            /no count for input_tokens_details\.cached_tokens \(response\.usage\.cacheReadTokens\)/,
-        );
+        // A gemini chunk reports no cache count, and every key of the
+        // responses usage object is a required number, so its lowering fills
+        // those keys with 0; the call returns, which a proxy routing between
+        // the two dialects needs.
+        expect(OpenAIResponsesTranslator.toStreamResponses(raised)).toEqual([
+            responsesTextEvent,
+            {
+                type: "response.incomplete",
+                response: {
+                    status: "incomplete",
+                    incomplete_details: { reason: "max_output_tokens" },
+                    usage: {
+                        input_tokens: 4,
+                        input_tokens_details: {
+                            cached_tokens: 0,
+                            cache_write_tokens: 0,
+                        },
+                        output_tokens: 1,
+                        output_tokens_details: { reasoning_tokens: 0 },
+                        total_tokens: 5,
+                    },
+                },
+            },
+        ]);
         expect(OpenAIRealtimeTranslator.toStreamResponses(raised)).toEqual([
             realtimeTextEvent,
             {
@@ -867,12 +883,12 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                 )
                 .map((event) => (event as { type: string }).type);
 
-        // A gemini chunk reports no cache count, so the responses lowering of
-        // the terminal event fails on its required cache counts; the realtime
-        // lowering carries the usage through.
-        expect(() => eventTypes(OpenAIResponsesTranslator)).toThrow(
-            /no count for input_tokens_details\.cached_tokens/,
-        );
+        expect(eventTypes(OpenAIResponsesTranslator)).toEqual([
+            "response.output_text.delta",
+            "response.output_text.delta",
+            "response.output_text.delta",
+            "response.completed",
+        ]);
         expect(eventTypes(OpenAIRealtimeTranslator)).toEqual([
             "response.output_text.delta",
             "response.output_text.delta",

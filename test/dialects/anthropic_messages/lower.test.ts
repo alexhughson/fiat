@@ -387,10 +387,20 @@ describe("anthropic_messages lower response stages", () => {
         ]);
     });
 
-    test("lowerUsageCounts fails when a required non-nullable count has no part", () => {
-        expect(() =>
+    test("lowerUsageCounts writes 0 for a required count whose part the source did not report", () => {
+        expect(
             lowerUsageCounts([{ op: "response.usage", inputTokens: 20 }]),
-        ).toThrow(/no count for output_tokens/);
+        ).toEqual([
+            {
+                op: "anthropic_messages.usage",
+                usage: {
+                    input_tokens: 20,
+                    cache_read_input_tokens: null,
+                    cache_creation_input_tokens: null,
+                    output_tokens: 0,
+                },
+            },
+        ]);
     });
 
     test("collectAssistantMessage collapses response text and tool-call ops into one assistant message", () => {
