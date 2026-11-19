@@ -71,11 +71,13 @@ sends the `functionCall` part and `STOP` in different chunks raises to
 
 A `functionCall` without an id raises to `llm.tool_call` with the deterministic
 id `gemini_call_<part index>`, where the index counts parts in its model
-content. If an earlier call already has that id, the new id adds `_1`, `_2`,
-and so on until it is unique within the raised body or stream chunk. Parallel
-calls to one tool therefore receive different ids in part order, and calls at
-the same part index in different model contents do not share an id. Complete
-response bodies and stream chunks use the same rule.
+content. The new id adds `_1`, `_2`, and so on until it differs from every
+explicit call and result id in the whole body and every id already made there.
+Each made-up id is therefore unique within the raised body or stream chunk,
+whether a colliding explicit id appears earlier or later. Parallel calls to one
+tool receive different ids in part order, and calls at the same part index in
+different model contents do not share an id. Complete response bodies and
+stream chunks use the same rule.
 
 Gemini matches a response with an explicit id to the call with that id. Without
 a response id, raising selects the first earlier unmatched call with the same

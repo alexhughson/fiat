@@ -39,13 +39,19 @@ export const raiseStreamResponse: Stage = stagePipeline(
 
 export function raiseContents(program: Program): Program {
     const toolCalls: ToolCallForMatch[] = [];
+    const toolIds = collectExplicitToolIds(program);
     return program.flatMap((op) => {
         if (op.op !== "gemini.content") return [op];
         const contentOp = opData<{
             content: WireContent;
             appliesTo?: "request" | "response";
         }>(op);
-        return raiseContent(contentOp.content, contentOp.appliesTo, toolCalls);
+        return raiseContent(
+            contentOp.content,
+            contentOp.appliesTo,
+            toolCalls,
+            toolIds,
+        );
     });
 }
 
@@ -59,11 +65,28 @@ interface ToolCallForMatch {
     };
 }
 
-function synthesizeCallId(partIndex: number, earlierCalls: { id: string }[]) {
+// Reserve the whole body's explicit ids before visiting its parts so a made-up
+// id cannot collide with a call or result that appears later.
+function collectExplicitToolIds(program: Program): Set<string> {
+    const ids = new Set<string>();
+    for (const op of program) {
+        if (op.op !== "gemini.content") continue;
+        const { content } = opData<{ content: WireContent }>(op);
+        for (const part of content.parts) {
+            const callId = part.functionCall?.id;
+            const resultId = part.functionResponse?.id;
+            if (typeof callId === "string") ids.add(callId);
+            if (typeof resultId === "string") ids.add(resultId);
+        }
+    }
+    return ids;
+}
+
+function synthesizeCallId(partIndex: number, usedIds: ReadonlySet<string>) {
     const base = `gemini_call_${partIndex}`;
     let id = base;
     let suffix = 1;
-    while (earlierCalls.some((call) => call.id === id)) {
+    while (usedIds.has(id)) {
         id = `${base}_${suffix}`;
         suffix++;
     }
@@ -107,7 +130,7 @@ export function raiseThoughts(program: Program): Program {
 }
 
 export function raiseStreamContents(program: Program): Program {
-    const toolCalls: { id: string }[] = [];
+    const toolIds = collectExplicitToolIds(program);
     return program.flatMap((op) => {
         if (op.op !== "gemini.content") return [op];
         const contentOp = opData<{
@@ -117,7 +140,7 @@ export function raiseStreamContents(program: Program): Program {
         return raiseStreamContent(
             contentOp.content,
             contentOp.appliesTo,
-            toolCalls,
+            toolIds,
         );
     });
 }
@@ -267,6 +290,7 @@ function raiseContent(
     content: WireContent,
     appliesTo: "request" | "response" | undefined,
     toolCalls: ToolCallForMatch[],
+    toolIds: Set<string>,
 ): Op[] {
     const role = content.role;
     if (role == null && appliesTo !== "response") {
@@ -319,8 +343,9 @@ function raiseContent(
                 );
                 const id =
                     call.id == null
-                        ? synthesizeCallId(index, toolCalls)
+                        ? synthesizeCallId(index, toolIds)
                         : asString(call.id, "gemini functionCall.id");
+                toolIds.add(id);
                 const name = asString(call.name, "gemini functionCall.name");
                 const toolCall: OpOf<"llm.tool_call"> = {
                     op: "llm.tool_call",
@@ -523,7 +548,7 @@ function isMediaLikePart(part: WirePart): boolean {
 function raiseStreamContent(
     content: WireContent,
     appliesTo: "request" | "response" | undefined,
-    toolCalls: { id: string }[],
+    toolIds: Set<string>,
 ): Op[] {
     const role = content.role;
     if (role !== "model") {
@@ -553,9 +578,9 @@ function raiseStreamContent(
                 );
                 const id =
                     call.id == null
-                        ? synthesizeCallId(index, toolCalls)
+                        ? synthesizeCallId(index, toolIds)
                         : asString(call.id, "gemini functionCall.id");
-                toolCalls.push({ id });
+                toolIds.add(id);
                 out.push({
                     op: "response.tool_call_delta",
                     index,

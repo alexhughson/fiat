@@ -227,6 +227,92 @@ describe("gemini requests", () => {
         expect(GeminiTranslator.toBody(program)).toEqual(body);
     });
 
+    test("id synthesis avoids a later explicit call id", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: "lookup",
+                                args: { key: "first" },
+                            },
+                        },
+                        {
+                            functionCall: {
+                                id: "gemini_call_0",
+                                name: "lookup",
+                                args: { key: "second" },
+                            },
+                        },
+                    ],
+                },
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "lookup",
+                                response: { value: "first result" },
+                            },
+                        },
+                        {
+                            functionResponse: {
+                                name: "lookup",
+                                response: { value: "second result" },
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+        const program = GeminiTranslator.fromBody(body);
+
+        expect(program.filter((op) => op.op === "llm.tool_call")).toEqual([
+            {
+                op: "llm.tool_call",
+                id: "gemini_call_0_1",
+                name: "lookup",
+                arguments: { key: "first" },
+            },
+            {
+                op: "llm.tool_call",
+                id: "gemini_call_0",
+                name: "lookup",
+                arguments: { key: "second" },
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
+            model,
+            input: [
+                {
+                    type: "function_call",
+                    call_id: "gemini_call_0_1",
+                    name: "lookup",
+                    arguments: '{"key":"first"}',
+                },
+                {
+                    type: "function_call",
+                    call_id: "gemini_call_0",
+                    name: "lookup",
+                    arguments: '{"key":"second"}',
+                },
+                {
+                    type: "function_call_output",
+                    call_id: "gemini_call_0_1",
+                    output: '{"value":"first result"}',
+                },
+                {
+                    type: "function_call_output",
+                    call_id: "gemini_call_0",
+                    output: '{"value":"second result"}',
+                },
+            ],
+        });
+    });
+
     test("a result without an id takes the id of its unmatched same-name call", () => {
         const body = toolHistoryWithOptionalIds("call_lookup");
         const program = GeminiTranslator.fromBody(body);
