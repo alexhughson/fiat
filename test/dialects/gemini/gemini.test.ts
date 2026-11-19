@@ -61,6 +61,10 @@ function toolHistoryWithOptionalIds(callId?: string, resultId?: string) {
     };
 }
 
+function withInjectedThoughtSignature<T extends object>(part: T) {
+    return { ...part, thoughtSignature: "skip_thought_signature_validator" };
+}
+
 describe("gemini requests", () => {
     test("text, system, tools, tool choice, and function responses round-trip", () => {
         const body = geminiRequestFixture;
@@ -131,7 +135,7 @@ describe("gemini requests", () => {
         });
     });
 
-    test("tool history without ids raises deterministic linked ops and round-trips", () => {
+    test("tool history without ids raises deterministic linked ops and preserves id omissions", () => {
         const body = toolHistoryWithOptionalIds();
         const program = GeminiTranslator.fromBody(body);
 
@@ -171,7 +175,20 @@ describe("gemini requests", () => {
             },
         ]);
         expect(GeminiTranslator.fromBody(body)).toEqual(program);
-        expect(GeminiTranslator.toBody(program)).toEqual(body);
+        expect(GeminiTranslator.toBody(program)).toEqual({
+            ...body,
+            contents: [
+                {
+                    ...body.contents[0]!,
+                    parts: [
+                        withInjectedThoughtSignature(
+                            body.contents[0]!.parts[0]!,
+                        ),
+                    ],
+                },
+                body.contents[1]!,
+            ],
+        });
         expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
             model,
             input: [
@@ -224,7 +241,21 @@ describe("gemini requests", () => {
                 content: '{"value":17}',
             },
         ]);
-        expect(GeminiTranslator.toBody(program)).toEqual(body);
+        const modelContent = {
+            ...history.contents[0]!,
+            parts: [
+                withInjectedThoughtSignature(history.contents[0]!.parts[0]!),
+            ],
+        };
+        expect(GeminiTranslator.toBody(program)).toEqual({
+            model,
+            contents: [
+                modelContent,
+                history.contents[1]!,
+                modelContent,
+                history.contents[1]!,
+            ],
+        });
     });
 
     test("id synthesis avoids a later explicit call id", () => {
@@ -417,7 +448,20 @@ describe("gemini requests", () => {
                 name: "lookup",
             },
         });
-        expect(GeminiTranslator.toBody(program)).toEqual(body);
+        expect(GeminiTranslator.toBody(program)).toEqual({
+            ...body,
+            contents: [
+                {
+                    ...body.contents[0]!,
+                    parts: [
+                        withInjectedThoughtSignature(
+                            body.contents[0]!.parts[0]!,
+                        ),
+                    ],
+                },
+                body.contents[1]!,
+            ],
+        });
         expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
             model,
             input: [
@@ -490,7 +534,18 @@ describe("gemini requests", () => {
                 content: '{"value":"second result"}',
             },
         ]);
-        expect(GeminiTranslator.toBody(program)).toEqual(body);
+        expect(GeminiTranslator.toBody(program)).toEqual({
+            model,
+            contents: [
+                {
+                    ...body.contents[0]!,
+                    parts: body.contents[0]!.parts.map((part) =>
+                        withInjectedThoughtSignature(part),
+                    ),
+                },
+                body.contents[1]!,
+            ],
+        });
         expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
             model,
             input: [

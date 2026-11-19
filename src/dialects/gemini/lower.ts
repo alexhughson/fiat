@@ -603,9 +603,6 @@ function injectCurrentTurnThoughtSignatures(program: Program): Program {
         );
         if (partIndex < 0) continue;
         const part = content.parts[partIndex]!;
-        // An id-less call came from Gemini with this shape; adding a dummy
-        // signature would break its home round trip.
-        if (part.functionCall?.id == null) continue;
         if (typeof part.thoughtSignature === "string") continue;
         patches.set(opIndex, partIndex);
     }
