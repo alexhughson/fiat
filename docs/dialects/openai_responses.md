@@ -61,8 +61,8 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 - Request `input_image.image_url` and PDF `input_file.file_url`/`file_data`
   parts lower as ordered message content parts.
 - File ids are provider-owned and stay as native content-bearing residuals.
-- Media model validation is hard failure even in lenient mode. It never drops
-  media.
+- Media parts lower without a model-name allowlist; the provider validates
+  whether the selected model accepts them.
 
 ## Out of scope
 
