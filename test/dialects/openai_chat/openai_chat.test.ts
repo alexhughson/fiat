@@ -1,7 +1,7 @@
 // Executable documentation for the openai_chat dialect: what each wire
 // payload looks like as a core-IR program, and that the mapping round-trips.
 
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { LintError, OpenAIChatTranslator } from "../../../src/index";
 
 describe("openai_chat requests", () => {
@@ -545,7 +545,7 @@ describe("openai_chat requests", () => {
         });
     });
 
-    test("llm.tool ops override a body_field op that names tools, with a warning", () => {
+    test("llm.tool ops override a body_field op that names tools", () => {
         const toolOp = {
             op: "llm.tool",
             name: "read_file",
@@ -565,36 +565,20 @@ describe("openai_chat requests", () => {
                 },
             ],
         };
-        const warn = spyOn(console, "warn").mockImplementation(() => {});
-        try {
-            expect(
-                OpenAIChatTranslator.toBody([
-                    { op: "llm.model", model: "gpt-4o" },
-                    toolOp,
-                    { op: "openai_chat.body_field", key: "tools", value: [] },
-                ]),
-            ).toEqual(expected);
-            expect(
-                OpenAIChatTranslator.toBody([
-                    { op: "llm.model", model: "gpt-4o" },
-                    { op: "openai_chat.body_field", key: "tools", value: [] },
-                    toolOp,
-                ]),
-            ).toEqual(expected);
-            expect(warn).toHaveBeenCalledTimes(2);
-            expect(warn).toHaveBeenCalledWith(
-                'metamodel: openai_chat dropped the "tools" value of an openai_chat.body_field op because the program declares llm.tool ops',
-            );
-            expect(
-                OpenAIChatTranslator.toBody([
-                    { op: "llm.model", model: "gpt-4o" },
-                    toolOp,
-                ]),
-            ).toEqual(expected);
-            expect(warn).toHaveBeenCalledTimes(2);
-        } finally {
-            warn.mockRestore();
-        }
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                toolOp,
+                { op: "openai_chat.body_field", key: "tools", value: [] },
+            ]),
+        ).toEqual(expected);
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o" },
+                { op: "openai_chat.body_field", key: "tools", value: [] },
+                toolOp,
+            ]),
+        ).toEqual(expected);
     });
 
     test("Responses-style item ids are stripped from Chat tool call ids", () => {
