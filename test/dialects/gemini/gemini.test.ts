@@ -144,6 +144,50 @@ describe("gemini requests", () => {
         },
     );
 
+    test("systemInstruction omits empty parts when a role is present", () => {
+        expect(
+            GeminiTranslator.toBody(
+                GeminiTranslator.fromBody({
+                    model,
+                    systemInstruction: { role: "user", parts: [] },
+                    contents: [{ role: "user", parts: [{ text: "Hi" }] }],
+                }),
+            ),
+        ).toEqual({
+            model,
+            systemInstruction: { role: "user" },
+            contents: [{ role: "user", parts: [{ text: "Hi" }] }],
+        });
+    });
+
+    test("systemInstruction rejects an unsupported role value in both directions", () => {
+        const systemInstruction = {
+            role: "admin",
+            parts: [{ text: "Answer briefly." }],
+        };
+        const error = 'systemInstruction.role: unsupported role "admin"';
+
+        expect(() =>
+            GeminiTranslator.fromBody({
+                model,
+                systemInstruction,
+                contents: [{ role: "user", parts: [{ text: "Hi" }] }],
+            }),
+        ).toThrow(error);
+        expect(() =>
+            GeminiTranslator.toBody([
+                { op: "llm.model", model },
+                { op: "gemini.system_instruction_role", role: "admin" },
+                {
+                    op: "llm.text",
+                    role: "system",
+                    content: "Answer briefly.",
+                },
+                { op: "llm.text", role: "user", content: "Hi" },
+            ]),
+        ).toThrow(error);
+    });
+
     test("a system instruction role op requires its role", () => {
         expect(() =>
             GeminiTranslator.toBody([

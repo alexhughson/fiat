@@ -164,7 +164,7 @@ export function requestToWire(program: Program): unknown {
     if (systemParts.length > 0 || systemRole !== undefined) {
         body.systemInstruction = {
             ...(systemRole !== undefined ? { role: systemRole } : {}),
-            parts: systemParts,
+            ...(systemParts.length > 0 ? { parts: systemParts } : {}),
         };
     }
     flushFunctionDeclarations();
