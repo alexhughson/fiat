@@ -1434,6 +1434,7 @@ describe("gemini stream responses", () => {
     test("Gemini text chunks translate through the generic stream response ops", () => {
         const openaiChunk = OpenAIChatTranslator.toStreamResponse(
             GeminiTranslator.fromStreamResponse({
+                modelVersion: "gemini-2.5-flash",
                 candidates: [
                     {
                         content: {

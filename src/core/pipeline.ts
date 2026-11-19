@@ -6,7 +6,7 @@ import {
     type Program,
 } from "./ops.js";
 import { LintError } from "./lint.js";
-import { firstOp, opsOf } from "./program.js";
+import { firstOp } from "./program.js";
 import type { Codec, Dialect } from "./registry.js";
 import type { Stage, Target } from "./rewrite.js";
 
@@ -59,22 +59,19 @@ export function lowerToWire(
     const dialect = dialectFor(dialectRef);
     const codec = dialect[kind];
     let low = dropMetaOps(program);
-    low =
-        kind === "request"
-            ? dropResponseOps(useResponseModelWhenNoRequestedModel(low))
-            : dropRequestOps(useRequestedModelWhenNoResponseModel(low));
+    low = kind === "request" ? dropResponseOps(low) : dropRequestOps(low);
     low = runHookStages(low, opts.beforeLower);
     low = codec.lower(low, {
         dialect: dialect.name,
         kind,
-        model: requestedModel(kind, low),
+        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
         dialect: dialect.name,
         kind,
-        model: requestedModel(kind, low),
+        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     };
     for (const legalize of codec.legalizations ?? []) {
@@ -137,7 +134,7 @@ function lowerStreamResponseProgram(
     const dialect = dialectFor(dialectRef);
     const codec = streamCodecFor(dialect);
     let low = dropMetaOps(program);
-    low = dropRequestOps(useRequestedModelWhenNoResponseModel(low));
+    low = dropRequestOps(low);
     low = runHookStages(low, opts.beforeLower);
     low = codec.lower(low, {
         dialect: dialect.name,
@@ -190,42 +187,6 @@ function dropRequestOps(program: Program): Program {
         if (op.op === "llm.model") return false;
         return isCoreOp(op) || opData<DialectOp>(op).appliesTo !== "request";
     });
-}
-
-// A response program without a response.model (built by hand, or raised from
-// a body that names no model) still lowers with a model when it holds
-// llm.model: the last llm.model, the one request lowering would write, takes
-// the place of the missing response.model. dropRequestOps runs after this and
-// removes every llm.model.
-function useRequestedModelWhenNoResponseModel(program: Program): Program {
-    if (program.some((op) => op.op === "response.model")) return program;
-    const last = opsOf(program, "llm.model").at(-1);
-    if (!last) return program;
-    return program.map((op) =>
-        op === last ? { op: "response.model", model: last.model } : op,
-    );
-}
-
-// If a raised response is lowered as a request with no request program before
-// it, the program holds response.model and no llm.model, and a request body
-// needs a model. The last response.model, the model that answered most
-// recently, takes the place of the missing llm.model. dropResponseOps runs
-// after this and removes every other response.model.
-function useResponseModelWhenNoRequestedModel(program: Program): Program {
-    if (program.some((op) => op.op === "llm.model")) return program;
-    const last = opsOf(program, "response.model").at(-1);
-    if (!last) return program;
-    return program.map((op) =>
-        op === last ? { op: "llm.model", model: last.model } : op,
-    );
-}
-
-// llm.model names the model a request asks for. dropRequestOps removes it
-// from a response program, so only a request has a requested model.
-function requestedModel(kind: Kind, program: Program): string | undefined {
-    return kind === "request"
-        ? firstOp(program, "llm.model")?.model
-        : undefined;
 }
 
 // Foreign dialect ops are transcript remnants for endpoints that know how to

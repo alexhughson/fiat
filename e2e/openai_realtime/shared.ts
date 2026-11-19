@@ -173,6 +173,21 @@ export async function callRealtimeWebSocket(
     });
 }
 
+function chatResponseOrMissingModelError(program: Program): unknown {
+    try {
+        return OpenAIChatTranslator.toResponse(program);
+    } catch (error) {
+        if (
+            error instanceof Error &&
+            error.message ===
+                "openai_chat response toWire: program has no response.model op"
+        ) {
+            return { error: error.message };
+        }
+        throw error;
+    }
+}
+
 export function artifactFromResponse(
     scenario: ScenarioName,
     model: string,
@@ -197,9 +212,7 @@ export function artifactFromResponse(
         responseProgram,
         roundTripResponseBody:
             OpenAIRealtimeTranslator.toResponse(responseProgram),
-        openAIChatResponse: OpenAIChatTranslator.toResponse(
-            OpenAIRealtimeTranslator.fromResponse(responseBody),
-        ),
+        openAIChatResponse: chatResponseOrMissingModelError(responseProgram),
         durationMs,
         checks: [],
     };
@@ -254,8 +267,14 @@ export function validateArtifactFields(artifact: Artifact): string[] {
         `${artifact.scenario} saved round-trip response`,
     );
     checks.push("saved round-trip matches recomputed round-trip");
-    record(artifact.openAIChatResponse, "openAIChatResponse");
-    checks.push("realtime response translates to openai_chat response");
+    assertDeepEqual(
+        artifact.openAIChatResponse,
+        chatResponseOrMissingModelError(responseProgram),
+        `${artifact.scenario} realtime to openai_chat response`,
+    );
+    checks.push(
+        "realtime response translates to openai_chat or records the required-model error",
+    );
     return checks;
 }
 

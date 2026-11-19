@@ -707,7 +707,7 @@ describe("the model that answered", () => {
         ).toThrow('no serialization for op "llm.temperature"');
     });
 
-    test("a raised response lowered as a request, with no request before it, asks for the model that answered last", () => {
+    test("a response lowered as a request never substitutes the answered model for llm.model", () => {
         const again = {
             op: "llm.text" as const,
             role: "user" as const,
@@ -720,55 +720,23 @@ describe("the model that answered", () => {
             ...OpenAIChatTranslator.fromResponse(openaiChatResponse),
         ];
         for (const target of translators) {
-            expect(target.toBody([...one, again])).toMatchObject({
-                model: "claude-sonnet-4-5-20250929",
-            });
-            expect(target.toBody([...two, again])).toMatchObject({
-                model: "gpt-4o-2024-08-06",
-            });
+            for (const program of [
+                [...one, again],
+                [...two, again],
+            ]) {
+                if (target === OpenAIRealtimeTranslator) {
+                    // RealtimeSessionCreateRequest.model is optional.
+                    expect(target.toBody(program)).not.toHaveProperty("model");
+                } else {
+                    expect(() => target.toBody(program)).toThrow(
+                        `${target.name} request toWire: program has no llm.model op`,
+                    );
+                }
+            }
         }
     });
 
-    test("a request lowered after two raised responses holds one requested model, the model that answered last", () => {
-        const again = {
-            op: "llm.text" as const,
-            role: "user" as const,
-            content: "again",
-        };
-        const program = [
-            ...OpenAIChatTranslator.fromResponse({
-                ...openaiChatResponse,
-                model: "o3-mini-2025-01-31",
-            }),
-            again,
-            ...OpenAIChatTranslator.fromResponse(openaiChatResponse),
-            again,
-            { op: "llm.max_output_tokens" as const, value: 50 },
-        ];
-        for (const target of translators) {
-            let requested: unknown[] = [];
-            const readRequestedModels: Stage = (lowered) => {
-                requested = lowered.filter((op) => op.op === "llm.model");
-                return lowered;
-            };
-            target.toBody(program, { beforeLower: readRequestedModels });
-            expect(requested).toEqual([
-                { op: "llm.model", model: "gpt-4o-2024-08-06" },
-            ]);
-        }
-        // openai_chat writes max_completion_tokens for o3-mini and
-        // max_tokens for gpt-4o, so a second requested model that names
-        // o3-mini would change the field.
-        const body = OpenAIChatTranslator.toBody(program) as Record<
-            string,
-            unknown
-        >;
-        expect(body.model).toBe("gpt-4o-2024-08-06");
-        expect(body.max_tokens).toBe(50);
-        expect(body).not.toHaveProperty("max_completion_tokens");
-    });
-
-    test("a response program with llm.model and no response.model lowers with the requested model", () => {
+    test("a response program never substitutes llm.model for a missing response.model", () => {
         const handBuilt = [
             { op: "llm.model" as const, model: "requested-model" },
             {
@@ -778,23 +746,25 @@ describe("the model that answered", () => {
             },
             { op: "response.stop" as const, reason: "end_turn" as const },
         ];
-        expect(AnthropicTranslator.toResponse(handBuilt)).toMatchObject({
-            model: "requested-model",
-        });
-        expect(
-            AnthropicTranslator.toStreamResponses(handBuilt)[0],
-        ).toMatchObject({
-            type: "message_start",
-            message: { model: "requested-model" },
-        });
-        // Request lowering writes the last llm.model, so the response names
-        // the last one too.
-        expect(
-            AnthropicTranslator.toResponse([
-                { op: "llm.model", model: "first-requested-model" },
-                ...handBuilt,
-            ]),
-        ).toMatchObject({ model: "requested-model" });
+        for (const target of [
+            AnthropicTranslator,
+            OpenAIChatTranslator,
+            OpenAIResponsesTranslator,
+        ]) {
+            expect(() => target.toResponse(handBuilt)).toThrow(
+                `${target.name} response toWire: program has no response.model op`,
+            );
+        }
+        expect(() => AnthropicTranslator.toStreamResponses(handBuilt)).toThrow(
+            "anthropic_messages stream lower: complete response stream requires response.model",
+        );
+        expect(GeminiTranslator.toResponse(handBuilt)).not.toHaveProperty(
+            "modelVersion",
+        );
+        const realtime = OpenAIRealtimeTranslator.toResponse(handBuilt) as {
+            events: { response: Record<string, unknown> }[];
+        };
+        expect(realtime.events[0]!.response).not.toHaveProperty("model");
     });
 
     test("a response program with response.model names the model that answered, wherever llm.model stands", () => {
@@ -927,7 +897,16 @@ describe("the model that answered", () => {
             status: "completed",
             model: "gpt-4o-2024-08-06",
             output: [],
-            usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+            usage: {
+                input_tokens: 3,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 0,
+                },
+                output_tokens: 2,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: 5,
+            },
         },
     };
 
@@ -1008,10 +987,35 @@ describe("the model that answered", () => {
                     response: {
                         model: "gpt-4o-2024-08-06",
                         status: "completed",
-                        usage: { input_tokens: 8, output_tokens: 2 },
+                        usage: {
+                            input_tokens: 8,
+                            input_tokens_details: {
+                                cached_tokens: 0,
+                                cache_write_tokens: 0,
+                            },
+                            output_tokens: 2,
+                            output_tokens_details: { reasoning_tokens: 0 },
+                            total_tokens: 10,
+                        },
                     },
                 },
             ],
+        );
+    });
+
+    test("a Chat chunk and a Responses terminal event require response.model", () => {
+        const withoutModel = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([{ index: 0, delta: {}, finish_reason: "stop" }]),
+        ).filter((op) => op.op !== "response.model");
+        expect(() =>
+            OpenAIChatTranslator.toStreamResponses(withoutModel),
+        ).toThrow(
+            "openai_chat stream response toWire: program has no response.model op",
+        );
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponses(withoutModel),
+        ).toThrow(
+            "openai_responses stream response toWire: terminal event program has no response.model op",
         );
     });
 
@@ -1111,8 +1115,10 @@ describe("the model that answered", () => {
         expect(
             OpenAIRealtimeTranslator.toStreamResponses(fromRealtime),
         ).toEqual([done]);
-        expect(
-            OpenAIChatTranslator.toStreamResponses(fromRealtime)[0],
-        ).not.toHaveProperty("model");
+        expect(() =>
+            OpenAIChatTranslator.toStreamResponses(fromRealtime),
+        ).toThrow(
+            "openai_chat stream response toWire: program has no response.model op",
+        );
     });
 });

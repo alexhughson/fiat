@@ -406,6 +406,10 @@ export function responseToWire(program: Program): unknown {
         throw new Error(
             "openai_responses response toWire: program has no output",
         );
+    if (!body.model)
+        throw new Error(
+            "openai_responses response toWire: program has no response.model op",
+        );
     body.output = output;
     if (usage) body.usage = usage;
     body.id ??= `resp_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -566,6 +570,10 @@ export function streamResponseToWire(program: Program): unknown {
             ...asRecord(event.response ?? {}, "stream event.response"),
         };
         if (model != null) response.model = model;
+        if (!response.model)
+            throw new Error(
+                "openai_responses stream response toWire: terminal event program has no response.model op",
+            );
         response.status ??=
             finishReason === "max_tokens" || finishReason === "content_filter"
                 ? "incomplete"

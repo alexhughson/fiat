@@ -72,13 +72,6 @@ response has no field for, so fiat writes none of them into **Out**.
         "outputTokens": 2
     },
     {
-        "op": "openai_chat.usage",
-        "usage": {
-            "total_tokens": 10
-        },
-        "appliesTo": "response"
-    },
-    {
         "op": "llm.text",
         "role": "assistant",
         "content": "hello"
@@ -118,15 +111,10 @@ response has no field for, so fiat writes none of them into **Out**.
         "op": "anthropic_messages.usage",
         "usage": {
             "input_tokens": 8,
+            "cache_read_input_tokens": null,
+            "cache_creation_input_tokens": null,
             "output_tokens": 2
         }
-    },
-    {
-        "op": "openai_chat.usage",
-        "usage": {
-            "total_tokens": 10
-        },
-        "appliesTo": "response"
     },
     {
         "op": "anthropic_messages.stop_reason",
@@ -156,6 +144,8 @@ response has no field for, so fiat writes none of them into **Out**.
     "stop_reason": "end_turn",
     "usage": {
         "input_tokens": 8,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
         "output_tokens": 2
     },
     "type": "message",
@@ -188,6 +178,8 @@ its client as a Gemini response. A Gemini response names the model in
     "stop_sequence": null,
     "usage": {
         "input_tokens": 8,
+        "cache_read_input_tokens": null,
+        "cache_creation_input_tokens": null,
         "output_tokens": 2
     },
     "role": "assistant",
@@ -273,7 +265,8 @@ its client as a Gemini response. A Gemini response names the model in
         "op": "gemini.usage",
         "usage": {
             "promptTokenCount": 8,
-            "candidatesTokenCount": 2
+            "candidatesTokenCount": 2,
+            "totalTokenCount": 10
         }
     },
     {
@@ -312,7 +305,8 @@ its client as a Gemini response. A Gemini response names the model in
     ],
     "usageMetadata": {
         "promptTokenCount": 8,
-        "candidatesTokenCount": 2
+        "candidatesTokenCount": 2,
+        "totalTokenCount": 10
     }
 }
 ```
@@ -363,13 +357,6 @@ then the next user text. The request in **Out** asks for the model in
         "op": "response.usage",
         "inputTokens": 8,
         "outputTokens": 2
-    },
-    {
-        "op": "openai_chat.usage",
-        "usage": {
-            "total_tokens": 10
-        },
-        "appliesTo": "response"
     },
     {
         "op": "llm.text",
@@ -452,24 +439,31 @@ then the next user text. The request in **Out** asks for the model in
 | `gemini`             | top-level `modelVersion` of a response body and of every stream chunk                                                                                    |
 | `openai_realtime`    | see below                                                                                                                                                |
 
-Every dialect writes `model` unchanged, so a response body of one provider can
-name a model of another provider. When a program holds several
-`response.model` ops, the last one is written. When a program that is lowered
-to a request holds no `llm.model`, the request asks for the model in the last
-`response.model`.
+Where a provider has a response-model field, fiat writes the value unchanged,
+so a response body of one provider can name a model of another provider. When
+a program holds several `response.model` ops, the last one is written. Request
+lowering never uses `response.model` as `llm.model`, and response lowering
+never uses `llm.model` as `response.model`.
 
-The `RealtimeResponse` type of OpenAI's SDK `openai-node`, which is the
-type of the `response` of a `response.done` event, lists no `model`. A
-whole `openai_realtime` response body is a batch of events. When the
-`response` of the `response.done` event in that batch holds a `model`, fiat
-raises `response.model` from it, and fiat writes `response.model` to the
-same place. For an `openai_realtime` stream event, fiat raises no
-`response.model` and writes none from a `response.model` op. When a stream
-`response.done` event holds a `model`, that `model` stays inside the
-`openai_realtime.event_param` op for `response`, so fiat writes it back when
-it lowers the program to `openai_realtime`, and no other dialect receives it.
+The `model` field is required by the SDK response types of
+`anthropic_messages`, `openai_chat`, and `openai_responses`. Those dialects
+throw an error naming `response.model` when a whole response program has no
+model. The same rule applies to every Chat stream chunk and to a terminal
+Responses stream event. Anthropic also requires the model in the
+`message_start` event it builds from a whole response. Gemini's SDK marks
+`modelVersion` optional, so Gemini omits it when the program has no model.
+
+The `RealtimeResponse` type of OpenAI's SDK `openai-node`, which is the type of
+the `response` of a `response.done` event, lists no `model`. Lowering
+`response.model` to a whole Realtime response or stream event therefore drops
+it with a warning. When a hand-written whole Realtime body holds the
+undocumented `response.done.response.model` key, that key becomes an
+`openai_realtime.body_field` residual, not `response.model`; Realtime writes
+that same-provider residual back. A `model` inside a streamed `response.done`
+event likewise stays inside its `openai_realtime.event_param` residual.
 
 `AnthropicTranslator.fromStreamResponse` throws for a `message_start` event,
 so fiat raises no `response.model` from an Anthropic stream. When a stream
 event has no field for the model, such as a `response.output_text.delta`
-event of `openai_responses`, lowering removes `response.model`.
+event of `openai_responses` or an Anthropic `message_delta`, lowering removes
+`response.model`.

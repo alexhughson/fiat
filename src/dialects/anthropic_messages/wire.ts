@@ -534,6 +534,10 @@ export function responseToWire(program: Program): unknown {
         throw new Error(
             "anthropic_messages response toWire: program has no message",
         );
+    if (!body.model)
+        throw new Error(
+            "anthropic_messages response toWire: program has no response.model op",
+        );
     if (usage) body.usage = usage;
     body.id ??= `msg_${crypto.randomUUID().replaceAll("-", "")}`;
     body.type ??= "message";

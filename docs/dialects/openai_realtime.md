@@ -7,25 +7,27 @@ events, optionally with top-level call/session fields such as `model`.
 
 ## Direct mappings
 
-| wire                                                    | core                    |
-| ------------------------------------------------------- | ----------------------- |
-| `response.create.response.instructions`                 | system `llm.text`       |
-| text conversation items                                 | `llm.text`              |
-| `response.create.response.tools[]`                      | `llm.tool`              |
-| `response.create.response.tool_choice`                  | `llm.tool_choice`       |
-| numeric `max_output_tokens`                             | `llm.max_output_tokens` |
-| top-level request `model`                               | `llm.model`             |
-| `response.done.response.model` of a whole response body | `response.model`        |
-| `response.done.response.id`                             | `response.id`           |
+| wire                                    | core                    |
+| --------------------------------------- | ----------------------- |
+| `response.create.response.instructions` | system `llm.text`       |
+| text conversation items                 | `llm.text`              |
+| `response.create.response.tools[]`      | `llm.tool`              |
+| `response.create.response.tool_choice`  | `llm.tool_choice`       |
+| numeric `max_output_tokens`             | `llm.max_output_tokens` |
+| top-level request `model`               | `llm.model`             |
+| `response.done.response.id`             | `response.id`           |
 
 The `RealtimeResponse` type of OpenAI's SDK `openai-node`, which is the type of
-`response.done.response`, lists no `model`. fiat raises `response.model` from
-`response.done.response.model` when a whole response body holds that field,
-and writes `response.model` there. For a stream event, fiat raises no
-`response.model` and writes none from a `response.model` op. When a stream
-`response.done` event holds a `model`, that `model` stays inside the
-`openai_realtime.event_param` op for `response`, so fiat writes it back when
-it lowers the program to `openai_realtime`, and no other dialect receives it.
+`response.done.response`, lists no `model`. fiat drops `response.model` with a
+warning when it lowers a whole response or a stream event to Realtime. A
+hand-written `model` key in a whole body's `response.done.response` stays an
+`openai_realtime.body_field` residual instead of becoming `response.model`, so
+the same dialect writes that key back. In a stream `response.done` event, the
+key stays inside the `openai_realtime.event_param` op for `response`.
+
+The `RealtimeSessionCreateRequest` type marks its `model` optional. A request
+program with no `llm.model` therefore lowers to a body with no top-level
+`model`; fiat does not substitute the last `response.model`.
 
 ## Dialect ops
 

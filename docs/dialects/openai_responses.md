@@ -25,6 +25,11 @@ OpenAI Responses (`POST /v1/responses`). Code:
 
 Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 
+The SDK requires `model` in a response body and in the response object of a
+terminal stream event. Lowering either without `response.model` throws instead
+of substituting `llm.model`. A non-terminal event has no model field, so its
+lowering removes `response.model`.
+
 ## Dialect ops
 
 | op                                | purpose                                           |

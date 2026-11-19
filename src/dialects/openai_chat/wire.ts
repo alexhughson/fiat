@@ -339,6 +339,10 @@ export function responseToWire(program: Program): unknown {
     }
     if (!message)
         throw new Error("openai_chat response toWire: program has no message");
+    if (!body.model)
+        throw new Error(
+            "openai_chat response toWire: program has no response.model op",
+        );
     if (usage) body.usage = usage;
     // Protocol boilerplate a synthesized response needs; param ops (id,
     // created, ...) from a real upstream response take precedence above.
@@ -451,6 +455,10 @@ export function streamResponseToWire(program: Program): unknown {
         }
     }
 
+    if (!body.model)
+        throw new Error(
+            "openai_chat stream response toWire: program has no response.model op",
+        );
     if (toolCalls.length > 0) delta.tool_calls = toolCalls;
     if (usage) body.usage = usage;
     body.id ??= `chatcmpl-${crypto.randomUUID()}`;

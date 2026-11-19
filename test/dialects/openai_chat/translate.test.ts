@@ -727,54 +727,44 @@ describe("openai_chat translation", () => {
         });
     });
 
-    test("a realtime response.done text event can become an openai chat response", () => {
-        const openaiChatResponse = OpenAIChatTranslator.toResponse(
-            OpenAIRealtimeTranslator.fromResponse({
-                events: [
-                    {
-                        type: "response.done",
-                        response: {
-                            status: "completed",
-                            model: "gpt-realtime",
-                            output: [
-                                {
-                                    type: "message",
-                                    role: "assistant",
-                                    status: "completed",
-                                    content: [
-                                        { type: "output_text", text: "pong" },
-                                    ],
-                                },
-                            ],
-                            usage: { input_tokens: 12, output_tokens: 2 },
-                        },
+    test("a realtime response.done event without response.model cannot become an openai chat response", () => {
+        const program = OpenAIRealtimeTranslator.fromResponse({
+            events: [
+                {
+                    type: "response.done",
+                    response: {
+                        status: "completed",
+                        model: "gpt-realtime",
+                        output: [
+                            {
+                                type: "message",
+                                role: "assistant",
+                                status: "completed",
+                                content: [
+                                    { type: "output_text", text: "pong" },
+                                ],
+                            },
+                        ],
+                        usage: { input_tokens: 12, output_tokens: 2 },
                     },
-                ],
-            }),
-        ) as Record<string, unknown>;
+                },
+            ],
+        });
 
-        expect(openaiChatResponse.model).toBe("gpt-realtime");
-        expect(
-            (
-                openaiChatResponse.choices as {
-                    message: unknown;
-                    finish_reason: string;
-                }[]
-            )[0],
-        ).toMatchObject({
-            message: { role: "assistant", content: "pong" },
-            finish_reason: "stop",
+        expect(program).toContainEqual({
+            op: "openai_realtime.body_field",
+            key: "model",
+            value: "gpt-realtime",
+            appliesTo: "response",
         });
-        expect(openaiChatResponse.usage).toEqual({
-            prompt_tokens: 12,
-            completion_tokens: 2,
-            total_tokens: 14,
-        });
+        expect(() => OpenAIChatTranslator.toResponse(program)).toThrow(
+            "openai_chat response toWire: program has no response.model op",
+        );
     });
 
     test("realtime response output metadata does not block chat translation", () => {
-        const openaiChatResponse = OpenAIChatTranslator.toResponse(
-            OpenAIRealtimeTranslator.fromResponse({
+        const openaiChatResponse = OpenAIChatTranslator.toResponse([
+            ...OpenAIRealtimeTranslator.fromResponse({
                 events: [
                     {
                         type: "response.done",
@@ -797,7 +787,8 @@ describe("openai_chat translation", () => {
                     },
                 ],
             }),
-        ) as { choices: { message: { content: string } }[] };
+            { op: "response.model" as const, model: "gpt-realtime-2" },
+        ]) as { choices: { message: { content: string } }[] };
 
         expect(openaiChatResponse.choices[0]!.message.content).toBe("pong");
     });

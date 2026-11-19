@@ -82,6 +82,7 @@ describe("stream response conversion", () => {
             id: "chatcmpl-1",
             object: "chat.completion.chunk",
             created: 1700000000,
+            model: "gpt-4o",
             choices: [
                 {
                     index: 0,
@@ -129,6 +130,7 @@ describe("stream response conversion", () => {
         const doneEvent = {
             type: "response.completed",
             response: {
+                model: "gpt-4o",
                 status: "completed",
                 usage: {
                     input_tokens: 3,
@@ -491,6 +493,7 @@ describe("stream response conversion", () => {
                 OpenAIResponsesTranslator.fromStreamResponse({
                     type: "response.failed",
                     response: {
+                        model: "gpt-4o",
                         status: "failed",
                         error: { code: "server_error", message: "nope" },
                     },
@@ -625,13 +628,14 @@ describe("stream response conversion", () => {
     });
 
     test("anthropic text deltas translate to openai chat chunks", () => {
-        const openaiChunk = OpenAIChatTranslator.toStreamResponse(
-            AnthropicTranslator.fromStreamResponse({
+        const openaiChunk = OpenAIChatTranslator.toStreamResponse([
+            ...AnthropicTranslator.fromStreamResponse({
                 type: "content_block_delta",
                 index: 0,
                 delta: { type: "text_delta", text: "hi" },
             }),
-        ) as { choices: { delta: { role: string; content: string } }[] };
+            { op: "response.model" as const, model: "claude-sonnet-4-6" },
+        ]) as { choices: { delta: { role: string; content: string } }[] };
 
         expect(openaiChunk.choices[0]!.delta).toEqual({
             role: "assistant",
@@ -691,6 +695,7 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                     index: 0,
                 },
             ],
+            modelVersion: "gemini-2.5-flash",
             ...body,
         };
     }
@@ -710,7 +715,7 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
     };
     const responsesCompletedEvent = {
         type: "response.completed",
-        response: { status: "completed" },
+        response: { model: "gemini-2.5-flash", status: "completed" },
     };
     const realtimeTextEvent = {
         type: "response.output_text.delta",
@@ -826,6 +831,7 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
             {
                 type: "response.incomplete",
                 response: {
+                    model: "gemini-2.5-flash",
                     status: "incomplete",
                     incomplete_details: { reason: "content_filter" },
                 },

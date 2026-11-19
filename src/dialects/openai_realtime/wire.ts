@@ -250,7 +250,9 @@ export function responseToWire(program: Program): unknown {
     for (const op of program) {
         switch (op.op) {
             case "response.model":
-                body.model = (op as OpOf<"response.model">).model;
+                console.warn(
+                    "metamodel: openai_realtime dropped response.model because response.done.response has no model field",
+                );
                 break;
             case "response.id":
                 body.id = (op as OpOf<"response.id">).id;
@@ -706,12 +708,6 @@ function parseResponseDone(
 
     for (const [key, value] of Object.entries(response)) {
         switch (key) {
-            case "model":
-                program.push({
-                    op: "response.model",
-                    model: asString(value, "response.model"),
-                });
-                break;
             case "id":
                 program.push({
                     op: "response.id",

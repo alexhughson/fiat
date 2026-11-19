@@ -2,7 +2,10 @@
 
 Gemini Generate Content (`POST /v1beta/{model}:generateContent`). The library
 keeps `model` in the body for translation; live callers strip it into the REST
-path. Code: `src/dialects/gemini/`.
+path. Code: `src/dialects/gemini/`. The SDK marks a response's `modelVersion`
+optional, so lowering a response with no `response.model` omits that field. A
+hand-written response body key named `model` stays a `gemini.body_field`
+residual; it does not become either model op.
 
 ## Direct mappings
 
