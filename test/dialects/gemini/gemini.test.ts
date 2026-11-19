@@ -144,6 +144,21 @@ describe("gemini requests", () => {
         },
     );
 
+    test("a system instruction role op requires its role", () => {
+        expect(() =>
+            GeminiTranslator.toBody([
+                { op: "llm.model", model },
+                { op: "gemini.system_instruction_role" },
+                {
+                    op: "llm.text",
+                    role: "system",
+                    content: "Answer briefly.",
+                },
+                { op: "llm.text", role: "user", content: "Hi" },
+            ]),
+        ).toThrow("systemInstruction.role: expected a string, got undefined");
+    });
+
     test("Anthropic tool_result error metadata warns and drops for Gemini", () => {
         withWarnSpy((warn) => {
             const body = GeminiTranslator.toBody([

@@ -46,6 +46,8 @@ sends the `functionCall` part and `STOP` in different chunks raises to
 
 ## Lints
 
+- A `gemini.system_instruction_role` without a `user` or `model` role throws
+  instead of omitting its required value.
 - A bare `llm.tool_result` needs a known function name from the
   `gemini.part_meta` that names the result or from the nearest earlier
   `llm.tool_call` with its id; a later call with that id gives no name.

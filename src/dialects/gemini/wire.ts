@@ -125,7 +125,10 @@ export function requestToWire(program: Program): unknown {
                 contents.push(opData<{ content: WireContent }>(op).content);
                 break;
             case "gemini.system_instruction_role":
-                systemRole = opData<{ role: "user" | "model" }>(op).role;
+                systemRole = roleFromWire(
+                    opData<{ role: unknown }>(op).role,
+                    "systemInstruction.role",
+                );
                 break;
             case "gemini.tool":
                 flushFunctionDeclarations();
