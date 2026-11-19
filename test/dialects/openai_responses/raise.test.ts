@@ -102,27 +102,79 @@ describe("openai_responses raise stages", () => {
         ]);
     });
 
-    test("raiseUsage splits the wire usage object into cross-provider counts plus a droppable residual", () => {
+    test("raiseUsage subtracts the details the body reports inside its totals and keeps the TTL breakdown as a residual", () => {
         expect(
             raiseUsage([
                 { op: "llm.model", model: "m" },
                 {
                     op: "openai_responses.usage",
                     usage: {
-                        input_tokens: 12,
-                        output_tokens: 2,
-                        total_tokens: 14,
+                        input_tokens: 2600,
+                        input_tokens_details: {
+                            cached_tokens: 2048,
+                            cache_write_tokens: 500,
+                            cache_write_tokens_details: {
+                                ttl_30m_tokens: 500,
+                                ttl_12h_tokens: 0,
+                            },
+                        },
+                        output_tokens: 97,
+                        output_tokens_details: { reasoning_tokens: 40 },
+                        total_tokens: 2697,
                     },
                     appliesTo: "response",
                 },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
-            { op: "response.usage", inputTokens: 12, outputTokens: 2 },
+            {
+                op: "response.usage",
+                inputTokens: 52,
+                cacheReadTokens: 2048,
+                cacheWriteTokens: 500,
+                outputTokens: 57,
+                reasoningTokens: 40,
+            },
             {
                 op: "openai_responses.usage",
-                usage: { total_tokens: 14 },
+                usage: {
+                    input_tokens_details: {
+                        cache_write_tokens_details: {
+                            ttl_30m_tokens: 500,
+                            ttl_12h_tokens: 0,
+                        },
+                    },
+                },
                 appliesTo: "response",
+            },
+        ]);
+    });
+
+    test("raiseUsage leaves no residual when the body reports only the counts", () => {
+        expect(
+            raiseUsage([
+                {
+                    op: "openai_responses.usage",
+                    usage: {
+                        input_tokens: 12,
+                        input_tokens_details: {
+                            cached_tokens: 0,
+                            cache_write_tokens: 0,
+                        },
+                        output_tokens: 2,
+                        output_tokens_details: { reasoning_tokens: 0 },
+                        total_tokens: 14,
+                    },
+                },
+            ]),
+        ).toEqual([
+            {
+                op: "response.usage",
+                inputTokens: 12,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                outputTokens: 2,
+                reasoningTokens: 0,
             },
         ]);
     });

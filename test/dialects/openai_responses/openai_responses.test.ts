@@ -827,7 +827,7 @@ describe("openai_responses responses", () => {
         ],
         usage: {
             input_tokens: 12,
-            input_tokens_details: { cached_tokens: 0 },
+            input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
             output_tokens: 2,
             output_tokens_details: { reasoning_tokens: 0 },
             total_tokens: 14,
@@ -876,15 +876,13 @@ describe("openai_responses responses", () => {
                 },
                 appliesTo: "response",
             },
-            { op: "response.usage", inputTokens: 12, outputTokens: 2 },
             {
-                op: "openai_responses.usage",
-                usage: {
-                    input_tokens_details: { cached_tokens: 0 },
-                    output_tokens_details: { reasoning_tokens: 0 },
-                    total_tokens: 14,
-                },
-                appliesTo: "response",
+                op: "response.usage",
+                inputTokens: 12,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                outputTokens: 2,
+                reasoningTokens: 0,
             },
             {
                 op: "openai_responses.body_field",
@@ -982,7 +980,16 @@ describe("openai_responses responses", () => {
                     ],
                 },
             ],
-            usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+            usage: {
+                input_tokens: 3,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 0,
+                },
+                output_tokens: 2,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: 5,
+            },
             incomplete_details: null,
         };
 
@@ -1085,6 +1092,31 @@ describe("openai_responses responses", () => {
         ).toThrow(LintError);
     });
 
+    test("function_call output without an item id round-trips without generating one", () => {
+        const body = {
+            id: "resp_no_item_id",
+            object: "response",
+            created_at: 1783049001,
+            status: "completed",
+            model: "gpt-4o-mini",
+            output: [
+                {
+                    type: "function_call",
+                    status: "completed",
+                    call_id: "call_1",
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                },
+            ],
+        };
+
+        expect(
+            OpenAIResponsesTranslator.toResponse(
+                OpenAIResponsesTranslator.fromResponse(body),
+            ),
+        ).toEqual(body);
+    });
+
     test("function_call output separates call and item ids and round-trips", () => {
         const body = {
             id: "resp_456",
@@ -1102,7 +1134,16 @@ describe("openai_responses responses", () => {
                     arguments: '{"city":"Paris"}',
                 },
             ],
-            usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 },
+            usage: {
+                input_tokens: 10,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 0,
+                },
+                output_tokens: 4,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: 14,
+            },
             incomplete_details: null,
         };
         const program = OpenAIResponsesTranslator.fromResponse(body);

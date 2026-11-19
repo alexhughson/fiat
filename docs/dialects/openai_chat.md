@@ -28,7 +28,7 @@ models lower them as `max_tokens`.
 | `openai_chat.message`               | preserves one Chat message; raises text, tool calls, and tool results |
 | `openai_chat.message_meta`          | developer-role metadata and response-only message metadata            |
 | `openai_chat.finish_reason`         | maps Chat finish reasons to `response.stop`                           |
-| `openai_chat.usage`                 | maps shared token counts and preserves usage extras                   |
+| `openai_chat.usage`                 | modality breakdowns and prediction counts                             |
 | `openai_chat.response_format`       | unsupported or extra response-format payload                          |
 | `openai_chat.choice_count`          | request `n`                                                           |
 | `openai_chat.max_completion_tokens` | reasoning-model token cap                                             |
@@ -43,7 +43,14 @@ models lower them as `max_tokens`.
 - Tool call ids lower unchanged except that Chat's 40-character limit
   truncates longer ids. A pipe has no special meaning.
 - Reasoning chat models serialize portable system text as `developer`.
-- Tool history without current tools still serializes `tools: []`.
+- Tool history without current tools omits the `tools` key: `llm.tool` ops
+  lower to `tools`, and tool history alone does not make `requestToWire`
+  write an empty `tools` array.
+- A program that must lower to a body holding `"tools": []`, with or without
+  tool history, holds an `openai_chat.body_field` op with key `tools` and
+  value `[]`; when the program also declares `llm.tool` ops, the `llm.tool`
+  ops write `tools`, the `openai_chat.body_field` op's value is dropped with
+  a warning, and the call still returns.
 - Responses with `n > 1` are rejected.
 - Chat has no field for reasoning: `llm.reasoning` is dropped with a warning.
 - Response envelope and usage residuals are response-only and are not resent

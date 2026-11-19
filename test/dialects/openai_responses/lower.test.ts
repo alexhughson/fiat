@@ -104,17 +104,80 @@ describe("openai_responses lower response stages", () => {
         ]);
     });
 
-    test("lowerUsageCounts renames the core count fields to the wire's snake_case usage shape", () => {
+    test("lowerUsageCounts sums the core parts into the wire totals, and requires a number for every key", () => {
         expect(
             lowerUsageCounts([
                 { op: "llm.model", model: "m" },
-                { op: "response.usage", inputTokens: 12, outputTokens: 2 },
+                {
+                    op: "response.usage",
+                    inputTokens: 52,
+                    cacheReadTokens: 2048,
+                    cacheWriteTokens: 500,
+                    outputTokens: 57,
+                    reasoningTokens: 40,
+                },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
             {
                 op: "openai_responses.usage",
-                usage: { input_tokens: 12, output_tokens: 2 },
+                usage: {
+                    input_tokens: 2600,
+                    input_tokens_details: {
+                        cached_tokens: 2048,
+                        cache_write_tokens: 500,
+                    },
+                    output_tokens: 97,
+                    output_tokens_details: { reasoning_tokens: 40 },
+                    total_tokens: 2697,
+                },
+            },
+        ]);
+    });
+
+    test("lowerUsageCounts writes 0 for required numbers whose parts the source did not report", () => {
+        expect(
+            lowerUsageCounts([
+                { op: "response.usage", inputTokens: 12, outputTokens: 2 },
+            ]),
+        ).toEqual([
+            {
+                op: "openai_responses.usage",
+                usage: {
+                    input_tokens: 12,
+                    input_tokens_details: {
+                        cached_tokens: 0,
+                        cache_write_tokens: 0,
+                    },
+                    output_tokens: 2,
+                    output_tokens_details: { reasoning_tokens: 0 },
+                    total_tokens: 14,
+                },
+            },
+        ]);
+        expect(
+            lowerUsageCounts([
+                {
+                    op: "response.usage",
+                    inputTokens: 12,
+                    cacheReadTokens: 3,
+                    outputTokens: 2,
+                    reasoningTokens: 1,
+                },
+            ]),
+        ).toEqual([
+            {
+                op: "openai_responses.usage",
+                usage: {
+                    input_tokens: 15,
+                    input_tokens_details: {
+                        cached_tokens: 3,
+                        cache_write_tokens: 0,
+                    },
+                    output_tokens: 3,
+                    output_tokens_details: { reasoning_tokens: 1 },
+                    total_tokens: 18,
+                },
             },
         ]);
     });
@@ -170,7 +233,6 @@ describe("openai_responses lower response stages", () => {
                 op: "openai_responses.output",
                 item: {
                     type: "function_call",
-                    id: expect.any(String),
                     status: "completed",
                     call_id: "call_1",
                     name: "get_weather",

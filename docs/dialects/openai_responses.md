@@ -36,7 +36,7 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 | `openai_responses.tool`               | provider-specific hosted tools                    |
 | `openai_responses.tool_meta`          | extra function-tool fields such as `strict`       |
 | `openai_responses.finish_reason`      | response status/incomplete details                |
-| `openai_responses.usage`              | shared usage plus usage extras                    |
+| `openai_responses.usage`              | the cache-write lifetime breakdown                |
 | `openai_responses.tool_choice`        | provider-specific tool choice                     |
 | `openai_responses.body_field`         | unknown request key or response envelope field    |
 
@@ -47,9 +47,8 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
   `openai_responses.function_call_item` with string params `of` and `itemId`.
   `of` resolves to the nearest earlier op with that id and must name an
   `llm.tool_call`; a same-id tool result does not satisfy the reference.
-- Request lowering restores the item id from that side op and omits the
-  optional input item id when no side op exists. Response lowering restores
-  the same item id or synthesizes an `fc_` id for a call from another dialect.
+- Request and response lowering restore the item id from that side op. Both
+  omit the optional item id when no side op exists; neither generates one.
 - Forced `{ name }` tool choice is resolved against declared tools during
   lowering.
 - Canonical server-tool names are `web_search` and `code_execution`.
