@@ -257,9 +257,9 @@ export function responseToWire(program: Program): unknown {
         content != null ||
         finishReason != null ||
         Object.keys(candidateMeta).length > 0;
-    // Usage belongs to the response, so it does not justify an empty candidate.
-    // The SDK marks candidates optional; an entirely empty program still throws.
-    if (!hasCandidate && usage == null)
+    // Response-level fields and usage do not justify an empty candidate.
+    // The SDK marks candidates optional; a wholly empty body still throws.
+    if (!hasCandidate && usage == null && Object.keys(body).length === 0)
         throw new Error(
             "gemini response toWire: program has no candidate content, finish reason, or candidate metadata",
         );

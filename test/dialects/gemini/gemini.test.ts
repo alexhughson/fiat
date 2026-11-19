@@ -1420,6 +1420,14 @@ describe("gemini responses", () => {
         );
     });
 
+    test("a promptFeedback-only response round-trips without a candidate", () => {
+        const wire = { promptFeedback: { blockReason: "SAFETY" } };
+
+        expect(
+            GeminiTranslator.toResponse(GeminiTranslator.fromResponse(wire)),
+        ).toEqual(wire);
+    });
+
     test("a finish reason side op requires the stop it names", () => {
         const stop = {
             op: "response.stop",
