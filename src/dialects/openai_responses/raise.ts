@@ -151,7 +151,7 @@ function raiseInput(item: WireInputItem): Op[] {
                 ]
             );
         case "function_call":
-            return [raiseFunctionCall(item)];
+            return raiseFunctionCall(item);
         case "function_call_output":
             return [raiseFunctionCallOutput(item)];
         default:
@@ -179,15 +179,17 @@ function raiseOutput(item: WireOutputItem): Op[] {
                 },
             ];
         }
-        case "function_call":
+        case "function_call": {
+            const { id: _itemId, ...metadata } = item;
             return [
-                raiseFunctionCall(item),
+                ...raiseFunctionCall(item),
                 {
                     op: "openai_responses.output_meta",
-                    item,
+                    item: metadata,
                     appliesTo: "response",
                 },
             ];
+        }
         default:
             throw new LintError(
                 `openai_responses output: unsupported item type ${JSON.stringify((item as { type?: string }).type)}`,
@@ -308,14 +310,22 @@ function raiseImagePart(
     };
 }
 
-function raiseFunctionCall(item: WireFunctionCall): Op {
-    const id = item.id ? `${item.call_id}|${item.id}` : item.call_id;
-    return {
+function raiseFunctionCall(item: WireFunctionCall): Op[] {
+    const call: Op = {
         op: "llm.tool_call",
-        id,
+        id: item.call_id,
         name: item.name,
-        arguments: parseArguments(item.arguments, id),
+        arguments: parseArguments(item.arguments, item.call_id),
     };
+    if (!item.id) return [call];
+    return [
+        call,
+        {
+            op: "openai_responses.function_call_item",
+            of: item.call_id,
+            itemId: item.id,
+        },
+    ];
 }
 
 function raiseFunctionCallOutput(item: WireFunctionCallOutput): Op {

@@ -577,7 +577,7 @@ function wireToolCall(op: {
 }
 
 function chatToolCallId(id: string): string {
-    return id.split("|", 1)[0]!.slice(0, 40);
+    return id.slice(0, 40);
 }
 
 function openAIChatAudioFormat(mediaType: string): string {

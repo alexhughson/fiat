@@ -270,20 +270,24 @@ export function mergeAdjacentMessageInputs(program: Program): Program {
     return out;
 }
 
+const FUNCTION_CALL_ITEM = "openai_responses.function_call_item";
+
 export function lowerToolCalls(program: Program): Program {
-    return program.flatMap((op) => {
+    const itemIds = functionCallItemIds(program);
+    return program.flatMap((op, index) => {
+        if (op.op === FUNCTION_CALL_ITEM) return [];
         if (op.op !== "llm.tool_call") return [op];
         const call = op as OpOf<"llm.tool_call">;
-        const id = splitResponsesToolCallId(call.id);
+        const itemId = itemIds.get(index);
         return [
             {
                 op: "openai_responses.input",
                 item: {
                     type: "function_call" as const,
-                    call_id: id.callId,
+                    call_id: call.id,
                     name: call.name,
                     arguments: JSON.stringify(call.arguments),
-                    ...(id.itemId ? { id: id.itemId } : {}),
+                    ...(itemId ? { id: itemId } : {}),
                 },
             },
         ];
@@ -294,13 +298,12 @@ export function lowerToolResults(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "llm.tool_result") return [op];
         const result = op as OpOf<"llm.tool_result">;
-        const id = splitResponsesToolCallId(result.id);
         return [
             {
                 op: "openai_responses.input",
                 item: {
                     type: "function_call_output" as const,
-                    call_id: id.callId,
+                    call_id: result.id,
                     output: result.content,
                 },
             },
@@ -308,17 +311,27 @@ export function lowerToolResults(program: Program): Program {
     });
 }
 
-function splitResponsesToolCallId(id: string): {
-    callId: string;
-    itemId?: string;
-} {
-    const [callId, itemId] = id.split("|", 2);
-    return {
-        callId: callId ?? id,
-        ...(itemId
-            ? { itemId: itemId.startsWith("fc_") ? itemId : `fc_${itemId}` }
-            : {}),
-    };
+function functionCallItemIds(program: Program): Map<number, string> {
+    const latestIndexById = new Map<string, number>();
+    const itemIds = new Map<number, string>();
+    for (const [index, op] of program.entries()) {
+        if (op.op === FUNCTION_CALL_ITEM) {
+            const side = opData<{ of: string; itemId: string }>(op);
+            const targetIndex = latestIndexById.get(side.of);
+            if (
+                targetIndex == null ||
+                program[targetIndex]?.op !== "llm.tool_call"
+            ) {
+                throw new LintError(
+                    `${FUNCTION_CALL_ITEM} references ${JSON.stringify(side.of)}, which does not resolve to an earlier llm.tool_call`,
+                );
+            }
+            itemIds.set(targetIndex, side.itemId);
+        }
+        const id = opData<{ id?: unknown }>(op).id;
+        if (typeof id === "string") latestIndexById.set(id, index);
+    }
+    return itemIds;
 }
 
 export function lowerStopReasons(program: Program): Program {
@@ -356,6 +369,11 @@ export function lowerUsageCounts(program: Program): Program {
     });
 }
 
+interface PendingFunctionCall {
+    call: OpOf<"llm.tool_call">;
+    itemId?: string;
+}
+
 // Rebuilds the response's output array. output_meta residuals (present when
 // the program was raised from a real Responses API response) act as
 // templates that consume the pending core ops in order; core ops with no
@@ -363,10 +381,11 @@ export function lowerUsageCounts(program: Program): Program {
 export function collectOutputItems(program: Program): Program {
     const out: Program = [];
     const pendingTexts: OpOf<"llm.text">[] = [];
-    const pendingToolCalls: OpOf<"llm.tool_call">[] = [];
+    const pendingToolCalls: PendingFunctionCall[] = [];
+    const itemIds = functionCallItemIds(program);
     const output: WireOutputItem[] = [];
 
-    for (const op of program) {
+    for (const [index, op] of program.entries()) {
         switch (op.op) {
             case "llm.text": {
                 const text = op as OpOf<"llm.text">;
@@ -379,7 +398,10 @@ export function collectOutputItems(program: Program): Program {
                 break;
             }
             case "llm.tool_call": {
-                pendingToolCalls.push(op as OpOf<"llm.tool_call">);
+                pendingToolCalls.push({
+                    call: op as OpOf<"llm.tool_call">,
+                    itemId: itemIds.get(index),
+                });
                 break;
             }
             case "llm.image":
@@ -400,6 +422,8 @@ export function collectOutputItems(program: Program): Program {
                 );
             case "openai_responses.output":
                 output.push(opData<{ item: WireOutputItem }>(op).item);
+                break;
+            case FUNCTION_CALL_ITEM:
                 break;
             case "openai_responses.output_meta": {
                 const meta = opData<{ item: Partial<WireOutputItem> }>(op).item;
@@ -430,13 +454,14 @@ export function collectOutputItems(program: Program): Program {
             ],
         });
     }
-    for (const call of pendingToolCalls) {
+    for (const pending of pendingToolCalls) {
         output.push({
             type: "function_call",
+            id: pending.itemId ?? newFunctionCallItemId(),
             status: "completed",
-            call_id: call.id,
-            name: call.name,
-            arguments: JSON.stringify(call.arguments),
+            call_id: pending.call.id,
+            name: pending.call.name,
+            arguments: JSON.stringify(pending.call.arguments),
         });
     }
     for (const item of output)
@@ -447,7 +472,7 @@ export function collectOutputItems(program: Program): Program {
 function outputFromMeta(
     meta: Partial<WireOutputItem>,
     pendingTexts: OpOf<"llm.text">[],
-    pendingToolCalls: OpOf<"llm.tool_call">[],
+    pendingToolCalls: PendingFunctionCall[],
 ): WireOutputItem {
     switch (meta.type) {
         case "message":
@@ -538,10 +563,10 @@ function synthesizedContent(texts: OpOf<"llm.text">[]): WireContentPart[] {
 
 function functionCallFromMeta(
     meta: Partial<WireFunctionCall>,
-    toolCalls: OpOf<"llm.tool_call">[],
+    toolCalls: PendingFunctionCall[],
 ): WireFunctionCall {
     const index = meta.call_id
-        ? toolCalls.findIndex((call) => call.id === meta.call_id)
+        ? toolCalls.findIndex((pending) => pending.call.id === meta.call_id)
         : toolCalls.length === 1
           ? 0
           : -1;
@@ -550,8 +575,8 @@ function functionCallFromMeta(
             `openai_responses response lower: no core tool call for output metadata ${JSON.stringify(meta.call_id)}`,
         );
     }
-    const [call] = toolCalls.splice(index, 1);
-    if (!call) {
+    const [pending] = toolCalls.splice(index, 1);
+    if (!pending) {
         throw new LintError(
             `openai_responses response lower: no core tool call for output metadata ${JSON.stringify(meta.call_id)}`,
         );
@@ -559,11 +584,16 @@ function functionCallFromMeta(
     return {
         ...meta,
         type: "function_call",
+        id: pending.itemId ?? newFunctionCallItemId(),
         status: meta.status ?? "completed",
-        call_id: call.id,
-        name: call.name,
-        arguments: JSON.stringify(call.arguments),
+        call_id: pending.call.id,
+        name: pending.call.name,
+        arguments: JSON.stringify(pending.call.arguments),
     };
+}
+
+function newFunctionCallItemId(): string {
+    return `fc_${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
 function lowerStopReason(

@@ -170,6 +170,7 @@ describe("openai_responses lower response stages", () => {
                 op: "openai_responses.output",
                 item: {
                     type: "function_call",
+                    id: expect.any(String),
                     status: "completed",
                     call_id: "call_1",
                     name: "get_weather",

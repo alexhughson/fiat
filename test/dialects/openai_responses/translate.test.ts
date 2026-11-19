@@ -436,6 +436,170 @@ describe("openai_responses translation", () => {
         ).toThrow(LintError);
     });
 
+    test("an OpenAI call crosses to Gemini and its tool result returns with only the call id", () => {
+        const response = GeminiTranslator.toResponse(
+            OpenAIResponsesTranslator.fromResponse({
+                id: "resp_weather_9",
+                status: "completed",
+                model: "glm-5.3",
+                output: [
+                    {
+                        type: "function_call",
+                        id: "fc_item_9",
+                        call_id: "call_weather_9",
+                        name: "weather_now",
+                        arguments: '{"city":"Halifax"}',
+                    },
+                ],
+            }),
+        ) as {
+            candidates: {
+                content: {
+                    parts: {
+                        functionCall: {
+                            id: string;
+                            name: string;
+                            args: Record<string, unknown>;
+                        };
+                    }[];
+                };
+            }[];
+        };
+        const call = response.candidates[0]!.content.parts[0]!.functionCall;
+        expect(call).toEqual({
+            id: "call_weather_9",
+            name: "weather_now",
+            args: { city: "Halifax" },
+        });
+
+        const secondRequest = OpenAIResponsesTranslator.toBody(
+            GeminiTranslator.fromBody({
+                model: "glm-5.3",
+                contents: [
+                    { role: "model", parts: [{ functionCall: call }] },
+                    {
+                        role: "user",
+                        parts: [
+                            {
+                                functionResponse: {
+                                    id: call.id,
+                                    name: call.name,
+                                    response: { temperature: 17 },
+                                },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+        expect(secondRequest).toEqual({
+            model: "glm-5.3",
+            input: [
+                {
+                    type: "function_call",
+                    call_id: "call_weather_9",
+                    name: "weather_now",
+                    arguments: '{"city":"Halifax"}',
+                },
+                {
+                    type: "function_call_output",
+                    call_id: "call_weather_9",
+                    output: '{"temperature":17}',
+                },
+            ],
+        });
+    });
+
+    test("a Gemini call gains a Responses item id and its tool result returns to Gemini", () => {
+        const response = OpenAIResponsesTranslator.toResponse(
+            GeminiTranslator.fromResponse({
+                responseId: "resp_gemini_1",
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [
+                                {
+                                    functionCall: {
+                                        id: "call_gemini_1",
+                                        name: "lookup",
+                                        args: { key: "alpha" },
+                                    },
+                                },
+                            ],
+                        },
+                        finishReason: "STOP",
+                    },
+                ],
+            }),
+        ) as {
+            output: {
+                id: string;
+                call_id: string;
+                name: string;
+                arguments: string;
+            }[];
+        };
+        const call = response.output[0]!;
+        expect(call.id).toMatch(/^fc_[0-9a-f]{32}$/);
+        expect(call).toMatchObject({
+            call_id: "call_gemini_1",
+            name: "lookup",
+            arguments: '{"key":"alpha"}',
+        });
+
+        const secondRequest = GeminiTranslator.toBody(
+            OpenAIResponsesTranslator.fromBody({
+                model: "gemini-3.5-flash-lite",
+                input: [
+                    {
+                        type: "function_call",
+                        id: call.id,
+                        call_id: call.call_id,
+                        name: call.name,
+                        arguments: call.arguments,
+                    },
+                    {
+                        type: "function_call_output",
+                        call_id: call.call_id,
+                        output: '{"value":17}',
+                    },
+                ],
+            }),
+        );
+        expect(secondRequest).toEqual({
+            model: "gemini-3.5-flash-lite",
+            contents: [
+                {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                id: "call_gemini_1",
+                                name: "lookup",
+                                args: { key: "alpha" },
+                            },
+                            thoughtSignature:
+                                "skip_thought_signature_validator",
+                        },
+                    ],
+                },
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                id: "call_gemini_1",
+                                name: "lookup",
+                                response: { value: 17 },
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
     test("refusal-only openai chat responses translate as assistant text", () => {
         const response = OpenAIResponsesTranslator.toResponse(
             OpenAIChatTranslator.fromResponse({

@@ -183,7 +183,7 @@ describe("openai_realtime translation", () => {
                         type: "conversation.item.create",
                         item: {
                             type: "function_call",
-                            call_id: "call_lookup_1|item_lookup_1",
+                            call_id: "call_lookup_1",
                             name: "lookup_invoice",
                             arguments: '{"invoice_id":"inv_1001"}',
                         },
@@ -192,7 +192,7 @@ describe("openai_realtime translation", () => {
                         type: "conversation.item.create",
                         item: {
                             type: "function_call_output",
-                            call_id: "call_lookup_1|item_lookup_1",
+                            call_id: "call_lookup_1",
                             output: '{"invoice_id":"inv_1001","duplicate_payment":true,"amount_cents":1250}',
                         },
                     },
@@ -213,7 +213,7 @@ describe("openai_realtime translation", () => {
                         type: "conversation.item.create",
                         item: {
                             type: "function_call",
-                            call_id: "call_refund_1|item_refund_1",
+                            call_id: "call_refund_1",
                             name: "issue_refund",
                             arguments:
                                 '{"invoice_id":"inv_1001","amount_cents":1250}',
@@ -223,7 +223,7 @@ describe("openai_realtime translation", () => {
                         type: "conversation.item.create",
                         item: {
                             type: "function_call_output",
-                            call_id: "call_refund_1|item_refund_1",
+                            call_id: "call_refund_1",
                             output: '{"refund_id":"rf_900","status":"submitted"}',
                         },
                     },

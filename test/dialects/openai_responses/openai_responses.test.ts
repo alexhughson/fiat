@@ -1,6 +1,24 @@
 import { describe, expect, test } from "bun:test";
-import { LintError, OpenAIResponsesTranslator } from "../../../src/index";
+import {
+    GeminiTranslator,
+    LintError,
+    OpenAIResponsesTranslator,
+} from "../../../src/index";
 import { OpenAIResponsesDialect } from "../../../src/dialects/openai_responses/index";
+
+const replayedCall = {
+    type: "function_call",
+    id: "fc_replay_alpha_81",
+    call_id: "call_replay_alpha_81",
+    name: "lookup",
+    arguments: '{"key":"alpha"}',
+};
+
+const replayedResult = {
+    type: "function_call_output",
+    call_id: "call_replay_alpha_81",
+    output: '{"value":17}',
+};
 
 describe("openai_responses requests", () => {
     test("a responses body becomes core ops and round-trips", () => {
@@ -602,36 +620,182 @@ describe("openai_responses requests", () => {
         });
     });
 
-    test("Responses item ids lower from composite tool call ids", () => {
+    test("a replayed function call keeps its call id and item id in separate ops", () => {
+        const body = {
+            model: "glm-5.3",
+            input: [replayedCall, replayedResult],
+        };
+        const program = OpenAIResponsesTranslator.fromBody(body);
+
+        expect(program).toEqual([
+            { op: "llm.model", model: "glm-5.3" },
+            {
+                op: "llm.tool_call",
+                id: "call_replay_alpha_81",
+                name: "lookup",
+                arguments: { key: "alpha" },
+            },
+            {
+                op: "openai_responses.function_call_item",
+                of: "call_replay_alpha_81",
+                itemId: "fc_replay_alpha_81",
+            },
+            {
+                op: "llm.tool_result",
+                id: "call_replay_alpha_81",
+                content: '{"value":17}',
+            },
+        ]);
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual(body);
+    });
+
+    test("a function call item id resolves to the nearest earlier op with its call id", () => {
+        const model = { op: "llm.model", model: "glm-5.3" } as const;
+        const call = {
+            op: "llm.tool_call",
+            id: "call_reused",
+            name: "lookup",
+            arguments: { key: "alpha" },
+        } as const;
+        const result = {
+            op: "llm.tool_result",
+            id: "call_reused",
+            content: '{"value":17}',
+        } as const;
+        const item = (itemId: string) =>
+            ({
+                op: "openai_responses.function_call_item",
+                of: "call_reused",
+                itemId,
+            }) as const;
+
         expect(
             OpenAIResponsesTranslator.toBody([
-                { op: "llm.model", model: "gpt-4o-mini" },
-                {
-                    op: "llm.tool_call",
-                    id: "call_1|item_123",
-                    name: "get_weather",
-                    arguments: { city: "Paris" },
-                },
-                {
-                    op: "llm.tool_result",
-                    id: "call_1|item_123",
-                    content: "clear",
-                },
+                model,
+                call,
+                item("fc_first"),
+                result,
+                call,
+                item("fc_second"),
             ]),
-        ).toEqual({
-            model: "gpt-4o-mini",
+        ).toMatchObject({
             input: [
+                { type: "function_call", id: "fc_first" },
+                { type: "function_call_output", call_id: "call_reused" },
+                { type: "function_call", id: "fc_second" },
+            ],
+        });
+        expect(() =>
+            OpenAIResponsesTranslator.toBody([
+                model,
+                call,
+                result,
+                item("fc_late"),
+            ]),
+        ).toThrow("does not resolve to an earlier llm.tool_call");
+    });
+
+    test("one replayed Responses call and result lower to Gemini", () => {
+        const program = OpenAIResponsesTranslator.fromBody({
+            model: "glm-5.3",
+            input: [replayedCall, replayedResult],
+        });
+
+        expect(GeminiTranslator.toBody(program)).toEqual({
+            model: "glm-5.3",
+            contents: [
                 {
-                    type: "function_call",
-                    id: "fc_item_123",
-                    call_id: "call_1",
-                    name: "get_weather",
-                    arguments: '{"city":"Paris"}',
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: "lookup",
+                                args: { key: "alpha" },
+                                id: "call_replay_alpha_81",
+                            },
+                            thoughtSignature:
+                                "skip_thought_signature_validator",
+                        },
+                    ],
                 },
                 {
-                    type: "function_call_output",
-                    call_id: "call_1",
-                    output: "clear",
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "lookup",
+                                response: { value: 17 },
+                                id: "call_replay_alpha_81",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("two parallel replayed Responses calls and results lower to Gemini", () => {
+        const betaCall = {
+            type: "function_call",
+            id: "fc_replay_beta_82",
+            call_id: "call_replay_beta_82",
+            name: "lookup",
+            arguments: '{"key":"beta"}',
+        };
+        const betaResult = {
+            type: "function_call_output",
+            call_id: "call_replay_beta_82",
+            output: '{"value":18}',
+        };
+        const program = OpenAIResponsesTranslator.fromBody({
+            model: "glm-5.3",
+            input: [replayedCall, betaCall, replayedResult, betaResult],
+        });
+
+        expect(GeminiTranslator.toBody(program)).toEqual({
+            model: "glm-5.3",
+            contents: [
+                {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: {
+                                name: "lookup",
+                                args: { key: "alpha" },
+                                id: "call_replay_alpha_81",
+                            },
+                            thoughtSignature:
+                                "skip_thought_signature_validator",
+                        },
+                        {
+                            functionCall: {
+                                name: "lookup",
+                                args: { key: "beta" },
+                                id: "call_replay_beta_82",
+                            },
+                            thoughtSignature:
+                                "skip_thought_signature_validator",
+                        },
+                    ],
+                },
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "lookup",
+                                response: { value: 17 },
+                                id: "call_replay_alpha_81",
+                            },
+                        },
+                        {
+                            functionResponse: {
+                                name: "lookup",
+                                response: { value: 18 },
+                                id: "call_replay_beta_82",
+                            },
+                        },
+                    ],
                 },
             ],
         });
@@ -921,8 +1085,8 @@ describe("openai_responses responses", () => {
         ).toThrow(LintError);
     });
 
-    test("function_call output raises to llm.tool_call", () => {
-        const program = OpenAIResponsesTranslator.fromResponse({
+    test("function_call output separates call and item ids and round-trips", () => {
+        const body = {
             id: "resp_456",
             object: "response",
             created_at: 1783049001,
@@ -940,17 +1104,39 @@ describe("openai_responses responses", () => {
             ],
             usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 },
             incomplete_details: null,
-        });
+        };
+        const program = OpenAIResponsesTranslator.fromResponse(body);
 
         expect(program).toContainEqual({
             op: "llm.tool_call",
-            id: "call_1|fc_123",
+            id: "call_1",
             name: "get_weather",
             arguments: { city: "Paris" },
+        });
+        expect(program).toContainEqual({
+            op: "openai_responses.function_call_item",
+            of: "call_1",
+            itemId: "fc_123",
         });
         expect(program).toContainEqual({
             op: "response.stop",
             reason: "tool_use",
         });
+        expect(OpenAIResponsesTranslator.toResponse(program)).toEqual(body);
+
+        const gemini = GeminiTranslator.toResponse(program) as {
+            candidates: {
+                content: { parts: { functionCall: Record<string, unknown> }[] };
+            }[];
+        };
+        expect(gemini.candidates[0]!.content.parts).toEqual([
+            {
+                functionCall: {
+                    name: "get_weather",
+                    args: { city: "Paris" },
+                    id: "call_1",
+                },
+            },
+        ]);
     });
 });

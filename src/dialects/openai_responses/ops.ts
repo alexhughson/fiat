@@ -71,6 +71,13 @@ export type OpenAIResponsesOp =
           item: Partial<WireOutputItem>;
           appliesTo?: "request" | "response";
       }
+    // Side op of llm.tool_call: `of` names the call id that tool results use;
+    // `itemId` names the function_call item inside a Responses body.
+    | {
+          op: "openai_responses.function_call_item";
+          of: string;
+          itemId: string;
+      }
     // Side op of llm.reasoning: `of` names the reasoning op's id. `fields` is
     // the reasoning item without `type` and without a `summary` that the
     // reasoning op's content already says (id, encrypted_content, status).

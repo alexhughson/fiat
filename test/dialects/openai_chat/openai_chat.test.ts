@@ -455,19 +455,19 @@ describe("openai_chat requests", () => {
         });
     });
 
-    test("Responses-style item ids are stripped from Chat tool call ids", () => {
+    test("a pipe in a core tool call id is not an item id separator", () => {
         expect(
             OpenAIChatTranslator.toBody([
                 { op: "llm.model", model: "gpt-4o" },
                 {
                     op: "llm.tool_call",
-                    id: "call_1|fc_abcdefghijklmnopqrstuvwxyz",
+                    id: "call_weather|with_punctuation",
                     name: "read_file",
                     arguments: { path: "a.txt" },
                 },
                 {
                     op: "llm.tool_result",
-                    id: "call_1|fc_abcdefghijklmnopqrstuvwxyz",
+                    id: "call_weather|with_punctuation",
                     content: "contents",
                 },
             ]),
@@ -476,12 +476,12 @@ describe("openai_chat requests", () => {
                 {
                     tool_calls: [
                         {
-                            id: "call_1",
+                            id: "call_weather|with_punctuation",
                         },
                     ],
                 },
                 {
-                    tool_call_id: "call_1",
+                    tool_call_id: "call_weather|with_punctuation",
                 },
             ],
         });

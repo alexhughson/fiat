@@ -239,7 +239,7 @@ describe("anthropic_messages translation", () => {
                         content: [
                             {
                                 type: "tool_use",
-                                id: "call_lookup_1|item_lookup_1",
+                                id: "call_lookup_1",
                                 name: "lookup_invoice",
                                 input: { invoice_id: "inv_1001" },
                             },
@@ -250,7 +250,7 @@ describe("anthropic_messages translation", () => {
                         content: [
                             {
                                 type: "tool_result",
-                                tool_use_id: "call_lookup_1|item_lookup_1",
+                                tool_use_id: "call_lookup_1",
                                 content:
                                     '{"invoice_id":"inv_1001","duplicate_payment":true,"amount_cents":1250}',
                             },
@@ -265,7 +265,7 @@ describe("anthropic_messages translation", () => {
                             },
                             {
                                 type: "tool_use",
-                                id: "call_refund_1|item_refund_1",
+                                id: "call_refund_1",
                                 name: "issue_refund",
                                 input: {
                                     invoice_id: "inv_1001",
@@ -279,7 +279,7 @@ describe("anthropic_messages translation", () => {
                         content: [
                             {
                                 type: "tool_result",
-                                tool_use_id: "call_refund_1|item_refund_1",
+                                tool_use_id: "call_refund_1",
                                 content:
                                     '{"refund_id":"rf_900","status":"submitted"}',
                             },

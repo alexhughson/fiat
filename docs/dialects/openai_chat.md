@@ -40,8 +40,8 @@ models lower them as `max_tokens`.
   `llm.tool_call`, not stop reason.
 - Consecutive tool calls lower into one assistant message with multiple
   `tool_calls`.
-- Responses-style ids like `call_id|item_id` lower to the Chat `call_id`; ids
-  over 40 characters are truncated.
+- Tool call ids lower unchanged except that Chat's 40-character limit
+  truncates longer ids. A pipe has no special meaning.
 - Reasoning chat models serialize portable system text as `developer`.
 - Tool history without current tools still serializes `tools: []`.
 - Responses with `n > 1` are rejected.

@@ -150,13 +150,18 @@ export const refundWorkflowProgram: Program = [
     },
     {
         op: "llm.tool_call",
-        id: "call_lookup_1|item_lookup_1",
+        id: "call_lookup_1",
         name: "lookup_invoice",
         arguments: { invoice_id: "inv_1001" },
     },
     {
+        op: "openai_responses.function_call_item",
+        of: "call_lookup_1",
+        itemId: "fc_item_lookup_1",
+    },
+    {
         op: "llm.tool_result",
-        id: "call_lookup_1|item_lookup_1",
+        id: "call_lookup_1",
         content:
             '{"invoice_id":"inv_1001","duplicate_payment":true,"amount_cents":1250}',
     },
@@ -167,13 +172,18 @@ export const refundWorkflowProgram: Program = [
     },
     {
         op: "llm.tool_call",
-        id: "call_refund_1|item_refund_1",
+        id: "call_refund_1",
         name: "issue_refund",
         arguments: { invoice_id: "inv_1001", amount_cents: 1250 },
     },
     {
+        op: "openai_responses.function_call_item",
+        of: "call_refund_1",
+        itemId: "fc_item_refund_1",
+    },
+    {
         op: "llm.tool_result",
-        id: "call_refund_1|item_refund_1",
+        id: "call_refund_1",
         content: '{"refund_id":"rf_900","status":"submitted"}',
     },
     {

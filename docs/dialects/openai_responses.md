@@ -26,24 +26,30 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 
 ## Dialect ops
 
-| op                                | purpose                                           |
-| --------------------------------- | ------------------------------------------------- |
-| `openai_responses.input`          | one request `input[]` item                        |
-| `openai_responses.output`         | one response `output[]` item                      |
-| `openai_responses.output_meta`    | response item ids/status/content metadata         |
-| `openai_responses.reasoning_item` | side op of `llm.reasoning`: id, encrypted_content |
-| `openai_responses.tool`           | provider-specific hosted tools                    |
-| `openai_responses.tool_meta`      | extra function-tool fields such as `strict`       |
-| `openai_responses.finish_reason`  | response status/incomplete details                |
-| `openai_responses.usage`          | shared usage plus usage extras                    |
-| `openai_responses.tool_choice`    | provider-specific tool choice                     |
-| `openai_responses.body_field`     | unknown request key or response envelope field    |
+| op                                    | purpose                                           |
+| ------------------------------------- | ------------------------------------------------- |
+| `openai_responses.input`              | one request `input[]` item                        |
+| `openai_responses.output`             | one response `output[]` item                      |
+| `openai_responses.output_meta`        | response status/content metadata and message ids  |
+| `openai_responses.function_call_item` | side op of `llm.tool_call`: function-call item id |
+| `openai_responses.reasoning_item`     | side op of `llm.reasoning`: id, encrypted_content |
+| `openai_responses.tool`               | provider-specific hosted tools                    |
+| `openai_responses.tool_meta`          | extra function-tool fields such as `strict`       |
+| `openai_responses.finish_reason`      | response status/incomplete details                |
+| `openai_responses.usage`              | shared usage plus usage extras                    |
+| `openai_responses.tool_choice`        | provider-specific tool choice                     |
+| `openai_responses.body_field`         | unknown request key or response envelope field    |
 
 ## Tool rules
 
-- Function-call responses with both `call_id` and item `id` raise as
-  `llm.tool_call.id = "call_id|item_id"`.
-- Tool results use only `call_id`.
+- A function call raises `llm.tool_call.id` from `call_id`, the id its tool
+  results use. Its item `id` raises separately as
+  `openai_responses.function_call_item` with string params `of` and `itemId`.
+  `of` resolves to the nearest earlier op with that id and must name an
+  `llm.tool_call`; a same-id tool result does not satisfy the reference.
+- Request lowering restores the item id from that side op and omits the
+  optional input item id when no side op exists. Response lowering restores
+  the same item id or synthesizes an `fc_` id for a call from another dialect.
 - Forced `{ name }` tool choice is resolved against declared tools during
   lowering.
 - Canonical server-tool names are `web_search` and `code_execution`.

@@ -607,17 +607,24 @@ function injectCurrentTurnThoughtSignatures(program: Program): Program {
 }
 
 // Adjacent-only on purpose: an op between two same-role contents (a config
-// residual, a system op) keeps them separate contents. Merging builds a new
-// op — the previous one may be a caller-owned residual, and mutating it
-// would corrupt the caller's program (and compound on repeated lowering).
+// residual, a system op) keeps them separate contents. A Responses function
+// call item id is the exception: its `of` reference binds it to the call, and
+// Gemini ignores it, so it must not split parallel calls into two model turns.
+// Merging builds a new op — the previous one may be a caller-owned residual,
+// and mutating it would corrupt the caller's program (and compound on repeated
+// lowering).
 export function mergeAdjacentContents(program: Program): Program {
     const out: Program = [];
+    let previousContentIndex: number | undefined;
     for (const op of program) {
         const content =
             op.op === "gemini.content"
                 ? opData<{ content: WireContent }>(op).content
                 : undefined;
-        const previous = out[out.length - 1];
+        const previous =
+            previousContentIndex == null
+                ? undefined
+                : out[previousContentIndex];
         const previousContent =
             previous?.op === "gemini.content"
                 ? opData<{ content: WireContent }>(previous).content
@@ -627,7 +634,7 @@ export function mergeAdjacentContents(program: Program): Program {
             previousContent &&
             content.role === previousContent.role
         ) {
-            out[out.length - 1] = {
+            out[previousContentIndex!] = {
                 ...previous,
                 content: {
                     ...previousContent,
@@ -636,6 +643,11 @@ export function mergeAdjacentContents(program: Program): Program {
             } as Op;
             continue;
         }
+        if (op.op === "openai_responses.function_call_item") {
+            out.push(op);
+            continue;
+        }
+        previousContentIndex = content ? out.length : undefined;
         out.push(op);
     }
     return out;
