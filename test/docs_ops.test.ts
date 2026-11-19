@@ -97,6 +97,7 @@ const usageRuns: {
     source: Translator;
     target: Translator;
     body: (usage: unknown) => Record<string, unknown>;
+    lowerUsageOp: string;
     out: "usage" | "usageMetadata";
 }[] = [
     {
@@ -111,6 +112,7 @@ const usageRuns: {
             stop_reason: "end_turn",
             usage,
         }),
+        lowerUsageOp: "openai_chat.usage",
         out: "usage",
     },
     {
@@ -127,27 +129,34 @@ const usageRuns: {
             ],
             usageMetadata: usage,
         }),
+        lowerUsageOp: "gemini.usage",
         out: "usageMetadata",
     },
 ];
 
 const usageExamples = examplesOf("response.usage.md");
 
-test("docs/ops/response.usage.md has two examples of three json blocks", () => {
+test("docs/ops/response.usage.md has two examples of four json blocks", () => {
     expect(usageExamples.map((example) => example.blocks.length)).toEqual([
-        3, 3,
+        4, 4,
     ]);
 });
 
 for (const [index, { heading, blocks }] of usageExamples.entries()) {
     test(`docs/ops/response.usage.md ${heading}: every json block matches the run`, () => {
-        const { source, target, body, out } = usageRuns[index]!;
-        const [inUsage, raised, outUsage] = blocks;
+        const { source, target, body, lowerUsageOp, out } = usageRuns[index]!;
+        const [inUsage, raised, lower, outUsage] = blocks;
 
         const raisedProgram = source.fromResponse(body(JSON.parse(inUsage!)));
         expect(
             printed(raisedProgram.filter((op) => op.op === "response.usage")),
         ).toBe(raised!);
+
+        // The Lower block is the usage op of the lowered program.
+        const lowerProgram = target.dialect.response.lower(raisedProgram);
+        expect(
+            printed(lowerProgram.filter((op) => op.op === lowerUsageOp)),
+        ).toBe(lower!);
 
         const outBody = target.toResponse(raisedProgram) as Record<
             string,
