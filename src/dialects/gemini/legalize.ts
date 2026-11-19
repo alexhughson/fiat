@@ -57,6 +57,20 @@ function thinkingConfigForModel(
     strict: boolean,
 ): Record<string, unknown> | undefined {
     if (supportsThinkingLevel(model)) {
+        const normalizedEffort = normalizedLevel(effort);
+        if (
+            normalizedEffort === "minimal" &&
+            supportsMinimalThinkingLevel(model)
+        ) {
+            return { thinkingLevel: "MINIMAL" };
+        }
+        // "none" has no exact Gemini 3 setting, and MINIMAL is not exact on
+        // every model. Do not substitute a different amount of thinking.
+        if (normalizedEffort === "none" || normalizedEffort === "minimal") {
+            throw new LintError(
+                `${model}: generationConfig.thinkingConfig.thinkingLevel has no setting for llm.thinking effort "${effort}"`,
+            );
+        }
         const level = thinkingLevelForModel(model, effort);
         if (level) return { thinkingLevel: level };
         lintOrWarn(
@@ -191,6 +205,12 @@ function supportsThinkingLevel(model: string): boolean {
 
 function supportsFlashThinkingLevel(model: string): boolean {
     return /^(?:models\/)?gemini-3(?:\.\d+)?-flash(?:[.-]|$)/.test(model);
+}
+
+function supportsMinimalThinkingLevel(model: string): boolean {
+    return /^(?:models\/)?gemini-(?:3-flash-preview|3\.1-flash-lite(?:-image)?|3\.5-flash-lite|3\.6-flash)(?:[.-]|$)/.test(
+        model,
+    );
 }
 
 function legalizeGemini3ThinkingLevel(

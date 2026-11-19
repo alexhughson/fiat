@@ -201,8 +201,10 @@ omits the synthetic id again.
 
 - Portable `llm.thinking` lowers to Gemini 3 `thinkingLevel` or Gemini 2.5
   `thinkingBudget`.
-- Gemini 3 maps `low=LOW`; Pro maps `medium/high=HIGH`; Flash maps
-  `medium=MEDIUM`, `high=HIGH`.
+- Gemini 3 maps `minimal=MINIMAL` on models that support `MINIMAL`. `none`
+  throws, as does `minimal` on models without `MINIMAL`; neither substitutes a
+  different amount of thinking. `low=LOW`; Pro maps `medium/high=HIGH`; Flash
+  maps `medium=MEDIUM`, `high=HIGH`.
 - Gemini 3 does not accept `xhigh` or `max`; default lowering clamps to
   `HIGH`, strict mode throws.
 - Gemini 2.5 maps efforts to budgets:

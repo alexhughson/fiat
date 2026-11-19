@@ -33,6 +33,65 @@ describe("openai_responses translation", () => {
         });
     });
 
+    test("OpenAI Responses minimal effort lowers to Gemini MINIMAL when supported", () => {
+        const model = "gemini-3.5-flash-lite";
+        const program = OpenAIResponsesTranslator.fromBody({
+            model,
+            input: "Reply with exactly: ok",
+            reasoning: { effort: "minimal" },
+        });
+
+        expect(program).toEqual([
+            { op: "llm.model", model },
+            {
+                op: "llm.text",
+                role: "user",
+                content: "Reply with exactly: ok",
+            },
+            { op: "llm.thinking", effort: "minimal" },
+        ]);
+        expect(GeminiTranslator.toBody(program)).toEqual({
+            model,
+            generationConfig: {
+                thinkingConfig: { thinkingLevel: "MINIMAL" },
+            },
+            contents: [
+                {
+                    role: "user",
+                    parts: [{ text: "Reply with exactly: ok" }],
+                },
+            ],
+        });
+    });
+
+    test.each([
+        ["none", "gemini-3.5-flash-lite"],
+        ["none", "gemini-3-pro-preview"],
+        ["minimal", "gemini-3-pro-preview"],
+    ])(
+        "OpenAI Responses effort %s on %s throws instead of substituting more thinking",
+        (effort, model) => {
+            const program = OpenAIResponsesTranslator.fromBody({
+                model,
+                input: "Reply with exactly: ok",
+                reasoning: { effort },
+            });
+
+            expect(program).toEqual([
+                { op: "llm.model", model },
+                {
+                    op: "llm.text",
+                    role: "user",
+                    content: "Reply with exactly: ok",
+                },
+                { op: "llm.thinking", effort },
+            ]);
+            expect(() => GeminiTranslator.toBody(program)).toThrow(
+                `${model}: generationConfig.thinkingConfig.thinkingLevel has no setting for llm.thinking effort "${effort}"`,
+            );
+        },
+    );
+
     const userInput = [
         {
             type: "message",
