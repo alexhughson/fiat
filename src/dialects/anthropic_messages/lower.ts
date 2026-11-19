@@ -513,15 +513,18 @@ export function mergeAdjacentSameRole(program: Program): Program {
 }
 
 export function lowerStopReasons(program: Program): Program {
-    return program.flatMap((op) => {
-        if (op.op !== "response.stop") return [op];
-        return [
-            {
-                op: "anthropic_messages.stop_reason",
-                value: lowerStopReason((op as OpOf<"response.stop">).reason),
-            } as Op,
-        ];
-    });
+    return program.flatMap((op) =>
+        op.op === "response.stop"
+            ? [
+                  {
+                      op: "anthropic_messages.stop_reason",
+                      value: lowerStopReason(
+                          (op as OpOf<"response.stop">).reason,
+                      ),
+                  } as Op,
+              ]
+            : [op],
+    );
 }
 
 export function lowerUsageCounts(program: Program): Program {

@@ -323,15 +323,18 @@ function splitResponsesToolCallId(id: string): {
 }
 
 export function lowerStopReasons(program: Program): Program {
-    return program.flatMap((op) => {
-        if (op.op !== "response.stop") return [op];
-        return [
-            {
-                op: "openai_responses.finish_reason",
-                reason: lowerStopReason((op as OpOf<"response.stop">).reason),
-            } as Op,
-        ];
-    });
+    return program.flatMap((op) =>
+        op.op === "response.stop"
+            ? [
+                  {
+                      op: "openai_responses.finish_reason",
+                      reason: lowerStopReason(
+                          (op as OpOf<"response.stop">).reason,
+                      ),
+                  } as Op,
+              ]
+            : [op],
+    );
 }
 
 // Computes the wire usage object from the core parts. Every key of this
