@@ -1,4 +1,5 @@
 import type { Program } from "./ops.js";
+import type { LowerOptions } from "./pipeline.js";
 import type { Target } from "./rewrite.js";
 
 // One direction of a dialect (requests or responses). The four functions are
@@ -31,6 +32,20 @@ export interface Codec {
     // wire event, in the order the events are sent. toWire then serializes
     // each returned program as one event.
     splitEvents?: (program: Program) => Program[];
+    // Set on a stream codec whose wire events depend on the chunks before
+    // them: one Responses stream gives every text delta of one message the
+    // same item id, and its terminal event holds the output items the whole
+    // stream built. A caller translating one stream creates the writer once
+    // and calls write for each raised chunk; toStreamResponse and
+    // toStreamResponses lower each chunk alone.
+    createStreamWriter?: (opts?: LowerOptions) => StreamWriter;
+}
+
+// A stateful stream lowering. One object lives for one stream; write lowers
+// one raised chunk to the wire events of that chunk, and the events of one
+// stream agree with each other in the ways the target stream requires.
+export interface StreamWriter {
+    write(program: Program): unknown[];
 }
 
 export interface Dialect {

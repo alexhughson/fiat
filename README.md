@@ -151,6 +151,7 @@ Translator.toResponse(program); // core IR -> response wire payload
 Translator.fromStreamResponse(event); // one stream event/chunk -> core IR
 Translator.toStreamResponse(program); // core IR -> one stream event/chunk
 Translator.toStreamResponses(program); // core IR -> stream event/chunk list
+Translator.streamWriter(); // a stateful lowerer for one whole stream (openai_responses today)
 ```
 
 ## Why?

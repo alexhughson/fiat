@@ -8,7 +8,7 @@ import {
     raiseFromWire,
     raiseStreamResponseFromWire,
 } from "./pipeline.js";
-import type { Dialect } from "./registry.js";
+import type { Dialect, StreamWriter } from "./registry.js";
 
 export class Translator {
     readonly name: string;
@@ -43,6 +43,19 @@ export class Translator {
 
     toStreamResponses(program: Program, opts?: LowerOptions): unknown[] {
         return lowerStreamResponsesToWire(this.dialect, program, opts);
+    }
+
+    // One object lowers one whole stream: the events of the stream agree with
+    // each other in the ways the target stream requires. Only a dialect whose
+    // responseStream codec defines createStreamWriter supports it.
+    streamWriter(opts?: LowerOptions): StreamWriter {
+        const codec = this.dialect.responseStream;
+        if (!codec?.createStreamWriter) {
+            throw new Error(
+                `dialect "${this.name}" does not implement stateful stream lowering`,
+            );
+        }
+        return codec.createStreamWriter(opts);
     }
 }
 

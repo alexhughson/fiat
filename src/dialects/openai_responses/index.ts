@@ -1,4 +1,4 @@
-import type { Dialect } from "../../core/registry.js";
+import type { Dialect, StreamWriter } from "../../core/registry.js";
 import { makeTranslator } from "../../core/translator.js";
 import { DIALECT } from "./ops.js";
 import { legalizations } from "./legalize.js";
@@ -17,6 +17,7 @@ import {
     streamResponseFromWire,
     streamResponseToWire,
 } from "./wire.js";
+import { createResponsesStreamWriter } from "./stream_writer.js";
 
 export const OpenAIResponsesDialect = {
     name: DIALECT,
@@ -39,6 +40,8 @@ export const OpenAIResponsesDialect = {
         raise,
         lower: lowerStreamResponse,
         splitEvents: splitStreamEvents,
+        createStreamWriter: (opts): StreamWriter =>
+            createResponsesStreamWriter(OpenAIResponsesDialect, opts),
     },
 } satisfies Dialect;
 

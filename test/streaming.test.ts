@@ -890,3 +890,328 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
         ).toEqual(realtimeDoneEvent);
     });
 });
+
+// A Responses stream names its items: every text delta of one message carries
+// the same item_id, and the terminal event holds the whole response. The
+// per-chunk calls lower one chunk alone, so a caller that translates one
+// whole stream creates one writer and feeds it every raised chunk.
+describe("one writer lowers one whole stream into openai_responses events", () => {
+    function geminiChunk(
+        parts: unknown[],
+        rest: Record<string, unknown> = {},
+    ): Record<string, unknown> {
+        const { finishReason, ...body } = rest;
+        return {
+            candidates: [
+                {
+                    content: { role: "model", parts },
+                    ...(finishReason != null ? { finishReason } : {}),
+                    index: 0,
+                },
+            ],
+            ...body,
+        };
+    }
+
+    // The chunk shape is a reduced fixture, not the full body recorded from
+    // the API: recorded from gemini-3.5-flash-lite on 2026-11-19, with the
+    // long text of the middle chunks shortened and the thoughtSignature that
+    // the API sent on the final empty part removed. The real stream sent six
+    // text chunks and finished with an empty text part, finishReason STOP,
+    // usage, responseId, and modelVersion, as below.
+    const recordedStream = [
+        geminiChunk([{ text: "Every night" }], {
+            responseId: "cwr_av2CCZjCn88Po6btqAc",
+            modelVersion: "gemini-3.5-flash-lite",
+            usageMetadata: {
+                promptTokenCount: 15,
+                candidatesTokenCount: 2,
+                totalTokenCount: 17,
+            },
+        }),
+        geminiChunk([{ text: ", the moon" }], {
+            responseId: "cwr_av2CCZjCn88Po6btqAc",
+            modelVersion: "gemini-3.5-flash-lite",
+            usageMetadata: {
+                promptTokenCount: 15,
+                candidatesTokenCount: 5,
+                totalTokenCount: 20,
+            },
+        }),
+        geminiChunk([{ text: "" }], {
+            finishReason: "STOP",
+            responseId: "cwr_av2CCZjCn88Po6btqAc",
+            modelVersion: "gemini-3.5-flash-lite",
+            usageMetadata: {
+                promptTokenCount: 15,
+                candidatesTokenCount: 78,
+                totalTokenCount: 93,
+            },
+        }),
+    ];
+
+    test("every text delta of one message shares one item id", () => {
+        const writer = OpenAIResponsesTranslator.streamWriter();
+        const events = recordedStream.flatMap((chunk) =>
+            writer.write(GeminiTranslator.fromStreamResponse(chunk)),
+        );
+
+        const deltas = events.filter(
+            (event) =>
+                (event as { type: string }).type ===
+                "response.output_text.delta",
+        );
+        expect(deltas).toHaveLength(3);
+        const itemIds = new Set(
+            deltas.map((event) => (event as { item_id: string }).item_id),
+        );
+        expect(itemIds.size).toBe(1);
+        expect([...itemIds][0]).toMatch(/^msg_/);
+    });
+
+    test("the terminal event holds the message the stream built", () => {
+        const writer = OpenAIResponsesTranslator.streamWriter();
+        const events = recordedStream.flatMap((chunk) =>
+            writer.write(GeminiTranslator.fromStreamResponse(chunk)),
+        );
+        const deltaId = (events[0] as { item_id: string; delta: string })
+            .item_id;
+
+        expect(events).toEqual([
+            {
+                type: "response.output_text.delta",
+                item_id: deltaId,
+                output_index: 0,
+                content_index: 0,
+                delta: "Every night",
+            },
+            {
+                type: "response.output_text.delta",
+                item_id: deltaId,
+                output_index: 0,
+                content_index: 0,
+                delta: ", the moon",
+            },
+            {
+                type: "response.output_text.delta",
+                item_id: deltaId,
+                output_index: 0,
+                content_index: 0,
+                delta: "",
+            },
+            {
+                type: "response.completed",
+                // The Gemini stream raise on main drops responseId and
+                // modelVersion, so the response carries no id and no model;
+                // they come with the raise row for gap D3.
+                response: {
+                    status: "completed",
+                    usage: { input_tokens: 15, output_tokens: 78 },
+                    output: [
+                        {
+                            type: "message",
+                            id: deltaId,
+                            role: "assistant",
+                            status: "completed",
+                            content: [
+                                {
+                                    type: "output_text",
+                                    text: "Every night, the moon",
+                                    annotations: [],
+                                    logprobs: [],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        ]);
+    });
+
+    test("two writers keep the state of their own stream", () => {
+        const first = OpenAIResponsesTranslator.streamWriter();
+        const second = OpenAIResponsesTranslator.streamWriter();
+
+        const firstEvents = first.write(
+            GeminiTranslator.fromStreamResponse(geminiChunk([{ text: "a" }])),
+        );
+        second.write(
+            GeminiTranslator.fromStreamResponse(geminiChunk([{ text: "b" }])),
+        );
+        const firstAgain = first.write(
+            GeminiTranslator.fromStreamResponse(geminiChunk([{ text: "c" }])),
+        );
+
+        expect((firstEvents[0] as { item_id: string }).item_id).toBe(
+            (firstAgain[0] as { item_id: string }).item_id,
+        );
+    });
+
+    test("a stream that names its own items keeps their ids and response", () => {
+        const textEvent = {
+            type: "response.output_text.delta",
+            item_id: "msg_1",
+            output_index: 0,
+            content_index: 0,
+            delta: "hi",
+        };
+        const doneEvent = {
+            type: "response.completed",
+            response: {
+                id: "resp_1",
+                model: "gpt-6-luna",
+                status: "completed",
+                output: [
+                    {
+                        type: "message",
+                        id: "msg_1",
+                        role: "assistant",
+                        status: "completed",
+                        content: [
+                            {
+                                type: "output_text",
+                                text: "hi",
+                                annotations: [],
+                            },
+                        ],
+                    },
+                ],
+                usage: { input_tokens: 3, output_tokens: 2 },
+            },
+        };
+
+        const writer = OpenAIResponsesTranslator.streamWriter();
+        const events = [textEvent, doneEvent].flatMap((event) =>
+            writer.write(OpenAIResponsesTranslator.fromStreamResponse(event)),
+        );
+
+        expect(events).toEqual([textEvent, doneEvent]);
+    });
+
+    test("a gemini function-call stream puts the call in the terminal response", () => {
+        const writer = OpenAIResponsesTranslator.streamWriter();
+        const events = [
+            geminiChunk([{ functionCall: { name: "lookup", args: { x: 1 } } }]),
+            geminiChunk([{ text: "" }], { finishReason: "STOP" }),
+        ].flatMap((chunk) =>
+            writer.write(GeminiTranslator.fromStreamResponse(chunk)),
+        );
+
+        expect(events[events.length - 1]).toEqual({
+            type: "response.completed",
+            response: {
+                status: "completed",
+                output: [
+                    expect.objectContaining({
+                        type: "function_call",
+                        id: expect.stringMatching(/^fc_/),
+                        call_id: expect.stringMatching(/^call_/),
+                        name: "lookup",
+                        arguments: '{"x":1}',
+                    }),
+                ],
+            },
+        });
+    });
+
+    test("argument fragments sent without an item join into the call", () => {
+        const writer = OpenAIResponsesTranslator.streamWriter();
+        const events = [
+            {
+                type: "content_block_start",
+                index: 0,
+                content_block: {
+                    type: "tool_use",
+                    id: "toolu_1",
+                    name: "lookup",
+                    input: {},
+                },
+            },
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "input_json_delta", partial_json: '{"x":' },
+            },
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "input_json_delta", partial_json: "1}" },
+            },
+            {
+                type: "message_delta",
+                delta: { stop_reason: "tool_use", stop_sequence: null },
+                usage: { input_tokens: 10, output_tokens: 2 },
+            },
+        ].flatMap((event) =>
+            writer.write(AnthropicTranslator.fromStreamResponse(event)),
+        );
+
+        expect(events[events.length - 1]).toEqual({
+            type: "response.completed",
+            response: {
+                status: "completed",
+                usage: { input_tokens: 10, output_tokens: 2 },
+                output: [
+                    expect.objectContaining({
+                        type: "function_call",
+                        name: "lookup",
+                        arguments: '{"x":1}',
+                    }),
+                ],
+            },
+        });
+    });
+
+    test("the writer lowers through the caller's lower options", () => {
+        const writer = OpenAIResponsesTranslator.streamWriter({
+            beforeLower: (program) =>
+                program.filter((op) => op.op !== "response.usage"),
+        });
+        const events = writer.write(
+            GeminiTranslator.fromStreamResponse(recordedStream[2]!),
+        );
+
+        expect(events).toEqual([
+            {
+                type: "response.output_text.delta",
+                item_id: expect.stringMatching(/^msg_/),
+                output_index: 0,
+                content_index: 0,
+                delta: "",
+            },
+            {
+                type: "response.completed",
+                response: { status: "completed" },
+            },
+        ]);
+    });
+
+    test("a chunk lowered without the writer keeps its chunk's fields only", () => {
+        const events = OpenAIResponsesTranslator.toStreamResponses(
+            GeminiTranslator.fromStreamResponse(recordedStream[2]!),
+        );
+
+        expect(events).toEqual([
+            {
+                type: "response.output_text.delta",
+                item_id: expect.stringMatching(/^msg_/),
+                output_index: 0,
+                content_index: 0,
+                delta: "",
+            },
+            {
+                type: "response.completed",
+                response: {
+                    status: "completed",
+                    usage: { input_tokens: 15, output_tokens: 78 },
+                },
+            },
+        ]);
+    });
+
+    test("a dialect without a stateful stream lowering throws", () => {
+        expect(() => AnthropicTranslator.streamWriter()).toThrow(
+            'dialect "anthropic_messages" does not implement stateful stream lowering',
+        );
+    });
+});
