@@ -413,11 +413,38 @@ describe("openai_responses translation", () => {
                 model: "claude-sonnet-4-6",
                 content: [{ type: "text", text: "It is correct." }],
                 stop_reason: "end_turn",
-                usage: { input_tokens: 20, output_tokens: 9 },
+                usage: {
+                    input_tokens: 20,
+                    cache_read_input_tokens: 4,
+                    cache_creation_input_tokens: 2,
+                    output_tokens: 9,
+                    output_tokens_details: { thinking_tokens: 1 },
+                },
             }),
         ) as Record<string, unknown>;
 
         expect(response.id).toBe("msg_01ABC");
+    });
+
+    test("an anthropic response without a cache count cannot lower into openai responses, which requires one", () => {
+        // Every key of the responses usage object is a required number, so a
+        // program whose part is absent fails the lowering rather than write a
+        // count nobody reported.
+        expect(() =>
+            OpenAIResponsesTranslator.toResponse(
+                AnthropicTranslator.fromResponse({
+                    id: "msg_nocache",
+                    type: "message",
+                    role: "assistant",
+                    model: "claude-sonnet-4-6",
+                    content: [{ type: "text", text: "It is correct." }],
+                    stop_reason: "end_turn",
+                    usage: { input_tokens: 20, output_tokens: 9 },
+                }),
+            ),
+        ).toThrow(
+            /no count for input_tokens_details\.cached_tokens \(response\.usage\.cacheReadTokens\)/,
+        );
     });
 
     test("pause_turn does not become max_output_tokens when targeting openai responses", () => {

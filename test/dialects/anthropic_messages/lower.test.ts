@@ -338,19 +338,59 @@ describe("anthropic_messages lower response stages", () => {
         ]);
     });
 
-    test("lowerUsageCounts turns response.usage back into the wire usage op's input_tokens/output_tokens shape", () => {
+    test("lowerUsageCounts computes the body usage object from the core parts, with null for absent cache counts", () => {
         expect(
             lowerUsageCounts([
                 { op: "llm.model", model: "m" },
-                { op: "response.usage", inputTokens: 20, outputTokens: 9 },
+                {
+                    op: "response.usage",
+                    inputTokens: 20,
+                    outputTokens: 9,
+                    reasoningTokens: 4,
+                },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
             {
                 op: "anthropic_messages.usage",
-                usage: { input_tokens: 20, output_tokens: 9 },
+                usage: {
+                    input_tokens: 20,
+                    cache_read_input_tokens: null,
+                    cache_creation_input_tokens: null,
+                    output_tokens: 13,
+                    output_tokens_details: { thinking_tokens: 4 },
+                },
             },
         ]);
+    });
+
+    test("lowerUsageCounts sums the tool-use prompt part into input_tokens", () => {
+        expect(
+            lowerUsageCounts([
+                {
+                    op: "response.usage",
+                    inputTokens: 552,
+                    toolUsePromptTokens: 33,
+                    outputTokens: 57,
+                },
+            ]),
+        ).toEqual([
+            {
+                op: "anthropic_messages.usage",
+                usage: {
+                    input_tokens: 585,
+                    cache_read_input_tokens: null,
+                    cache_creation_input_tokens: null,
+                    output_tokens: 57,
+                },
+            },
+        ]);
+    });
+
+    test("lowerUsageCounts fails when a required non-nullable count has no part", () => {
+        expect(() =>
+            lowerUsageCounts([{ op: "response.usage", inputTokens: 20 }]),
+        ).toThrow(/no count for output_tokens/);
     });
 
     test("collectAssistantMessage collapses response text and tool-call ops into one assistant message", () => {
@@ -409,7 +449,12 @@ describe("anthropic_messages lower stream response stages", () => {
                     content: [],
                     stop_reason: null,
                     stop_sequence: null,
-                    usage: { input_tokens: 3, output_tokens: 1 },
+                    usage: {
+                        input_tokens: 3,
+                        cache_read_input_tokens: null,
+                        cache_creation_input_tokens: null,
+                        output_tokens: 1,
+                    },
                 },
             },
         });
@@ -442,7 +487,12 @@ describe("anthropic_messages lower stream response stages", () => {
                 event: {
                     type: "message_delta",
                     delta: { stop_reason: "end_turn", stop_sequence: null },
-                    usage: { input_tokens: 3, output_tokens: 1 },
+                    usage: {
+                        input_tokens: 3,
+                        cache_creation_input_tokens: null,
+                        cache_read_input_tokens: null,
+                        output_tokens: 1,
+                    },
                 },
                 appliesTo: "response",
             },
@@ -512,7 +562,12 @@ describe("anthropic_messages lower stream response stages", () => {
                 event: {
                     type: "message_delta",
                     delta: { stop_reason: "max_tokens" },
-                    usage: { input_tokens: 3, output_tokens: 1 },
+                    usage: {
+                        input_tokens: 3,
+                        cache_creation_input_tokens: null,
+                        cache_read_input_tokens: null,
+                        output_tokens: 1,
+                    },
                 },
                 appliesTo: "response",
             },

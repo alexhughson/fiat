@@ -608,6 +608,7 @@ describe("openai_chat translation", () => {
         expect(openaiResponse.usage).toEqual({
             prompt_tokens: 20,
             completion_tokens: 9,
+            total_tokens: 29,
         });
         // Protocol boilerplate is synthesized when the source has none to map.
         expect(openaiResponse.object).toBe("chat.completion");
@@ -730,6 +731,7 @@ describe("openai_chat translation", () => {
         expect(openaiChatResponse.usage).toEqual({
             prompt_tokens: 12,
             completion_tokens: 2,
+            total_tokens: 14,
         });
     });
 

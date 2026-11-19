@@ -13,6 +13,7 @@ import {
     mediaDataUrlFromBase64,
 } from "../../core/media.js";
 import { dropReasoning } from "../../core/reasoning.js";
+import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import { lowerFinishReason } from "./raise.js";
 import type {
@@ -457,19 +458,65 @@ export function lowerStopReasons(program: Program): Program {
     );
 }
 
+// Computes the wire usage object from the core parts: prompt_tokens holds
+// every input part (chat counts tool-result tokens inside its input count),
+// completion_tokens holds the reasoning tokens, and total_tokens is the sum
+// of the two. The optional details objects appear only when their parts are
+// present; the modality and prediction fields come from a residual.
 export function lowerUsageCounts(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "response.usage") return [op];
         const counts = op as OpOf<"response.usage">;
+        const promptTokens = usage.sumParts(counts, [
+            "inputTokens",
+            "cacheReadTokens",
+            "cacheWriteTokens",
+            "toolUsePromptTokens",
+        ]);
+        const completionTokens = usage.sumParts(counts, [
+            "outputTokens",
+            "reasoningTokens",
+        ]);
         return [
             {
                 op: "openai_chat.usage",
                 usage: {
-                    ...(counts.inputTokens != null
-                        ? { prompt_tokens: counts.inputTokens }
+                    ...(promptTokens != null
+                        ? { prompt_tokens: promptTokens }
                         : {}),
-                    ...(counts.outputTokens != null
-                        ? { completion_tokens: counts.outputTokens }
+                    ...(counts.cacheReadTokens != null ||
+                    counts.cacheWriteTokens != null
+                        ? {
+                              prompt_tokens_details: {
+                                  ...(counts.cacheReadTokens != null
+                                      ? {
+                                            cached_tokens:
+                                                counts.cacheReadTokens,
+                                        }
+                                      : {}),
+                                  ...(counts.cacheWriteTokens != null
+                                      ? {
+                                            cache_write_tokens:
+                                                counts.cacheWriteTokens,
+                                        }
+                                      : {}),
+                              },
+                          }
+                        : {}),
+                    ...(completionTokens != null
+                        ? { completion_tokens: completionTokens }
+                        : {}),
+                    ...(counts.reasoningTokens != null
+                        ? {
+                              completion_tokens_details: {
+                                  reasoning_tokens: counts.reasoningTokens,
+                              },
+                          }
+                        : {}),
+                    ...(promptTokens != null && completionTokens != null
+                        ? {
+                              total_tokens: promptTokens + completionTokens,
+                          }
                         : {}),
                 },
             },

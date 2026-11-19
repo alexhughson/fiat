@@ -84,6 +84,8 @@ export type OpenAIRealtimeOp =
           op: "openai_realtime.finish_reason";
           reason: "end_turn" | "max_tokens" | "tool_use" | "content_filter";
       }
+    // The fields of the wire usage object that core does not model: the
+    // modality breakdowns. The token-count parts raise to response.usage.
     | {
           op: "openai_realtime.usage";
           usage: Record<string, unknown>;

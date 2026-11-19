@@ -104,19 +104,54 @@ describe("openai_responses lower response stages", () => {
         ]);
     });
 
-    test("lowerUsageCounts renames the core count fields to the wire's snake_case usage shape", () => {
+    test("lowerUsageCounts sums the core parts into the wire totals, and requires a number for every key", () => {
         expect(
             lowerUsageCounts([
                 { op: "llm.model", model: "m" },
-                { op: "response.usage", inputTokens: 12, outputTokens: 2 },
+                {
+                    op: "response.usage",
+                    inputTokens: 52,
+                    cacheReadTokens: 2048,
+                    cacheWriteTokens: 500,
+                    outputTokens: 57,
+                    reasoningTokens: 40,
+                },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
             {
                 op: "openai_responses.usage",
-                usage: { input_tokens: 12, output_tokens: 2 },
+                usage: {
+                    input_tokens: 2600,
+                    input_tokens_details: {
+                        cached_tokens: 2048,
+                        cache_write_tokens: 500,
+                    },
+                    output_tokens: 97,
+                    output_tokens_details: { reasoning_tokens: 40 },
+                    total_tokens: 2697,
+                },
             },
         ]);
+    });
+
+    test("lowerUsageCounts fails naming the part a required wire number lacks", () => {
+        expect(() =>
+            lowerUsageCounts([
+                { op: "response.usage", inputTokens: 12, outputTokens: 2 },
+            ]),
+        ).toThrow(/no count for input_tokens_details\.cached_tokens/);
+        expect(() =>
+            lowerUsageCounts([
+                {
+                    op: "response.usage",
+                    inputTokens: 12,
+                    cacheReadTokens: 3,
+                    outputTokens: 2,
+                    reasoningTokens: 1,
+                },
+            ]),
+        ).toThrow(/no count for input_tokens_details\.cache_write_tokens/);
     });
 
     test("collectOutputItems reunites pending core ops with output_meta templates and synthesizes leftovers", () => {
