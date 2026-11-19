@@ -253,14 +253,14 @@ export function responseToWire(program: Program): unknown {
         }
     }
 
-    if (!content)
+    if (!content && finishReason == null)
         throw new Error(
             "gemini response toWire: program has no candidate content",
         );
     body.candidates = [
         {
             ...candidateMeta,
-            content,
+            ...(content ? { content } : {}),
             ...(finishReason ? { finishReason } : {}),
         },
     ];
@@ -644,10 +644,16 @@ function candidateFromWire(value: unknown): Program {
         );
     }
     const candidate = asRecord(candidates[0], "candidate");
-    const content = contentFromWire(candidate.content, "candidate.content");
-    const program: Program = [
-        { op: "gemini.content", content, appliesTo: "response" },
-    ];
+    const content =
+        candidate.content == null ||
+        (isRecord(candidate.content) &&
+            Object.keys(candidate.content).length === 0)
+            ? undefined
+            : contentFromWire(candidate.content, "candidate.content");
+    const program: Program = [];
+    if (content) {
+        program.push({ op: "gemini.content", content, appliesTo: "response" });
+    }
     if (candidate.finishReason != null) {
         program.push({
             op: "gemini.finish_reason",

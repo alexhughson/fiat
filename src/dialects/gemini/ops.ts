@@ -67,7 +67,14 @@ export type GeminiOp =
           content: WireContent;
           appliesTo?: "request" | "response";
       }
-    | { op: "gemini.finish_reason"; value: string }
+    | {
+          op: "gemini.finish_reason";
+          value: string;
+          // A raised side op names its response.stop when a core reason
+          // exists. Without `of`, the value has no equal core reason.
+          of?: string;
+          appliesTo?: "response";
+      }
     // The fields of the wire usageMetadata object that core does not model:
     // the modality lists and the service tier. The token-count parts raise to
     // response.usage.

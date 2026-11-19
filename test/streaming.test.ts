@@ -717,7 +717,7 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
     };
     const realtimeDoneEvent = {
         type: "response.done",
-        response: { status: "completed", status_details: null },
+        response: { status: "completed" },
     };
 
     test("gemini text and STOP lower to a delta event and a terminal event in openai_responses", () => {

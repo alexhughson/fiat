@@ -31,7 +31,7 @@ path. Code: `src/dialects/gemini/`.
 | `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                                                                  |
 | `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                          |
 | `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                            |
-| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                     |
+| `gemini.finish_reason`     | preserves the exact `finishReason`; `of` names its `response.stop` when a core reason exists                                                                   |
 | `gemini.usage`             | modality lists and the service tier                                                                                                                            |
 | `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
 | `gemini.body_field`        | unknown top-level field                                                                                                                                        |
@@ -42,6 +42,28 @@ call, so raising a response body or a stream chunk writes `response.stop` with
 `functionCall` part, and lowering writes `STOP` for `tool_use`. A stream that
 sends the `functionCall` part and `STOP` in different chunks raises to
 `end_turn`.
+
+`STOP` without a function call raises `end_turn`, and `MAX_TOKENS` raises
+`max_tokens`. `SAFETY`, `RECITATION`, `LANGUAGE`, `BLOCKLIST`,
+`PROHIBITED_CONTENT`, `SPII`, `IMAGE_SAFETY`,
+`IMAGE_PROHIBITED_CONTENT`, `IMAGE_RECITATION`, `ESCALATION`, and the SDK's
+Vertex-only `MODEL_ARMOR` raise `content_filter`. When the core reason alone
+would lower to a different Gemini value, `response.stop.id` identifies the stop
+and a `gemini.finish_reason` side op with the same `of` id preserves the exact
+value. Other dialects warn and drop that side op after using the core stop.
+
+`FINISH_REASON_UNSPECIFIED`, `OTHER`, `MALFORMED_FUNCTION_CALL`, `IMAGE_OTHER`,
+`NO_IMAGE`, `UNEXPECTED_TOOL_CALL`, `TOO_MANY_TOOL_CALLS`,
+`MISSING_THOUGHT_SIGNATURE`, `MALFORMED_RESPONSE`, `PUP_LIMITED_DISABLED`,
+`CONTINUATION`, and unknown values have no equal core reason. They raise only a
+`gemini.finish_reason` op with `appliesTo: "response"`. Gemini lowering writes
+the value back unchanged; lowering to another dialect throws rather than
+substituting a nearby stop reason.
+
+A response candidate may omit `content` or send `content: {}`. Both forms raise
+without content ops. Lowering omits the optional `content` key when the
+candidate has no parts. A `continuationToken` remains in
+`gemini.candidate_meta` and round-trips to Gemini.
 
 ## Lints
 

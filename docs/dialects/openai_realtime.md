@@ -46,4 +46,6 @@ events, optionally with top-level call/session fields such as `model`.
 - Prefix system text lowers to `response.create.response.instructions`.
   Interleaved system text throws.
 - Streaming deltas are out of scope; parse `response.done` for final output.
+- A response with a stop reason and no output items omits the optional `output`
+  key. Lowering also omits optional `status_details` when no details exist.
 - WebRTC setup, auth, and live connection management are out of scope.

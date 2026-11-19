@@ -3,6 +3,8 @@ import {
     AnthropicTranslator,
     GeminiTranslator,
     OpenAIChatTranslator,
+    OpenAIRealtimeTranslator,
+    OpenAIResponsesTranslator,
 } from "../../../src/index";
 import {
     geminiPlannerProgram,
@@ -1090,6 +1092,186 @@ describe("gemini translation", () => {
             },
         ]);
         expect(anthropic.stop_reason).toBe("tool_use");
+    });
+
+    test("a RECITATION response lowers to the matching stop in every other dialect", () => {
+        const program = GeminiTranslator.fromResponse({
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [{ text: "A passage." }],
+                    },
+                    finishReason: "RECITATION",
+                },
+            ],
+        });
+
+        const responses = OpenAIResponsesTranslator.toResponse(program) as {
+            status: string;
+            incomplete_details: { reason: string };
+        };
+        expect(responses.status).toBe("incomplete");
+        expect(responses.incomplete_details).toEqual({
+            reason: "content_filter",
+        });
+
+        const chat = OpenAIChatTranslator.toResponse(program) as {
+            choices: { finish_reason: string }[];
+        };
+        expect(chat.choices[0]!.finish_reason).toBe("content_filter");
+
+        const anthropic = AnthropicTranslator.toResponse(program) as {
+            stop_reason: string;
+        };
+        expect(anthropic.stop_reason).toBe("refusal");
+
+        const realtime = (
+            OpenAIRealtimeTranslator.toResponse(program) as {
+                events: {
+                    response: { status: string; status_details: unknown };
+                }[];
+            }
+        ).events[0]!.response;
+        expect(realtime.status).toBe("incomplete");
+        expect(realtime.status_details).toEqual({
+            type: "incomplete",
+            reason: "content_filter",
+        });
+    });
+
+    test("a RECITATION stream chunk lowers to OpenAI Responses text and incomplete events", () => {
+        const events = OpenAIResponsesTranslator.toStreamResponses(
+            GeminiTranslator.fromStreamResponse({
+                candidates: [
+                    {
+                        content: {
+                            role: "model",
+                            parts: [{ text: "A passage." }],
+                        },
+                        finishReason: "RECITATION",
+                    },
+                ],
+            }),
+        ) as {
+            type: string;
+            delta?: string;
+            response?: {
+                status: string;
+                incomplete_details: { reason: string };
+            };
+        }[];
+
+        expect(events.map((event) => event.type)).toEqual([
+            "response.output_text.delta",
+            "response.incomplete",
+        ]);
+        expect(events[0]!.delta).toBe("A passage.");
+        expect(events[1]!.response!.status).toBe("incomplete");
+        expect(events[1]!.response!.incomplete_details).toEqual({
+            reason: "content_filter",
+        });
+    });
+
+    test("a Gemini-only finishReason fails cross-dialect lowering instead of substituting a stop", () => {
+        const program = GeminiTranslator.fromResponse({
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "So far " }] },
+                    finishReason: "CONTINUATION",
+                    continuationToken: "cont_tok_abc123",
+                },
+            ],
+        });
+
+        for (const translator of [
+            OpenAIResponsesTranslator,
+            OpenAIChatTranslator,
+            AnthropicTranslator,
+            OpenAIRealtimeTranslator,
+        ]) {
+            expect(() => translator.toResponse(program)).toThrow(
+                'gemini finishReason "CONTINUATION" has no core stop reason mapping',
+            );
+        }
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponses(
+                GeminiTranslator.fromStreamResponse({
+                    candidates: [
+                        {
+                            content: {
+                                role: "model",
+                                parts: [{ text: "So far " }],
+                            },
+                            finishReason: "CONTINUATION",
+                        },
+                    ],
+                }),
+            ),
+        ).toThrow(
+            'gemini finishReason "CONTINUATION" has no core stop reason mapping',
+        );
+        expect(() =>
+            AnthropicTranslator.toStreamResponses([
+                {
+                    op: "response.text_delta",
+                    index: 0,
+                    role: "assistant",
+                    content: "So far ",
+                },
+                {
+                    op: "gemini.finish_reason",
+                    value: "CONTINUATION",
+                    appliesTo: "response",
+                },
+            ]),
+        ).toThrow(
+            'gemini finishReason "CONTINUATION" has no core stop reason mapping',
+        );
+    });
+
+    test("a filtered candidate with no content lowers to valid empty output in every other dialect", () => {
+        // SAFETY without content is built from Candidate.content being
+        // optional in Google's reference; no live SAFETY body was recorded.
+        const program = GeminiTranslator.fromResponse({
+            candidates: [{ finishReason: "SAFETY" }],
+        });
+
+        const responses = OpenAIResponsesTranslator.toResponse(program) as {
+            output: unknown[];
+            status: string;
+            incomplete_details: { reason: string };
+        };
+        expect(responses.output).toEqual([]);
+        expect(responses.status).toBe("incomplete");
+        expect(responses.incomplete_details).toEqual({
+            reason: "content_filter",
+        });
+
+        const chat = OpenAIChatTranslator.toResponse(program) as {
+            choices: { message: { content: unknown }; finish_reason: string }[];
+        };
+        expect(chat.choices[0]!.message.content).toBeNull();
+        expect(chat.choices[0]!.finish_reason).toBe("content_filter");
+
+        const anthropic = AnthropicTranslator.toResponse(program) as {
+            content: unknown[];
+            stop_reason: string;
+        };
+        expect(anthropic.content).toEqual([]);
+        expect(anthropic.stop_reason).toBe("refusal");
+
+        const realtime = (
+            OpenAIRealtimeTranslator.toResponse(program) as {
+                events: { response: Record<string, unknown> }[];
+            }
+        ).events[0]!.response;
+        expect(realtime).not.toHaveProperty("output");
+        expect(realtime.status).toBe("incomplete");
+        expect(realtime.status_details).toEqual({
+            type: "incomplete",
+            reason: "content_filter",
+        });
     });
 
     test("an anthropic response id lowers into the gemini responseId", () => {

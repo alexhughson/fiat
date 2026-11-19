@@ -402,10 +402,12 @@ export function responseToWire(program: Program): unknown {
                 );
         }
     }
-    if (output.length === 0)
+    if (output.length === 0 && finishReason == null)
         throw new Error(
             "openai_responses response toWire: program has no output",
         );
+    // Response.output is required, including when a filter stopped the model
+    // before it produced an item.
     body.output = output;
     if (usage) body.usage = usage;
     body.id ??= `resp_${crypto.randomUUID().replaceAll("-", "")}`;

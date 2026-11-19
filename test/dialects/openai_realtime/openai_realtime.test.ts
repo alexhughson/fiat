@@ -669,7 +669,6 @@ describe("openai_realtime responses", () => {
                         id: expect.any(String),
                         object: "realtime.response",
                         status: "completed",
-                        status_details: null,
                         output: body.events[0]!.response.output,
                     },
                 },

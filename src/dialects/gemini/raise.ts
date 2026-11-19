@@ -16,19 +16,17 @@ import { asNumber, asRecord, asString } from "../../core/wire.js";
 import type { GeminiPartMeta, WireContent, WirePart } from "./ops.js";
 
 export const raiseStages: Stage[] = [
-    raiseToolUseStops,
+    raiseFinishReasons,
     raiseContents,
     raiseThoughts,
-    raiseFinishReasons,
     raiseUsage,
 ];
 
 export const raise: Stage = stagePipeline(raiseStages);
 
 export const raiseStreamResponseStages: Stage[] = [
-    raiseToolUseStops,
-    raiseStreamContents,
     raiseFinishReasons,
+    raiseStreamContents,
     raiseUsage,
 ];
 
@@ -94,14 +92,15 @@ export function raiseStreamContents(program: Program): Program {
     });
 }
 
-// Gemini sends finishReason "STOP" also when the candidate asks for a
-// function call. This stage runs before raiseContents and
-// raiseStreamContents, while the response candidate's gemini.content still
-// precedes its gemini.finish_reason, so a call in request history does not
-// count. A stream chunk counts only its own parts.
-export function raiseToolUseStops(program: Program): Program {
+// This stage runs before raiseContents and raiseStreamContents, while the
+// response candidate's gemini.content still precedes its finish reason. STOP
+// with a functionCall part means tool_use; a call in request history does not
+// count, and a stream chunk counts only its own parts.
+export function raiseFinishReasons(program: Program): Program {
+    const nextStopId = stopIds();
     let candidateCalls = false;
-    return program.map((op) => {
+    const out: Program = [];
+    for (const op of program) {
         if (
             op.op === "gemini.content" &&
             opData<{ appliesTo?: string }>(op).appliesTo === "response"
@@ -109,30 +108,52 @@ export function raiseToolUseStops(program: Program): Program {
             candidateCalls = opData<{ content: WireContent }>(
                 op,
             ).content.parts.some((part) => part.functionCall != null);
-            return op;
+            out.push(op);
+            continue;
         }
-        if (op.op !== "gemini.finish_reason") return op;
-        const calledTool = candidateCalls;
+        if (op.op !== "gemini.finish_reason") {
+            out.push(op);
+            continue;
+        }
+        const finishReason = opData<{
+            value: string;
+            appliesTo?: "response";
+        }>(op);
+        if (finishReason.appliesTo === "response") {
+            out.push(op);
+            continue;
+        }
+        const value = finishReason.value;
+        const reason =
+            candidateCalls && value === "STOP"
+                ? "tool_use"
+                : raiseFinishReason(value);
         candidateCalls = false;
-        return calledTool && opData<{ value: string }>(op).value === "STOP"
-            ? ({ op: "response.stop", reason: "tool_use" } as Op)
-            : op;
-    });
+        if (!reason) {
+            // No equal core reason exists. Keep the provider's value instead
+            // of claiming that the turn ended, hit a limit, or called a tool.
+            out.push({ ...op, appliesTo: "response" } as Op);
+            continue;
+        }
+        if (lowerFinishReason(reason) === value) {
+            out.push({ op: "response.stop", reason } as Op);
+            continue;
+        }
+        const id = nextStopId();
+        out.push({ op: "response.stop", reason, id } as Op);
+        out.push({
+            op: "gemini.finish_reason",
+            value,
+            of: id,
+            appliesTo: "response",
+        } as Op);
+    }
+    return out;
 }
 
-export function raiseFinishReasons(program: Program): Program {
-    return program.flatMap((op) =>
-        op.op === "gemini.finish_reason"
-            ? [
-                  {
-                      op: "response.stop",
-                      reason: raiseFinishReason(
-                          opData<{ value: string }>(op).value,
-                      ),
-                  } as Op,
-              ]
-            : [op],
-    );
+function stopIds(): () => string {
+    let count = 0;
+    return () => `stop_${++count}`;
 }
 
 // Maps the token-count parts of the wire usageMetadata object onto
@@ -603,19 +624,28 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
     return Object.keys(value).every((key) => keys.includes(key));
 }
 
+// Only values with the same meaning as a core reason belong here. The other
+// reference values, and values a future Gemini API adds, stay in the dialect.
 const FINISH_REASON_TO_STOP: Record<string, StopReason> = {
     STOP: "end_turn",
     MAX_TOKENS: "max_tokens",
     SAFETY: "content_filter",
+    RECITATION: "content_filter",
+    LANGUAGE: "content_filter",
+    BLOCKLIST: "content_filter",
+    PROHIBITED_CONTENT: "content_filter",
+    SPII: "content_filter",
+    IMAGE_SAFETY: "content_filter",
+    IMAGE_PROHIBITED_CONTENT: "content_filter",
+    IMAGE_RECITATION: "content_filter",
+    ESCALATION: "content_filter",
+    // @google/genai lists this Vertex-only value although the Gemini API
+    // reference does not: Model Armor blocked the model response.
+    MODEL_ARMOR: "content_filter",
 };
 
-export function raiseFinishReason(value: string): StopReason {
-    const reason = FINISH_REASON_TO_STOP[value];
-    if (!reason)
-        throw new LintError(
-            `gemini finishReason "${value}" has no core stop reason mapping`,
-        );
-    return reason;
+export function raiseFinishReason(value: string): StopReason | undefined {
+    return FINISH_REASON_TO_STOP[value];
 }
 
 export function lowerFinishReason(reason: StopReason): string {

@@ -83,13 +83,13 @@ not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 
 ## Response ops
 
-| op                         | fields                                 | notes                                                              |
-| -------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
-| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below   |
-| `response.stop`            | normalized stop reason                 | provider enum values map here                                      |
-| `response.usage`           | six optional token-count parts         | non-overlapping parts, no total; see [page](ops/response.usage.md) |
-| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                  |
-| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                             |
+| op                         | fields                                 | notes                                                                                                            |
+| -------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below                                                 |
+| `response.stop`            | `reason`, optional `id`                | provider enum values with the same meaning map here; a dialect side op can name `id` to preserve the exact value |
+| `response.usage`           | six optional token-count parts         | non-overlapping parts, no total; see [page](ops/response.usage.md)                                               |
+| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                                                                |
+| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                                                                           |
 
 Assistant responses raise to `llm.text` and `llm.tool_call`. That is why a
 response program can be appended to the next request program.

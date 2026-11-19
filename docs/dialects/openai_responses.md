@@ -23,6 +23,8 @@ OpenAI Responses (`POST /v1/responses`). Code:
 | portable tool choice                        | `llm.tool_choice`                   |
 
 Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
+A response with a stop reason and no output items writes the required `output`
+key as an empty array.
 
 ## Dialect ops
 

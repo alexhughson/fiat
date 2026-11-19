@@ -8,8 +8,9 @@ export type JsonSchema = Record<string, unknown>;
 
 export type Role = "system" | "user" | "assistant";
 
-// Normalized stop reasons. Dialects map their wire values onto these; a wire
-// value with no mapping raises rather than guessing.
+// Normalized stop reasons. Dialects map their wire values onto these only
+// where the meaning is the same; a provider-only value stays in a dialect op
+// rather than raising as a nearby reason.
 export type StopReason =
     | "end_turn"
     | "max_tokens"
@@ -111,7 +112,9 @@ export type CoreOp =
           outputTokens?: number;
           reasoningTokens?: number;
       }
-    | { op: "response.stop"; reason: StopReason }
+    // `id` is set when a dialect side op keeps the exact stop-reason value;
+    // the side op names this id in `of`.
+    | { op: "response.stop"; reason: StopReason; id?: string }
     | {
           op: "response.text_delta";
           index?: number;

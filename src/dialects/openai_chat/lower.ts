@@ -444,18 +444,24 @@ function messageContentParts(message: WireMessage) {
 }
 
 export function lowerStopReasons(program: Program): Program {
-    return program.flatMap((op) =>
-        op.op === "response.stop"
-            ? [
-                  {
-                      op: "openai_chat.finish_reason",
-                      value: lowerFinishReason(
-                          (op as OpOf<"response.stop">).reason,
-                      ),
-                  } as Op,
-              ]
-            : [op],
-    );
+    return program.flatMap((op) => {
+        if (
+            op.op === "gemini.finish_reason" &&
+            opData<{ of?: string }>(op).of == null
+        ) {
+            const value = opData<{ value: string }>(op).value;
+            throw new LintError(
+                `openai_chat response lower: gemini finishReason ${JSON.stringify(value)} has no core stop reason mapping`,
+            );
+        }
+        if (op.op !== "response.stop") return [op];
+        return [
+            {
+                op: "openai_chat.finish_reason",
+                value: lowerFinishReason((op as OpOf<"response.stop">).reason),
+            } as Op,
+        ];
+    });
 }
 
 // Computes the wire usage object from the core parts: prompt_tokens holds

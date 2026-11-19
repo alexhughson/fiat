@@ -214,18 +214,24 @@ export function collectRequestItems(program: Program): Program {
 }
 
 export function lowerStopReasons(program: Program): Program {
-    return program.flatMap((op) =>
-        op.op === "response.stop"
-            ? [
-                  {
-                      op: "openai_realtime.finish_reason",
-                      reason: lowerStopReason(
-                          (op as OpOf<"response.stop">).reason,
-                      ),
-                  } as Op,
-              ]
-            : [op],
-    );
+    return program.flatMap((op) => {
+        if (
+            op.op === "gemini.finish_reason" &&
+            opData<{ of?: string }>(op).of == null
+        ) {
+            const value = opData<{ value: string }>(op).value;
+            throw new LintError(
+                `openai_realtime response lower: gemini finishReason ${JSON.stringify(value)} has no core stop reason mapping`,
+            );
+        }
+        if (op.op !== "response.stop") return [op];
+        return [
+            {
+                op: "openai_realtime.finish_reason",
+                reason: lowerStopReason((op as OpOf<"response.stop">).reason),
+            } as Op,
+        ];
+    });
 }
 
 // Computes the wire usage object from the core parts: input_tokens holds

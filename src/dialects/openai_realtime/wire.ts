@@ -293,11 +293,12 @@ export function responseToWire(program: Program): unknown {
         }
     }
 
-    if (output.length === 0)
+    if (output.length === 0 && finishReason == null)
         throw new Error(
             "openai_realtime response toWire: program has no output",
         );
-    body.output = output;
+    // RealtimeResponse.output is optional; do not invent an empty list.
+    if (output.length > 0) body.output = output;
     if (usage) body.usage = usage;
     body.id ??= `resp_${crypto.randomUUID().replaceAll("-", "")}`;
     body.object ??= "realtime.response";
@@ -893,7 +894,6 @@ function applyStatus(
             break;
         default:
             body.status = "completed";
-            body.status_details ??= null;
     }
 }
 

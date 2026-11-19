@@ -513,17 +513,27 @@ export function mergeAdjacentSameRole(program: Program): Program {
 }
 
 export function lowerStopReasons(program: Program): Program {
-    return program.flatMap((op) =>
-        op.op === "response.stop"
-            ? [
-                  {
-                      op: "anthropic_messages.stop_reason",
-                      value: lowerStopReason(
-                          (op as OpOf<"response.stop">).reason,
-                      ),
-                  } as Op,
-              ]
-            : [op],
+    return program.flatMap((op) => {
+        rejectGeminiOnlyFinishReason(op);
+        if (op.op !== "response.stop") return [op];
+        return [
+            {
+                op: "anthropic_messages.stop_reason",
+                value: lowerStopReason((op as OpOf<"response.stop">).reason),
+            } as Op,
+        ];
+    });
+}
+
+function rejectGeminiOnlyFinishReason(op: Op): void {
+    if (
+        op.op !== "gemini.finish_reason" ||
+        opData<{ of?: string }>(op).of != null
+    )
+        return;
+    const value = opData<{ value: string }>(op).value;
+    throw new LintError(
+        `anthropic_messages response lower: gemini finishReason ${JSON.stringify(value)} has no core stop reason mapping`,
     );
 }
 
@@ -834,6 +844,7 @@ export function lowerStreamStopAndUsage(program: Program): Program {
     let residual: Record<string, unknown> | undefined;
 
     for (const op of program) {
+        rejectGeminiOnlyFinishReason(op);
         switch (op.op) {
             case "response.stop":
                 if (stopReason !== undefined) {

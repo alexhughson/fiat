@@ -533,7 +533,6 @@ describe("openai_realtime translation", () => {
             object: "realtime.response",
             model: "gpt-4o-mini",
             status: "completed",
-            status_details: null,
             output: [
                 {
                     type: "message",
