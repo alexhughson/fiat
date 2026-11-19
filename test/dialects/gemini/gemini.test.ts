@@ -274,6 +274,31 @@ describe("gemini requests", () => {
         expect(lowered.contents[1]).toEqual(body.contents[1]);
     });
 
+    test("an id-less result without an unmatched same-name call throws", () => {
+        const history = toolHistoryWithOptionalIds();
+        const body = {
+            ...history,
+            contents: [
+                history.contents[0]!,
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            functionResponse: {
+                                name: "other",
+                                response: { value: 17 },
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(() => GeminiTranslator.fromBody(body)).toThrow(
+            'gemini functionResponse without id: no earlier unmatched functionCall named "other"',
+        );
+    });
+
     test("a result id also names an earlier call that omitted its id", () => {
         const body = toolHistoryWithOptionalIds(undefined, "call_lookup");
         const program = GeminiTranslator.fromBody(body);
@@ -435,7 +460,6 @@ describe("gemini requests", () => {
                     content: '{"value":17}',
                 },
             ],
-            tools: [],
         });
         expect(AnthropicTranslator.toBody(program)).toEqual({
             model,
@@ -1416,14 +1440,15 @@ describe("gemini responses", () => {
                 },
                 appliesTo: "response",
             },
-            { op: "response.usage", inputTokens: 12, outputTokens: 2 },
+            {
+                op: "response.usage",
+                inputTokens: 12,
+                outputTokens: 2,
+                reasoningTokens: 1,
+            },
             {
                 op: "gemini.usage",
-                usage: {
-                    totalTokenCount: 14,
-                    thoughtsTokenCount: 1,
-                    serviceTier: "default",
-                },
+                usage: { serviceTier: "default" },
                 appliesTo: "response",
             },
             { op: "response.id", id: "resp_123" },
@@ -1818,11 +1843,19 @@ describe("gemini stream responses", () => {
         expect(GeminiTranslator.fromStreamResponse(chunk)).toEqual([
             { op: "response.usage", inputTokens: 3, outputTokens: 2 },
         ]);
+        // The lowering computes totalTokenCount from the parts, so the chunk
+        // that carried no total gains one.
         expect(
             GeminiTranslator.toStreamResponse(
                 GeminiTranslator.fromStreamResponse(chunk),
             ),
-        ).toEqual(chunk);
+        ).toEqual({
+            usageMetadata: {
+                promptTokenCount: 3,
+                candidatesTokenCount: 2,
+                totalTokenCount: 5,
+            },
+        });
     });
 
     test("Gemini text chunks translate through the generic stream response ops", () => {

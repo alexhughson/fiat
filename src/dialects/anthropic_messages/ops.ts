@@ -118,8 +118,10 @@ export type AnthropicMessagesOp =
           key: "top_p" | "top_k";
           value: number;
       }
-    // Wire usage verbatim: input_tokens/output_tokens plus cache fields the
-    // core op doesn't model.
+    // The fields of the wire usage object that core does not model: the cache
+    // tiers, server-tool request counts, the service tier, the inference
+    // region, and the speed mode. The token-count parts raise to
+    // response.usage.
     | {
           op: "anthropic_messages.usage";
           usage: Record<string, unknown>;

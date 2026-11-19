@@ -13,6 +13,7 @@ import {
     assertVideoSource,
 } from "../../core/media.js";
 import * as reasoning from "../../core/reasoning.js";
+import * as usage from "../../core/usage.js";
 import type { Target } from "../../core/rewrite.js";
 import { firstOp } from "../../core/program.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
@@ -304,12 +305,9 @@ export function lowerToolResults(program: Program): Program {
         }
     }
 
-    // Key metadata to the result it answers, so two results that reuse one
-    // id each resolve their own part_meta.
-    const metaByResultIndex = new Map<
-        number,
-        Extract<GeminiPartMeta, { kind: "functionResponse" }>
-    >();
+    // metaNameByResultIndex keys a part_meta to the result it answers, so
+    // two results that reuse one id each resolve their own part_meta.
+    const metaNameByResultIndex = new Map<number, string>();
     const omittedIdResultIndexes = new Set<number>();
     const consumedOmissionOps = new Set<number>();
     for (let i = 0; i < program.length; i++) {
@@ -338,7 +336,7 @@ export function lowerToolResults(program: Program): Program {
             if (index < i) bound = index;
             else break;
         }
-        metaByResultIndex.set(bound ?? indexes[0]!, meta);
+        metaNameByResultIndex.set(bound ?? indexes[0]!, meta.name);
     }
 
     const callNames = new Map<string, string>();
@@ -364,8 +362,8 @@ export function lowerToolResults(program: Program): Program {
             continue;
         }
         const result = op as OpOf<"llm.tool_result">;
-        const meta = metaByResultIndex.get(i);
-        const resolvedName = meta?.name ?? callNames.get(result.id);
+        const resolvedName =
+            metaNameByResultIndex.get(i) ?? callNames.get(result.id);
         if (!resolvedName) {
             throw new LintError(
                 `gemini tool_result ${result.id}: cannot serialize without a functionResponse.name`,
@@ -684,19 +682,46 @@ export function lowerStopReasons(program: Program): Program {
     );
 }
 
+// Computes the wire usageMetadata object from the core parts: promptTokenCount
+// holds the fresh input and the cache counts but not the tool-use prompt
+// tokens, which Gemini reports beside the total; candidatesTokenCount holds no
+// reasoning, which thoughtsTokenCount reports beside it; totalTokenCount sums
+// every part that is present. The modality lists and the service tier come
+// from a residual.
 export function lowerUsageCounts(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "response.usage") return [op];
         const counts = op as OpOf<"response.usage">;
+        const promptTokens = usage.sumParts(counts, [
+            "inputTokens",
+            "cacheReadTokens",
+            "cacheWriteTokens",
+        ]);
+        const totalTokens = usage.sumParts(counts, usage.ALL_PARTS);
         return [
             {
                 op: "gemini.usage",
                 usage: {
-                    ...(counts.inputTokens != null
-                        ? { promptTokenCount: counts.inputTokens }
+                    ...(promptTokens != null
+                        ? { promptTokenCount: promptTokens }
+                        : {}),
+                    ...(counts.cacheReadTokens != null
+                        ? { cachedContentTokenCount: counts.cacheReadTokens }
+                        : {}),
+                    ...(counts.toolUsePromptTokens != null
+                        ? {
+                              toolUsePromptTokenCount:
+                                  counts.toolUsePromptTokens,
+                          }
                         : {}),
                     ...(counts.outputTokens != null
                         ? { candidatesTokenCount: counts.outputTokens }
+                        : {}),
+                    ...(counts.reasoningTokens != null
+                        ? { thoughtsTokenCount: counts.reasoningTokens }
+                        : {}),
+                    ...(totalTokens != null
+                        ? { totalTokenCount: totalTokens }
                         : {}),
                 },
             },
