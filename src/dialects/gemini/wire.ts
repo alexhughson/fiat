@@ -72,7 +72,7 @@ export function requestToWire(program: Program): unknown {
     const body: Record<string, unknown> = {};
     const contents: WireContent[] = [];
     const systemParts: WirePart[] = [];
-    let systemRole: WireContent["role"];
+    let systemRole: string | undefined;
     const tools: WireTool[] = [];
     const functionDeclarations: WireFunctionDeclaration[] = [];
     const declaredTools = declaredToolsByName(program, "gemini request lower");
@@ -125,7 +125,7 @@ export function requestToWire(program: Program): unknown {
                 contents.push(opData<{ content: WireContent }>(op).content);
                 break;
             case "gemini.system_instruction_role":
-                systemRole = roleFromWire(
+                systemRole = asString(
                     opData<{ role: unknown }>(op).role,
                     "systemInstruction.role",
                 );
@@ -406,10 +406,10 @@ function systemInstructionFromWire(value: unknown): Op[] {
     const content = asRecord(value, "systemInstruction");
     assertOnlyKeys(content, ["role", "parts"], "systemInstruction");
     const program: Op[] = [];
-    if (content.role != null) {
+    if (Object.hasOwn(content, "role")) {
         program.push({
             op: "gemini.system_instruction_role",
-            role: roleFromWire(content.role, "systemInstruction.role"),
+            role: asString(content.role, "systemInstruction.role"),
         });
     }
     program.push(

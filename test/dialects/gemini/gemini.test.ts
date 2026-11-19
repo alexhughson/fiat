@@ -3,6 +3,7 @@ import {
     GeminiTranslator,
     LintError,
     OpenAIChatTranslator,
+    OpenAIResponsesTranslator,
     type Program,
 } from "../../../src/index";
 import {
@@ -160,47 +161,64 @@ describe("gemini requests", () => {
         });
     });
 
-    test("systemInstruction rejects an unsupported role value in both directions", () => {
-        const systemInstruction = {
-            role: "admin",
-            parts: [{ text: "Answer briefly." }],
+    test("a system instruction role string round-trips to Gemini and drops for OpenAI Responses", () => {
+        const body = {
+            model,
+            systemInstruction: {
+                role: "system",
+                parts: [{ text: "Answer briefly." }],
+            },
+            contents: [{ role: "user", parts: [{ text: "Hi" }] }],
         };
-        const error = 'systemInstruction.role: unsupported role "admin"';
+        const program = GeminiTranslator.fromBody(body);
 
-        expect(() =>
-            GeminiTranslator.fromBody({
-                model,
-                systemInstruction,
-                contents: [{ role: "user", parts: [{ text: "Hi" }] }],
-            }),
-        ).toThrow(error);
-        expect(() =>
-            GeminiTranslator.toBody([
-                { op: "llm.model", model },
-                { op: "gemini.system_instruction_role", role: "admin" },
+        expect(program).toEqual([
+            { op: "llm.model", model },
+            { op: "gemini.system_instruction_role", role: "system" },
+            { op: "llm.text", role: "system", content: "Answer briefly." },
+            { op: "llm.text", role: "user", content: "Hi" },
+        ]);
+        expect(GeminiTranslator.toBody(program)).toEqual(body);
+        expect(OpenAIResponsesTranslator.toBody(program)).toEqual({
+            model,
+            instructions: "Answer briefly.",
+            input: [
                 {
-                    op: "llm.text",
-                    role: "system",
-                    content: "Answer briefly.",
+                    type: "message",
+                    role: "user",
+                    content: [{ type: "input_text", text: "Hi" }],
                 },
-                { op: "llm.text", role: "user", content: "Hi" },
-            ]),
-        ).toThrow(error);
+            ],
+        });
     });
 
-    test("a system instruction role op requires its role", () => {
+    test("a system instruction role op requires a string role", () => {
         expect(() =>
             GeminiTranslator.toBody([
                 { op: "llm.model", model },
                 { op: "gemini.system_instruction_role" },
-                {
-                    op: "llm.text",
-                    role: "system",
-                    content: "Answer briefly.",
-                },
+                { op: "llm.text", role: "system", content: "Answer briefly." },
                 { op: "llm.text", role: "user", content: "Hi" },
             ]),
         ).toThrow("systemInstruction.role: expected a string, got undefined");
+        expect(() =>
+            GeminiTranslator.toBody([
+                { op: "llm.model", model },
+                { op: "gemini.system_instruction_role", role: 7 },
+                { op: "llm.text", role: "system", content: "Answer briefly." },
+                { op: "llm.text", role: "user", content: "Hi" },
+            ]),
+        ).toThrow("systemInstruction.role: expected a string, got 7");
+        expect(() =>
+            GeminiTranslator.fromBody({
+                model,
+                systemInstruction: {
+                    role: 7,
+                    parts: [{ text: "Answer briefly." }],
+                },
+                contents: [{ role: "user", parts: [{ text: "Hi" }] }],
+            }),
+        ).toThrow("systemInstruction.role: expected a string, got 7");
     });
 
     test("Anthropic tool_result error metadata warns and drops for Gemini", () => {

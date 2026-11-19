@@ -69,7 +69,7 @@ export type GeminiOp =
       }
     | {
           op: "gemini.system_instruction_role";
-          role: "user" | "model";
+          role: string;
           appliesTo?: "request";
       }
     | { op: "gemini.finish_reason"; value: string }

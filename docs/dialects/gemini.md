@@ -27,7 +27,7 @@ path. Code: `src/dialects/gemini/`.
 | op                               | purpose                                                                                                                                                        |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `gemini.content`                 | one request content or response candidate content                                                                                                              |
-| `gemini.system_instruction_role` | optional `systemInstruction.role`; Gemini lowering preserves it, and other dialects warn and drop it                                                           |
+| `gemini.system_instruction_role` | the exact `systemInstruction.role` string received; Gemini lowering preserves it, and other dialects warn and drop it                                          |
 | `gemini.part_meta`               | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta` |
 | `gemini.tool`                    | configured built-ins, URL context, and other raw tool objects                                                                                                  |
 | `gemini.generation_config`       | Gemini-only `generationConfig` fields                                                                                                                          |
@@ -46,8 +46,9 @@ sends the `functionCall` part and `STOP` in different chunks raises to
 
 ## Lints
 
-- A `gemini.system_instruction_role` without a `user` or `model` role throws
-  instead of omitting its required value.
+- A `gemini.system_instruction_role` with a missing or non-string role throws
+  instead of omitting its required value. Any string is preserved for Gemini,
+  including values outside `user` and `model`.
 - A bare `llm.tool_result` needs a known function name from the
   `gemini.part_meta` that names the result or from the nearest earlier
   `llm.tool_call` with its id; a later call with that id gives no name.
