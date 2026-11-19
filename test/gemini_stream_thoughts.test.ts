@@ -78,6 +78,19 @@ describe("Gemini stream thought parts", () => {
         expect(event.item_id).toStartWith("rs_");
     });
 
+    test("Responses lowering rejects a missing output index instead of assuming zero", () => {
+        const program = [
+            {
+                op: "response.reasoning_delta",
+                content: "Check the alternatives first.",
+            },
+        ];
+
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponse(program),
+        ).toThrow("output_index");
+    });
+
     test("a mixed chunk lowers to reasoning, answer, then one terminal event", () => {
         const chunk = {
             candidates: [

@@ -526,9 +526,15 @@ export function streamResponseToWire(program: Program): unknown {
     }
 
     if (reasoningDeltas.length > 0) {
+        const outputIndex = reasoningDeltas[0]!.index;
+        if (event.output_index == null && outputIndex == null) {
+            throw new LintError(
+                "openai_responses stream response toWire: response.reasoning_text.delta requires output_index or response.reasoning_delta.index",
+            );
+        }
         event.type ??= "response.reasoning_text.delta";
         event.item_id ??= `rs_${crypto.randomUUID().replaceAll("-", "")}`;
-        event.output_index ??= reasoningDeltas[0]!.index ?? 0;
+        event.output_index ??= outputIndex;
         event.content_index ??= 0;
         event.delta = reasoningDeltas.map((op) => op.content).join("");
         return event;
