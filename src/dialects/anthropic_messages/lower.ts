@@ -61,6 +61,7 @@ export const lowerStreamResponseStages: Stage[] = [
     lowerReasoning,
     applyTextMeta,
     lowerCompleteResponseToStreamEvents,
+    dropResponseModelFromDeltaEvents,
     lowerStreamTextDeltas,
     lowerStreamToolCallDeltas,
     lowerStreamStopAndUsage,
@@ -634,8 +635,8 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
 
     for (const op of program) {
         switch (op.op) {
-            case "llm.model":
-                model = (op as OpOf<"llm.model">).model;
+            case "response.model":
+                model = (op as OpOf<"response.model">).model;
                 break;
             case "response.id":
                 // same field as the non-stream encoder; a later op wins, and
@@ -709,7 +710,7 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
 
     if (!model) {
         throw new LintError(
-            "anthropic_messages stream lower: complete response stream requires llm.model",
+            "anthropic_messages stream lower: complete response stream requires response.model",
         );
     }
 
@@ -763,6 +764,14 @@ export function lowerCompleteResponseToStreamEvents(program: Program): Program {
     }
     out.push(streamEvent({ type: "message_stop" }));
     return [...out, ...passthrough];
+}
+
+// Among Anthropic's stream events only message_start names the model, and
+// lowerCompleteResponseToStreamEvents writes it there. content_block_delta,
+// message_delta, and message_stop, the events built from delta programs, have
+// no model field.
+export function dropResponseModelFromDeltaEvents(program: Program): Program {
+    return program.filter((op) => op.op !== "response.model");
 }
 
 export function lowerStreamTextDeltas(program: Program): Program {

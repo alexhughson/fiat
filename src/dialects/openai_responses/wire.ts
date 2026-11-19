@@ -290,7 +290,7 @@ export function responseFromWire(wire: unknown): Program {
         switch (key) {
             case "model":
                 program.push({
-                    op: "llm.model",
+                    op: "response.model",
                     model: asString(value, "model"),
                 });
                 break;
@@ -368,8 +368,8 @@ export function responseToWire(program: Program): unknown {
     let finishReason: string | undefined;
     for (const op of program) {
         switch (op.op) {
-            case "llm.model":
-                body.model = op.model;
+            case "response.model":
+                body.model = (op as OpOf<"response.model">).model;
                 break;
             case "response.id":
                 body.id = (op as OpOf<"response.id">).id;
@@ -405,6 +405,10 @@ export function responseToWire(program: Program): unknown {
     if (output.length === 0)
         throw new Error(
             "openai_responses response toWire: program has no output",
+        );
+    if (!body.model)
+        throw new Error(
+            "openai_responses response toWire: program has no response.model op",
         );
     body.output = output;
     if (usage) body.usage = usage;
@@ -474,9 +478,13 @@ export function streamResponseToWire(program: Program): unknown {
     let usage: Record<string, unknown> | undefined;
     const event: Record<string, unknown> = {};
     let sawTextDelta = false;
+    let model: string | undefined;
 
     for (const op of program) {
         switch (op.op) {
+            case "response.model":
+                model = (op as OpOf<"response.model">).model;
+                break;
             case "response.text_delta":
                 sawTextDelta = true;
                 text += (op as OpOf<"response.text_delta">).content;
@@ -555,11 +563,17 @@ export function streamResponseToWire(program: Program): unknown {
     }
 
     event.type ??= terminalEventType(finishReason);
-    if (usage || finishReason != null) {
-        const response = asRecord(
-            event.response ?? {},
-            "stream event.response",
-        );
+    if (usage || finishReason != null || model != null) {
+        // event.response is the value of an input op, so the writes below go
+        // into a copy.
+        const response = {
+            ...asRecord(event.response ?? {}, "stream event.response"),
+        };
+        if (model != null) response.model = model;
+        if (!response.model)
+            throw new Error(
+                "openai_responses stream response toWire: terminal event program has no response.model op",
+            );
         response.status ??=
             finishReason === "max_tokens" || finishReason === "content_filter"
                 ? "incomplete"
@@ -671,7 +685,13 @@ function streamTerminalEvent(event: Record<string, unknown>): Program {
             ? undefined
             : asRecord(event.response, "stream event.response");
     if (response != null) {
-        const { usage: _usage, ...responseMeta } = response;
+        const { usage: _usage, model, ...responseMeta } = response;
+        if (model != null) {
+            program.push({
+                op: "response.model",
+                model: asString(model, "stream event.response.model"),
+            });
+        }
         if (Object.keys(responseMeta).length > 0) {
             program.push({
                 op: "openai_responses.body_field",

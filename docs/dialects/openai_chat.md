@@ -7,7 +7,8 @@ OpenAI Chat Completions (`POST /v1/chat/completions`). Code:
 
 | wire                                  | core                    |
 | ------------------------------------- | ----------------------- |
-| `model`                               | `llm.model`             |
+| request `model`                       | `llm.model`             |
+| response and stream chunk `model`     | `response.model`        |
 | response `id`                         | `response.id`           |
 | `temperature`                         | `llm.temperature`       |
 | `max_tokens`, `max_completion_tokens` | `llm.max_output_tokens` |
@@ -55,6 +56,8 @@ models lower them as `max_tokens`.
 - Chat has no field for reasoning: `llm.reasoning` is dropped with a warning.
 - Response envelope and usage residuals are response-only and are not resent
   when a response program is appended to a request.
+- The SDK requires `model` in a response body and every stream chunk. Lowering
+  either without `response.model` throws instead of substituting `llm.model`.
 - Request image URL parts lower as ordered message content parts. Data URLs
   raise to portable base64 image sources and lower back to data URLs.
 - `input_audio` raises to base64 `llm.audio` for `wav` and `mp3`; other

@@ -275,9 +275,7 @@ function requestProgramForCurrentTarget(): Program {
     return [
         { op: "llm.model", model: state.model },
         { op: "llm.max_output_tokens", value: state.maxOutputTokens },
-        ...state.transcript.filter(
-            (op) => op.op !== "llm.model" && op.op !== "llm.max_output_tokens",
-        ),
+        ...state.transcript.filter((op) => op.op !== "llm.max_output_tokens"),
     ];
 }
 
@@ -426,16 +424,12 @@ function runSelfTest() {
 function runTargetOverrideCheck() {
     state.transcript.push(
         { op: "llm.text", role: "user", content: "first" },
-        { op: "llm.model", model: "old-provider-response-model" },
         { op: "llm.text", role: "assistant", content: "second" },
     );
     handleCommand("/target anthropic claude-haiku-4-5");
     const program = requestProgramForCurrentTarget();
     if (program[0]?.op !== "llm.model" || program[0].model !== state.model) {
         throw new Error("target override check failed: selected model lost");
-    }
-    if (program.some((op, index) => index > 0 && op.op === "llm.model")) {
-        throw new Error("target override check failed: stale model survived");
     }
     console.log(JSON.stringify(program, null, 2));
 }

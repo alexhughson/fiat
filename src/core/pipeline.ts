@@ -139,14 +139,12 @@ function lowerStreamResponseProgram(
     low = codec.lower(low, {
         dialect: dialect.name,
         kind: "response_stream",
-        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     });
     low = runHookStages(low, opts.afterLower);
     const target: Target = {
         dialect: dialect.name,
         kind: "response_stream",
-        model: firstOp(low, "llm.model")?.model,
         strict: opts.strict,
     };
     for (const legalize of codec.legalizations ?? []) {
@@ -177,11 +175,16 @@ function dropResponseOps(program: Program): Program {
     });
 }
 
-// request.* ops such as request.stream are invalid in a response body and in a
-// stream event.
+// If a response is lowered from a program that also holds the request, the
+// program contains request.* ops such as request.stream, and llm.model, which
+// names the model the request asked for. Both are invalid in a response body
+// and in a stream event. Every other llm.* op reaches the dialect's lowering:
+// text, tool calls, and tool results are content that a response also has,
+// and the dialect decides what a setting such as llm.temperature becomes.
 function dropRequestOps(program: Program): Program {
     return program.filter((op) => {
         if (namespaceOf(op) === "request") return false;
+        if (op.op === "llm.model") return false;
         return isCoreOp(op) || opData<DialectOp>(op).appliesTo !== "request";
     });
 }

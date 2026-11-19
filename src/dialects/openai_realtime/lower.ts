@@ -39,6 +39,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    dropResponseModelFromStreamEvents,
     dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
@@ -47,6 +48,22 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+// The Realtime types of OpenAI's SDK openai-node list no model field in any
+// stream event that this codec writes: RealtimeResponse, the type of the
+// response object of response.done, has none, and a delta event or an output
+// item event has no response object. The SDK's types name the model in the
+// session object. So response.model is dropped with a warning from every
+// program that builds a Realtime stream event.
+export function dropResponseModelFromStreamEvents(program: Program): Program {
+    return program.filter((op) => {
+        if (op.op !== "response.model") return true;
+        console.warn(
+            "metamodel: openai_realtime dropped response.model because Realtime response events have no model field",
+        );
+        return false;
+    });
+}
 
 // One chunk of another provider's stream can hold a delta and a stop reason:
 // Gemini's API sends text and finishReason "STOP" together. A Realtime stream

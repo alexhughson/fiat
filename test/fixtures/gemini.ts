@@ -63,7 +63,7 @@ export const geminiRequestFixture = {
 } as const;
 
 export const geminiTextResponseFixture = {
-    model: geminiModelFixture,
+    modelVersion: geminiModelFixture,
     candidates: [
         {
             content: {

@@ -1010,7 +1010,7 @@ describe("anthropic_messages responses", () => {
                 value: "message",
                 appliesTo: "response",
             },
-            { op: "llm.model", model: "claude-sonnet-4-6" },
+            { op: "response.model", model: "claude-sonnet-4-6" },
             { op: "response.stop", reason: "end_turn" },
             {
                 op: "response.usage",
@@ -1329,7 +1329,7 @@ describe("anthropic_messages response streams", () => {
 
     test("complete response core lowers to a readable Anthropic stream event sequence", () => {
         const events = AnthropicTranslator.toStreamResponses([
-            { op: "llm.model", model: "claude-sonnet-4-6" },
+            { op: "response.model", model: "claude-sonnet-4-6" },
             { op: "llm.text", role: "assistant", content: "hello" },
             {
                 op: "llm.tool_call",
@@ -1458,7 +1458,7 @@ describe("anthropic_messages response streams", () => {
     test("foreign stream residuals warn and drop around complete response lowering", () => {
         withWarnSpy((warn) => {
             const events = AnthropicTranslator.toStreamResponses([
-                { op: "llm.model", model: "claude-sonnet-4-6" },
+                { op: "response.model", model: "claude-sonnet-4-6" },
                 {
                     op: "openai_chat.stream_choice_param",
                     key: "logprobs",
@@ -1515,7 +1515,7 @@ describe("anthropic_messages response streams", () => {
 
     test("empty complete responses still lower to a complete stream envelope", () => {
         const events = AnthropicTranslator.toStreamResponses([
-            { op: "llm.model", model: "claude-sonnet-4-6" },
+            { op: "response.model", model: "claude-sonnet-4-6" },
             { op: "llm.text", role: "assistant", content: "" },
             { op: "response.stop", reason: "end_turn" },
             { op: "response.usage", inputTokens: 2, outputTokens: 0 },
@@ -1545,7 +1545,7 @@ describe("anthropic_messages response streams", () => {
 
     test("Anthropic-native response blocks lower to raw stream block events", () => {
         const events = AnthropicTranslator.toStreamResponses([
-            { op: "llm.model", model: "claude-opus-4-8" },
+            { op: "response.model", model: "claude-opus-4-8" },
             {
                 op: "anthropic_messages.content_block",
                 role: "assistant",

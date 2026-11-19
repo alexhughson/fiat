@@ -48,6 +48,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    keepResponseModelForTerminalEvent,
     lowerReasoning,
     lowerStopReasons,
     lowerUsageCounts,
@@ -59,8 +60,8 @@ export const lowerStreamResponse: Stage = stagePipeline(
 
 // One chunk of another provider's stream can hold a delta and a stop reason:
 // Gemini's API sends text and finishReason "STOP" together. A Responses stream
-// has no event that holds both, so the finish reason, and the usage beside it,
-// become a terminal event after the delta event. A program without a finish
+// has no event that holds both, so the finish reason, usage, and model beside
+// it become a terminal event after the delta event. A program without a finish
 // reason stays one event.
 export function splitStreamEvents(program: Program): Program[] {
     const hasDelta = program.some(
@@ -80,12 +81,38 @@ export function splitStreamEvents(program: Program): Program[] {
 
 function isTerminalEventOp(op: Op): boolean {
     return (
+        op.op === "response.model" ||
         op.op === "openai_responses.finish_reason" ||
         op.op === "openai_responses.usage"
     );
 }
 
 const REASONING_ITEM = "openai_responses.reasoning_item";
+
+// Among the stream events this codec writes, only a terminal event
+// (response.completed, response.incomplete, response.failed) holds the
+// response object, which names the model. A program that holds response.model
+// and no delta makes streamResponseToWire write a terminal event, so
+// response.model is removed from a program that holds no stop reason, no
+// usage, and no response object, such as the program of the first Chat chunk,
+// which holds only the role. For a program that holds a delta,
+// streamResponseToWire returns the delta event before it reads the model.
+// openai_responses.usage stands alone, without response.usage, in the program
+// that this codec's fromWire returns for an event whose response holds only
+// model and usage, when a caller lowers that program without raising it.
+export function keepResponseModelForTerminalEvent(program: Program): Program {
+    const buildsTerminalEvent = program.some(
+        (op) =>
+            op.op === "response.stop" ||
+            op.op === "response.usage" ||
+            op.op === "openai_responses.usage" ||
+            (op.op === "openai_responses.body_field" &&
+                opData<{ key: string }>(op).key === "response"),
+    );
+    return buildsTerminalEvent
+        ? program
+        : program.filter((op) => op.op !== "response.model");
+}
 
 // A reasoning item is usable by OpenAI only with the id or encrypted_content
 // OpenAI issued, so a reasoning op without the side op (one raised from

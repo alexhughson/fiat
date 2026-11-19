@@ -1,6 +1,7 @@
 // Executable documentation for shared cross-dialect pipeline semantics.
 
 import { describe, expect, spyOn, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
     AnthropicTranslator,
     GeminiTranslator,
@@ -531,5 +532,593 @@ describe("assistant turns survive replay", () => {
                 OpenAIChatTranslator.fromBody(original),
             ),
         ).toEqual(original);
+    });
+});
+
+describe("the model that answered", () => {
+    const translators = [
+        AnthropicTranslator,
+        OpenAIChatTranslator,
+        OpenAIResponsesTranslator,
+        OpenAIRealtimeTranslator,
+        GeminiTranslator,
+    ];
+
+    const anthropicResponse = {
+        id: "msg_01",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5-20250929",
+        content: [{ type: "text", text: "hello" }],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 8, output_tokens: 2 },
+    };
+    const openaiChatResponse = {
+        id: "chatcmpl-1",
+        object: "chat.completion",
+        created: 1700000000,
+        model: "gpt-4o-2024-08-06",
+        choices: [
+            {
+                index: 0,
+                message: { role: "assistant", content: "hello" },
+                finish_reason: "stop",
+                logprobs: null,
+            },
+        ],
+        usage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 },
+    };
+
+    test.each([
+        {
+            name: "anthropic_messages",
+            translator: AnthropicTranslator,
+            request: {
+                model: "claude-sonnet-4-5",
+                max_tokens: 10,
+                messages: [{ role: "user", content: "hi" }],
+            },
+            response: anthropicResponse,
+        },
+        {
+            name: "openai_chat",
+            translator: OpenAIChatTranslator,
+            request: {
+                model: "gpt-4o",
+                messages: [{ role: "user", content: "hi" }],
+            },
+            response: openaiChatResponse,
+        },
+    ])(
+        "$name: a response that names another model keeps both names, and the next request asks for the requested model",
+        ({ translator, request, response }) => {
+            const requestProgram = translator.fromBody(request);
+            const responseProgram = translator.fromResponse(response);
+
+            expect(
+                [...requestProgram, ...responseProgram].filter(
+                    (op) => op.op === "llm.model" || op.op === "response.model",
+                ),
+            ).toEqual([
+                { op: "llm.model", model: request.model },
+                { op: "response.model", model: response.model },
+            ]);
+            expect(translator.toResponse(responseProgram)).toMatchObject({
+                model: response.model,
+            });
+
+            const next = [
+                ...requestProgram,
+                ...responseProgram,
+                {
+                    op: "llm.text" as const,
+                    role: "user" as const,
+                    content: "again",
+                },
+            ];
+            for (const target of translators) {
+                let requested: unknown[] = [];
+                const readRequestedModels: Stage = (lowered) => {
+                    requested = lowered.filter((op) => op.op === "llm.model");
+                    return lowered;
+                };
+                expect(
+                    target.toBody(next, { beforeLower: readRequestedModels }),
+                ).toMatchObject({
+                    model: request.model,
+                });
+                expect(requested).toEqual([
+                    { op: "llm.model", model: request.model },
+                ]);
+            }
+        },
+    );
+
+    test("a gemini response lowered to another dialect names gemini's modelVersion, and back", () => {
+        const geminiResponse = {
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "hello" }] },
+                    finishReason: "STOP",
+                },
+            ],
+            modelVersion: "gemini-2.5-flash-preview-05-20",
+        };
+        const program = GeminiTranslator.fromResponse(geminiResponse);
+
+        expect(program).toContainEqual({
+            op: "response.model",
+            model: "gemini-2.5-flash-preview-05-20",
+        });
+        expect(AnthropicTranslator.toResponse(program)).toMatchObject({
+            model: "gemini-2.5-flash-preview-05-20",
+        });
+        expect(GeminiTranslator.toResponse(program)).toEqual(geminiResponse);
+
+        const fromAnthropic = GeminiTranslator.toResponse(
+            AnthropicTranslator.fromResponse(anthropicResponse),
+        ) as Record<string, unknown>;
+        expect(fromAnthropic.modelVersion).toBe("claude-sonnet-4-5-20250929");
+        expect(fromAnthropic).not.toHaveProperty("model");
+    });
+
+    test("content beside llm.model stays in the response body", () => {
+        const program = [
+            { op: "llm.model" as const, model: "requested-model" },
+            { op: "response.id" as const, id: "id_1" },
+            { op: "response.model" as const, model: "model-that-answered" },
+            {
+                op: "llm.text" as const,
+                role: "assistant" as const,
+                content: "hi",
+            },
+            { op: "response.stop" as const, reason: "end_turn" as const },
+        ];
+        expect(AnthropicTranslator.toResponse(program)).toEqual({
+            id: "id_1",
+            type: "message",
+            role: "assistant",
+            model: "model-that-answered",
+            content: [{ type: "text", text: "hi" }],
+            stop_reason: "end_turn",
+        });
+        // A system text is content, so response lowering receives it and
+        // rejects it.
+        for (const target of translators) {
+            expect(() =>
+                target.toResponse([
+                    { op: "llm.text", role: "system", content: "be brief" },
+                    ...program,
+                ]),
+            ).toThrow("unexpected system text in a response program");
+        }
+    });
+
+    test("a request setting other than llm.model reaches response lowering, which rejects it", () => {
+        // A Responses response body has a temperature field, so removing
+        // llm.temperature before lowering would lose it without a warning.
+        expect(() =>
+            OpenAIResponsesTranslator.toResponse([
+                { op: "llm.model", model: "gpt-4o" },
+                { op: "llm.temperature", value: 0.5 },
+                ...OpenAIChatTranslator.fromResponse(openaiChatResponse),
+            ]),
+        ).toThrow('no serialization for op "llm.temperature"');
+    });
+
+    test("a response lowered as a request never substitutes the answered model for llm.model", () => {
+        const again = {
+            op: "llm.text" as const,
+            role: "user" as const,
+            content: "again",
+        };
+        const one = [...AnthropicTranslator.fromResponse(anthropicResponse)];
+        const two = [
+            ...one,
+            again,
+            ...OpenAIChatTranslator.fromResponse(openaiChatResponse),
+        ];
+        for (const target of translators) {
+            for (const program of [
+                [...one, again],
+                [...two, again],
+            ]) {
+                if (target === OpenAIRealtimeTranslator) {
+                    // RealtimeSessionCreateRequest.model is optional.
+                    expect(target.toBody(program)).not.toHaveProperty("model");
+                } else {
+                    expect(() => target.toBody(program)).toThrow(
+                        `${target.name} request toWire: program has no llm.model op`,
+                    );
+                }
+            }
+        }
+    });
+
+    test("a response program never substitutes llm.model for a missing response.model", () => {
+        const handBuilt = [
+            { op: "llm.model" as const, model: "requested-model" },
+            {
+                op: "llm.text" as const,
+                role: "assistant" as const,
+                content: "hi",
+            },
+            { op: "response.stop" as const, reason: "end_turn" as const },
+        ];
+        for (const target of [
+            AnthropicTranslator,
+            OpenAIChatTranslator,
+            OpenAIResponsesTranslator,
+        ]) {
+            expect(() => target.toResponse(handBuilt)).toThrow(
+                `${target.name} response toWire: program has no response.model op`,
+            );
+        }
+        expect(() => AnthropicTranslator.toStreamResponses(handBuilt)).toThrow(
+            "anthropic_messages stream lower: complete response stream requires response.model",
+        );
+        expect(GeminiTranslator.toResponse(handBuilt)).not.toHaveProperty(
+            "modelVersion",
+        );
+        const realtime = OpenAIRealtimeTranslator.toResponse(handBuilt) as {
+            events: { response: Record<string, unknown> }[];
+        };
+        expect(realtime.events[0]!.response).not.toHaveProperty("model");
+    });
+
+    test("a response program with response.model names the model that answered, wherever llm.model stands", () => {
+        const content = [
+            {
+                op: "llm.text" as const,
+                role: "assistant" as const,
+                content: "hi",
+            },
+            { op: "response.stop" as const, reason: "end_turn" as const },
+        ];
+        const answered = {
+            op: "response.model" as const,
+            model: "model-that-answered",
+        };
+        const requested = {
+            op: "llm.model" as const,
+            model: "requested-model",
+        };
+        for (const program of [
+            [requested, answered, ...content],
+            [answered, requested, ...content],
+            [answered, ...content, requested],
+        ]) {
+            expect(AnthropicTranslator.toResponse(program)).toMatchObject({
+                model: "model-that-answered",
+            });
+            expect(OpenAIChatTranslator.toResponse(program)).toMatchObject({
+                model: "model-that-answered",
+            });
+            expect(GeminiTranslator.toResponse(program)).toMatchObject({
+                modelVersion: "model-that-answered",
+            });
+        }
+    });
+
+    const chatChunk = (choices: unknown[]) => ({
+        id: "chatcmpl-1",
+        object: "chat.completion.chunk",
+        created: 1700000000,
+        model: "gpt-4o-2024-08-06",
+        choices,
+    });
+
+    test("a Chat stream chunk raises the model, and each dialect writes it only into an event that has a field for it", () => {
+        const textChunk = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([
+                { index: 0, delta: { content: "hello" }, finish_reason: null },
+            ]),
+        );
+        expect(textChunk.filter((op) => op.op.endsWith(".model"))).toEqual([
+            { op: "response.model", model: "gpt-4o-2024-08-06" },
+        ]);
+        expect(GeminiTranslator.toStreamResponses(textChunk)).toEqual([
+            {
+                modelVersion: "gpt-4o-2024-08-06",
+                candidates: [
+                    { content: { role: "model", parts: [{ text: "hello" }] } },
+                ],
+            },
+        ]);
+        // a delta event of the Responses API and of the Realtime API has no
+        // model field
+        expect(OpenAIResponsesTranslator.toStreamResponses(textChunk)).toEqual([
+            {
+                type: "response.output_text.delta",
+                item_id: expect.any(String),
+                output_index: 0,
+                content_index: 0,
+                delta: "hello",
+            },
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(textChunk)).toEqual([
+            { type: "response.output_text.delta", delta: "hello" },
+        ]);
+
+        const finishChunk = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([{ index: 0, delta: {}, finish_reason: "stop" }]),
+        );
+        // message_delta of the Anthropic API has no model field
+        expect(AnthropicTranslator.toStreamResponses(finishChunk)).toEqual([
+            { type: "message_delta", delta: { stop_reason: "end_turn" } },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(finishChunk),
+        ).toEqual([
+            {
+                type: "response.completed",
+                response: {
+                    model: "gpt-4o-2024-08-06",
+                    status: "completed",
+                },
+            },
+        ]);
+        expect(OpenAIRealtimeTranslator.toStreamResponses(finishChunk)).toEqual(
+            [
+                {
+                    type: "response.done",
+                    response: { status: "completed", status_details: null },
+                },
+            ],
+        );
+    });
+
+    test("a Chat stream chunk that holds only the model writes no event where no event has a field for the model", () => {
+        const modelOnly = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([]),
+        );
+        expect(modelOnly.filter((op) => op.op.endsWith(".model"))).toEqual([
+            { op: "response.model", model: "gpt-4o-2024-08-06" },
+        ]);
+        expect(AnthropicTranslator.toStreamResponses(modelOnly)).toEqual([]);
+        expect(OpenAIResponsesTranslator.toStreamResponses(modelOnly)).toEqual(
+            [],
+        );
+        expect(OpenAIRealtimeTranslator.toStreamResponses(modelOnly)).toEqual(
+            [],
+        );
+        expect(GeminiTranslator.toStreamResponses(modelOnly)).toEqual([
+            { modelVersion: "gpt-4o-2024-08-06" },
+        ]);
+    });
+
+    const completed = {
+        type: "response.completed",
+        sequence_number: 4,
+        response: {
+            id: "resp_1",
+            object: "response",
+            status: "completed",
+            model: "gpt-4o-2024-08-06",
+            output: [],
+            usage: {
+                input_tokens: 3,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 0,
+                },
+                output_tokens: 2,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: 5,
+            },
+        },
+    };
+
+    test("a terminal event of the Responses API raises the model and writes it back", () => {
+        const fromResponses =
+            OpenAIResponsesTranslator.fromStreamResponse(completed);
+        expect(fromResponses).toContainEqual({
+            op: "response.model",
+            model: "gpt-4o-2024-08-06",
+        });
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(fromResponses),
+        ).toEqual([completed]);
+        expect(
+            OpenAIChatTranslator.toStreamResponses(fromResponses)[0],
+        ).toMatchObject({ model: "gpt-4o-2024-08-06" });
+    });
+
+    test("lowering a raised response.completed event to the Responses API leaves the raised program unchanged", () => {
+        const raised = OpenAIResponsesTranslator.fromStreamResponse(completed);
+        const before = structuredClone(raised);
+        OpenAIResponsesTranslator.toStreamResponses(raised);
+        expect(raised).toEqual(before);
+    });
+
+    test("a Responses output_item.added event, which holds no response object, is written without a model", () => {
+        const added = {
+            type: "response.output_item.added",
+            sequence_number: 2,
+            output_index: 0,
+            item: {
+                id: "msg_1",
+                type: "message",
+                status: "in_progress",
+                role: "assistant",
+                content: [],
+            },
+        };
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses([
+                ...OpenAIResponsesTranslator.fromStreamResponse(added),
+                { op: "response.model", model: "gpt-4o-mini-2024-07-18" },
+            ]),
+        ).toEqual([added]);
+    });
+
+    test("a response.failed event of the Responses API, which holds no stop reason and no usage, raises the model and writes it back", () => {
+        const failed = {
+            type: "response.failed",
+            sequence_number: 3,
+            response: {
+                id: "resp_1",
+                object: "response",
+                status: "failed",
+                model: "gpt-4o-2024-08-06",
+                error: { code: "server_error", message: "boom" },
+                output: [],
+            },
+        };
+        const raised = OpenAIResponsesTranslator.fromStreamResponse(failed);
+        expect(raised.filter((op) => op.op.startsWith("response."))).toEqual([
+            { op: "response.model", model: "gpt-4o-2024-08-06" },
+        ]);
+        expect(OpenAIResponsesTranslator.toStreamResponses(raised)).toEqual([
+            failed,
+        ]);
+    });
+
+    test("a Chat usage chunk, which holds usage and no stop reason, lowers to a response.completed event that names the model", () => {
+        const usageChunk = OpenAIChatTranslator.fromStreamResponse({
+            ...chatChunk([]),
+            usage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 },
+        });
+        expect(OpenAIResponsesTranslator.toStreamResponses(usageChunk)).toEqual(
+            [
+                {
+                    type: "response.completed",
+                    response: {
+                        model: "gpt-4o-2024-08-06",
+                        status: "completed",
+                        usage: {
+                            input_tokens: 8,
+                            input_tokens_details: {
+                                cached_tokens: 0,
+                                cache_write_tokens: 0,
+                            },
+                            output_tokens: 2,
+                            output_tokens_details: { reasoning_tokens: 0 },
+                            total_tokens: 10,
+                        },
+                    },
+                },
+            ],
+        );
+    });
+
+    test("a Chat chunk and a Responses terminal event require response.model", () => {
+        const withoutModel = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([{ index: 0, delta: {}, finish_reason: "stop" }]),
+        ).filter((op) => op.op !== "response.model");
+        expect(() =>
+            OpenAIChatTranslator.toStreamResponses(withoutModel),
+        ).toThrow(
+            "openai_chat stream response toWire: program has no response.model op",
+        );
+        expect(() =>
+            OpenAIResponsesTranslator.toStreamResponses(withoutModel),
+        ).toThrow(
+            "openai_responses stream response toWire: terminal event program has no response.model op",
+        );
+    });
+
+    test("a Responses terminal event that holds only model and usage keeps the model when its codec program is lowered without raising", () => {
+        const event = {
+            type: "response.completed",
+            response: {
+                model: "gpt-4o-2024-08-06",
+                usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+            },
+        };
+        const codecProgram =
+            OpenAIResponsesTranslator.dialect.responseStream!.fromWire(event);
+        expect(codecProgram.map((op) => op.op)).toEqual([
+            "openai_responses.body_field",
+            "response.model",
+            "openai_responses.usage",
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(codecProgram),
+        ).toEqual([
+            {
+                type: "response.completed",
+                response: { ...event.response, status: "completed" },
+            },
+        ]);
+    });
+
+    test("a Chat tool call argument chunk lowers to delta events that hold no model", () => {
+        const argumentChunk = OpenAIChatTranslator.fromStreamResponse(
+            chatChunk([
+                {
+                    index: 0,
+                    delta: {
+                        tool_calls: [
+                            { index: 0, function: { arguments: '{"city":' } },
+                        ],
+                    },
+                    finish_reason: null,
+                },
+            ]),
+        );
+        expect(argumentChunk.filter((op) => op.op.endsWith(".model"))).toEqual([
+            { op: "response.model", model: "gpt-4o-2024-08-06" },
+        ]);
+        expect(AnthropicTranslator.toStreamResponses(argumentChunk)).toEqual([
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "input_json_delta", partial_json: '{"city":' },
+            },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toStreamResponses(argumentChunk),
+        ).toEqual([
+            {
+                type: "response.function_call_arguments.delta",
+                output_index: 0,
+                delta: '{"city":',
+            },
+        ]);
+    });
+
+    test("a Gemini stream chunk raises modelVersion as response.model", () => {
+        const raised = GeminiTranslator.fromStreamResponse({
+            modelVersion: "gemini-2.5-flash",
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "hi" }] },
+                    index: 0,
+                },
+            ],
+        });
+        expect(raised.filter((op) => op.op.endsWith(".model"))).toEqual([
+            { op: "response.model", model: "gemini-2.5-flash" },
+        ]);
+    });
+
+    test("a recorded Realtime response.done event names no model, and none is raised from it", () => {
+        const recording = JSON.parse(
+            readFileSync(
+                new URL(
+                    "../e2e/openai_realtime/output/latest/text.gpt-realtime-2.json",
+                    import.meta.url,
+                ),
+                "utf8",
+            ),
+        ) as { rawResponseEvents: { type: string }[] };
+        const done = recording.rawResponseEvents.find(
+            (event) => event.type === "response.done",
+        );
+        expect(done).toBeDefined();
+        const fromRealtime = OpenAIRealtimeTranslator.fromStreamResponse(done);
+        expect(fromRealtime.filter((op) => op.op.endsWith(".model"))).toEqual(
+            [],
+        );
+        expect(
+            OpenAIRealtimeTranslator.toStreamResponses(fromRealtime),
+        ).toEqual([done]);
+        expect(() =>
+            OpenAIChatTranslator.toStreamResponses(fromRealtime),
+        ).toThrow(
+            "openai_chat stream response toWire: program has no response.model op",
+        );
     });
 });

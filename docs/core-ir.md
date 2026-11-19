@@ -20,7 +20,7 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 
 | op                       | fields                                    | notes                                      |
 | ------------------------ | ----------------------------------------- | ------------------------------------------ |
-| `llm.model`              | `model`                                   | passed through verbatim                    |
+| `llm.model`              | `model`                                   | the model the request asks for             |
 | `llm.temperature`        | `value`                                   | no range normalization                     |
 | `llm.max_output_tokens`  | `value`                                   | provider token-cap field                   |
 | `request.user`           | `value`                                   | provider user/account id when available    |
@@ -86,6 +86,7 @@ not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 | op                         | fields                                 | notes                                                              |
 | -------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
 | `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below   |
+| `response.model`           | `model`                                | the model that answered; see [page](ops/response.model.md)         |
 | `response.stop`            | normalized stop reason                 | provider enum values map here                                      |
 | `response.usage`           | six optional token-count parts         | non-overlapping parts, no total; see [page](ops/response.usage.md) |
 | `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                  |

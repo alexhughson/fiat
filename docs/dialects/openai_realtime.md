@@ -15,8 +15,19 @@ events, optionally with top-level call/session fields such as `model`.
 | `response.create.response.tool_choice`  | `llm.tool_choice`       |
 | numeric `max_output_tokens`             | `llm.max_output_tokens` |
 | top-level request `model`               | `llm.model`             |
-| `response.done.response.model`          | `llm.model`             |
 | `response.done.response.id`             | `response.id`           |
+
+The `RealtimeResponse` type of OpenAI's SDK `openai-node`, which is the type of
+`response.done.response`, lists no `model`. fiat drops `response.model` with a
+warning when it lowers a whole response or a stream event to Realtime. A
+hand-written `model` key in a whole body's `response.done.response` stays an
+`openai_realtime.body_field` residual instead of becoming `response.model`, so
+the same dialect writes that key back. In a stream `response.done` event, the
+key stays inside the `openai_realtime.event_param` op for `response`.
+
+The `RealtimeSessionCreateRequest` type marks its `model` optional. A request
+program with no `llm.model` therefore lowers to a body with no top-level
+`model`; fiat does not substitute the last `response.model`.
 
 ## Dialect ops
 

@@ -997,7 +997,7 @@ describe("gemini responses", () => {
 
     test("text responses raise to assistant text, usage, stop, and response-only residuals", () => {
         expect(GeminiTranslator.fromResponse(wireResponse)).toEqual([
-            { op: "llm.model", model },
+            { op: "response.model", model },
             { op: "llm.text", role: "assistant", content: "pong" },
             {
                 op: "gemini.part_meta",
@@ -1041,6 +1041,19 @@ describe("gemini responses", () => {
                 GeminiTranslator.fromResponse(wireResponse),
             ),
         ).toEqual(wireResponse);
+    });
+
+    test("a response body model key stays a Gemini residual, not a model op", () => {
+        expect(
+            GeminiTranslator.fromResponse({ model: "hand-written-model" }),
+        ).toEqual([
+            {
+                op: "gemini.body_field",
+                key: "model",
+                value: "hand-written-model",
+                appliesTo: "response",
+            },
+        ]);
     });
 
     test("functionCall parts raise to llm.tool_call with object args", () => {
@@ -1421,6 +1434,7 @@ describe("gemini stream responses", () => {
     test("Gemini text chunks translate through the generic stream response ops", () => {
         const openaiChunk = OpenAIChatTranslator.toStreamResponse(
             GeminiTranslator.fromStreamResponse({
+                modelVersion: "gemini-2.5-flash",
                 candidates: [
                     {
                         content: {

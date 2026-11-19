@@ -49,7 +49,6 @@
                 "object": "realtime.response",
                 "status": "completed",
                 "status_details": null,
-                "model": "gpt-realtime",
                 "output": [
                     {
                         "id": "item_text_fixture",
@@ -80,7 +79,6 @@
                     "object": "realtime.response",
                     "status": "completed",
                     "status_details": null,
-                    "model": "gpt-realtime",
                     "output": [
                         {
                             "id": "item_text_fixture",
@@ -113,7 +111,6 @@
                     "object": "realtime.response",
                     "status": "completed",
                     "status_details": null,
-                    "model": "gpt-realtime",
                     "output": [
                         {
                             "type": "message",
@@ -137,7 +134,7 @@
         ]
     },
     "openAIChatResponse": {
-        "object": "chat.completion"
+        "error": "openai_chat response toWire: program has no response.model op"
     },
     "durationMs": 0,
     "checks": []

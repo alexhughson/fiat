@@ -432,7 +432,7 @@ export function responseFromWire(wire: unknown): Program {
         switch (key) {
             case "model":
                 program.push({
-                    op: "llm.model",
+                    op: "response.model",
                     model: asString(value, "model"),
                 });
                 break;
@@ -490,8 +490,8 @@ export function responseToWire(program: Program): unknown {
     const residualContentBlocks: WireBlock[] = [];
     for (const op of program) {
         switch (op.op) {
-            case "llm.model":
-                body.model = op.model;
+            case "response.model":
+                body.model = (op as OpOf<"response.model">).model;
                 break;
             case "response.id":
                 body.id = (op as OpOf<"response.id">).id;
@@ -533,6 +533,10 @@ export function responseToWire(program: Program): unknown {
     if (!message)
         throw new Error(
             "anthropic_messages response toWire: program has no message",
+        );
+    if (!body.model)
+        throw new Error(
+            "anthropic_messages response toWire: program has no response.model op",
         );
     if (usage) body.usage = usage;
     body.id ??= `msg_${crypto.randomUUID().replaceAll("-", "")}`;

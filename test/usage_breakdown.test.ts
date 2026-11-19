@@ -122,7 +122,7 @@ const realtimeBody = {
 // the tool-use example, with the tool-use prompt tokens beside the totals.
 const geminiBody = {
     responseId: "resp_usage",
-    model: "gemini-2.5-pro",
+    modelVersion: "gemini-2.5-pro",
     candidates: [
         {
             content: { role: "model", parts: [{ text: "hi there" }] },
@@ -148,7 +148,10 @@ const usageCounts = {
     outputTokens: 57,
     reasoningTokens: 40,
 } as const;
-const usageProgram = [usageCounts];
+const usageProgram = [
+    { op: "response.model", model: "gpt-5.2" } as const,
+    usageCounts,
+];
 
 describe("usage breakdown home round trips", () => {
     test("anthropic_messages: the wire reports every part, so the program holds all five and the body comes back identical", () => {

@@ -155,7 +155,9 @@ function responseStages(requestedModel: string): Stage[] {
     return [
         (program) =>
             program.map((op) =>
-                op.op === "llm.model" ? { ...op, model: requestedModel } : op,
+                op.op === "response.model"
+                    ? { ...op, model: requestedModel }
+                    : op,
             ),
     ];
 }

@@ -484,8 +484,8 @@ describe("openai_realtime translation", () => {
             ],
         });
 
-        const chatResponse = OpenAIChatTranslator.toResponse(
-            OpenAIRealtimeTranslator.fromResponse({
+        const chatResponse = OpenAIChatTranslator.toResponse([
+            ...OpenAIRealtimeTranslator.fromResponse({
                 events: [
                     {
                         type: "response.done",
@@ -506,7 +506,8 @@ describe("openai_realtime translation", () => {
                     },
                 ],
             }),
-        ) as { choices: { message: { content: string } }[] };
+            { op: "response.model" as const, model: "gpt-realtime" },
+        ]) as { choices: { message: { content: string } }[] };
 
         expect(chatResponse.choices[0]!.message.content).toBe("pong");
     });
@@ -529,9 +530,11 @@ describe("openai_realtime translation", () => {
             }),
         ) as { events: { response: Record<string, unknown> }[] };
 
+        expect(realtimeResponse.events[0]!.response).not.toHaveProperty(
+            "model",
+        );
         expect(realtimeResponse.events[0]!.response).toMatchObject({
             object: "realtime.response",
-            model: "gpt-4o-mini",
             status: "completed",
             status_details: null,
             output: [
@@ -574,10 +577,10 @@ describe("openai_realtime translation", () => {
             op: "response.id",
             id: "resp_789",
         });
-        const chatResponse = OpenAIChatTranslator.toResponse(program) as Record<
-            string,
-            unknown
-        >;
+        const chatResponse = OpenAIChatTranslator.toResponse([
+            ...program,
+            { op: "response.model" as const, model: "gpt-realtime" },
+        ]) as Record<string, unknown>;
         expect(chatResponse.id).toBe("resp_789");
     });
 

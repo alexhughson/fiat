@@ -7,7 +7,8 @@ Anthropic Messages (`POST /v1/messages`). Code:
 
 | wire                                         | core                    |
 | -------------------------------------------- | ----------------------- |
-| `model`                                      | `llm.model`             |
+| request `model`                              | `llm.model`             |
+| response `model`                             | `response.model`        |
 | response `id`                                | `response.id`           |
 | `temperature`                                | `llm.temperature`       |
 | `max_tokens`                                 | `llm.max_output_tokens` |
@@ -20,6 +21,11 @@ Anthropic Messages (`POST /v1/messages`). Code:
 
 Anthropic has no system message. System text lowers to the top-level `system`
 field.
+
+The SDK requires `model` in a response body and in `message_start.message`.
+Lowering either without `response.model` throws instead of substituting
+`llm.model`. Other stream events have no model field, so their lowering removes
+`response.model`.
 
 ## Dialect ops
 

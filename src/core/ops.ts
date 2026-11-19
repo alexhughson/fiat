@@ -95,6 +95,10 @@ export type CoreOp =
       }
     | { op: "meta.trace"; traceId: string }
     | { op: "response.id"; id: string }
+    // The model that the provider reports produced the response. llm.model is
+    // the model a request asks for; the two can differ (an alias answered by a
+    // dated snapshot).
+    | { op: "response.model"; model: string }
     // The token-count parts of a response's usage. The parts do not overlap
     // and there is no total: each lowering computes its provider's own sum
     // from the parts that are present. An absent param means the source

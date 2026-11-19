@@ -1040,7 +1040,7 @@ describe("gemini translation", () => {
 
     test("a gemini functionCall response with STOP lowers to tool-call stop reasons", () => {
         const program = GeminiTranslator.fromResponse({
-            model: "models/gemini-3.5-flash",
+            modelVersion: "models/gemini-3.5-flash",
             candidates: [
                 {
                     content: {
@@ -1111,7 +1111,7 @@ describe("gemini translation", () => {
     test("a gemini responseId raises to response.id and lowers into the anthropic id", () => {
         const program = GeminiTranslator.fromResponse({
             responseId: "resp_123",
-            model: "models/gemini-3.5-flash",
+            modelVersion: "models/gemini-3.5-flash",
             candidates: [
                 {
                     content: {
