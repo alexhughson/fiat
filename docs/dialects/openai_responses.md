@@ -24,6 +24,11 @@ OpenAI Responses (`POST /v1/responses`). Code:
 
 Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 
+A `response.reasoning_delta` lowers to `response.reasoning_text.delta`. The
+stream writer emits the delta with a reasoning item id and output/content
+indexes; it does not synthesize the item/content start or done events around
+the delta.
+
 ## Dialect ops
 
 | op                                | purpose                                           |
@@ -66,7 +71,7 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 
 ## Out of scope
 
-Structured output lowering, streaming output item protocols beyond text/tool
-deltas, audio/video input, image `detail` metadata, and provider-neutral
-representations for MCP, file search, computer use, provider file ids, or image
-generation.
+Structured output lowering, raising reasoning stream events, streaming output
+item protocols beyond text/reasoning/tool deltas, audio/video input, image
+`detail` metadata, and provider-neutral representations for MCP, file search,
+computer use, provider file ids, or image generation.

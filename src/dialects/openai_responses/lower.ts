@@ -59,22 +59,46 @@ export const lowerStreamResponse: Stage = stagePipeline(
 // One chunk of another provider's stream can hold a delta and a stop reason:
 // Gemini's API sends text and finishReason "STOP" together. A Responses stream
 // has no event that holds both, so the finish reason, and the usage beside it,
-// become a terminal event after the delta event. A program without a finish
-// reason stays one event.
+// become a terminal event after the delta event. Reasoning, answer text, and
+// tool calls also need separate Responses events when one source chunk mixes
+// them.
 export function splitStreamEvents(program: Program): Program[] {
-    const hasDelta = program.some(
-        (op) =>
-            op.op === "response.text_delta" ||
-            op.op === "response.tool_call_delta",
-    );
+    const hasDelta = program.some(isDeltaEventOp);
     const hasFinishReason = program.some(
         (op) => op.op === "openai_responses.finish_reason",
     );
-    if (!hasDelta || !hasFinishReason) return [program];
+    const events =
+        !hasDelta || !hasFinishReason
+            ? [program]
+            : [
+                  program.filter((op) => !isTerminalEventOp(op)),
+                  program.filter(isTerminalEventOp),
+              ];
+    return events.flatMap(splitReasoningFromOtherDeltas);
+}
+
+function splitReasoningFromOtherDeltas(program: Program): Program[] {
+    const hasReasoning = program.some(
+        (op) => op.op === "response.reasoning_delta",
+    );
+    const hasOtherDelta = program.some(
+        (op) => isDeltaEventOp(op) && op.op !== "response.reasoning_delta",
+    );
+    if (!hasReasoning || !hasOtherDelta) return [program];
     return [
-        program.filter((op) => !isTerminalEventOp(op)),
-        program.filter(isTerminalEventOp),
+        program.filter(
+            (op) => op.op === "response.reasoning_delta" || !isDeltaEventOp(op),
+        ),
+        program.filter((op) => op.op !== "response.reasoning_delta"),
     ];
+}
+
+function isDeltaEventOp(op: Op): boolean {
+    return (
+        op.op === "response.reasoning_delta" ||
+        op.op === "response.text_delta" ||
+        op.op === "response.tool_call_delta"
+    );
 }
 
 function isTerminalEventOp(op: Op): boolean {
@@ -88,8 +112,8 @@ const REASONING_ITEM = "openai_responses.reasoning_item";
 
 // A reasoning item is usable by OpenAI only with the id or encrypted_content
 // OpenAI issued, so a reasoning op without the side op (one raised from
-// another provider) is not written. The Responses stream events for reasoning
-// are not implemented, so a stream drops every reasoning op.
+// another provider) is not written. A complete llm.reasoning op still drops
+// from a stream; response.reasoning_delta goes directly to the stream writer.
 export function lowerReasoning(program: Program, target?: Target): Program {
     const sideOps = reasoning.sideOpsOf(program, [REASONING_ITEM]);
     return program.flatMap((op): Op[] => {
@@ -101,7 +125,7 @@ export function lowerReasoning(program: Program, target?: Target): Program {
             reasoning.warnDropped(
                 thought,
                 target,
-                "stream lowering has no reasoning events yet",
+                "stream lowering has no event for a complete reasoning item",
             );
             return [];
         }

@@ -45,7 +45,8 @@ models lower them as `max_tokens`.
 - Reasoning chat models serialize portable system text as `developer`.
 - Tool history without current tools still serializes `tools: []`.
 - Responses with `n > 1` are rejected.
-- Chat has no field for reasoning: `llm.reasoning` is dropped with a warning.
+- Chat has no field for reasoning: `llm.reasoning` and
+  `response.reasoning_delta` are dropped with a warning.
 - Response envelope and usage residuals are response-only and are not resent
   when a response program is appended to a request.
 - Request image URL parts lower as ordered message content parts. Data URLs

@@ -180,9 +180,14 @@ differs from the request.
 
 ## Thinking and signatures
 
-A `thought: true` text part raises to `llm.reasoning`. When the part has a
-`thoughtSignature`, the op holds it as a `signature` field whose `dialect`
-is `"gemini"` and whose `value` is the signature.
+A `thought: true` text part in a complete response body raises to
+`llm.reasoning`. When the part has a `thoughtSignature`, the op holds it as a
+`signature` field whose `dialect` is `"gemini"` and whose `value` is the
+signature.
+
+A thought part in a stream chunk raises to `response.reasoning_delta` with the
+same signature shape. Gemini stream lowering writes the delta back as a
+`thought: true` part and restores the signature.
 
 Gemini thinking continuity is carried by encrypted `thoughtSignature` fields
 on parts. On a `functionCall` or answer text part, `thoughtSignature` stays in

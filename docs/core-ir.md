@@ -77,18 +77,25 @@ field holds the `llm.reasoning` op's `id`, and resolves to the nearest earlier
 | `openai_chat`        | nothing                      | dropped with a warning                                         |
 | `openai_realtime`    | nothing                      | dropped with a warning                                         |
 
-In strict mode each warning is a `LintError`. Stream events for reasoning are
-not mapped: only Anthropic writes `llm.reasoning` into a stream response.
+In strict mode each warning is a `LintError`.
+
+A reasoning fragment in a stream raises to
+[`response.reasoning_delta`](ops/response.reasoning_delta.md), not to
+`llm.reasoning` or `response.text_delta`. Its optional `signature` follows the
+same issuer rule. Gemini lowers the fragment to a `thought: true` part, and
+OpenAI Responses lowers it to `response.reasoning_text.delta`. OpenAI Chat and
+Realtime drop the fragment with a warning; Anthropic has no stream mapping yet.
 
 ## Response ops
 
-| op                         | fields                                 | notes                                                            |
-| -------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
-| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below |
-| `response.stop`            | normalized stop reason                 | provider enum values map here                                    |
-| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                                               |
-| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                |
-| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                           |
+| op                         | fields                                 | notes                                                               |
+| -------------------------- | -------------------------------------- | ------------------------------------------------------------------- |
+| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below    |
+| `response.stop`            | normalized stop reason                 | provider enum values map here                                       |
+| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                                                  |
+| `response.reasoning_delta` | `index?`, `content`, `signature?`      | stream reasoning delta; see [page](ops/response.reasoning_delta.md) |
+| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                   |
+| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                              |
 
 Assistant responses raise to `llm.text` and `llm.tool_call`. That is why a
 response program can be appended to the next request program.

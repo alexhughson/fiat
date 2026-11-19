@@ -101,6 +101,12 @@ export type CoreOp =
     | { op: "response.usage"; inputTokens?: number; outputTokens?: number }
     | { op: "response.stop"; reason: StopReason }
     | {
+          op: "response.reasoning_delta";
+          index?: number;
+          content: string;
+          signature?: { dialect: string; value: string };
+      }
+    | {
           op: "response.text_delta";
           index?: number;
           role?: Role;

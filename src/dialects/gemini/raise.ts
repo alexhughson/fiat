@@ -27,6 +27,7 @@ export const raise: Stage = stagePipeline(raiseStages);
 export const raiseStreamResponseStages: Stage[] = [
     raiseToolUseStops,
     raiseStreamContents,
+    raiseStreamThoughts,
     raiseFinishReasons,
     raiseUsage,
 ];
@@ -91,6 +92,59 @@ export function raiseStreamContents(program: Program): Program {
         }>(op);
         return raiseStreamContent(contentOp.content, contentOp.appliesTo);
     });
+}
+
+// A thought's text and signature belong to the core reasoning delta. Any
+// remaining Gemini-only fields stay in part_meta without copying those facts.
+export function raiseStreamThoughts(program: Program): Program {
+    const out: Program = [];
+    for (let i = 0; i < program.length; i++) {
+        const op = program[i]!;
+        const next = program[i + 1];
+        const part =
+            op.op === "response.text_delta" && next?.op === "gemini.part_meta"
+                ? opData<{ part: GeminiPartMeta }>(next).part
+                : undefined;
+        const { thought, thoughtSignature, ...rest } = part?.meta ?? {};
+        if (part?.kind !== "text" || thought !== true) {
+            out.push(op);
+            continue;
+        }
+        out.push({
+            op: "response.reasoning_delta",
+            ...(part.index != null ? { index: part.index } : {}),
+            content: opData<{ content: string }>(op).content,
+            ...(typeof thoughtSignature === "string"
+                ? {
+                      signature: {
+                          dialect: "gemini",
+                          value: thoughtSignature,
+                      },
+                  }
+                : {}),
+        });
+        if (
+            Object.keys(rest).length > 0 ||
+            (thoughtSignature != null && typeof thoughtSignature !== "string")
+        ) {
+            out.push({
+                op: "gemini.part_meta",
+                part: {
+                    kind: "text",
+                    ...(part.index != null ? { index: part.index } : {}),
+                    meta: {
+                        ...rest,
+                        ...(thoughtSignature != null &&
+                        typeof thoughtSignature !== "string"
+                            ? { thoughtSignature }
+                            : {}),
+                    },
+                },
+            });
+        }
+        i++;
+    }
+    return out;
 }
 
 // Gemini sends finishReason "STOP" also when the candidate asks for a

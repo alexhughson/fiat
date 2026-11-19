@@ -459,6 +459,7 @@ export function streamResponseFromWire(wire: unknown): Program {
 
 export function streamResponseToWire(program: Program): unknown {
     let text = "";
+    const reasoningDeltas: OpOf<"response.reasoning_delta">[] = [];
     const toolDeltas: OpOf<"response.tool_call_delta">[] = [];
     let finishReason: string | undefined;
     let usage: Record<string, unknown> | undefined;
@@ -467,6 +468,10 @@ export function streamResponseToWire(program: Program): unknown {
 
     for (const op of program) {
         switch (op.op) {
+            case "response.reasoning_delta":
+                reasoningDeltas.push(op as OpOf<"response.reasoning_delta">);
+                event.type ??= "response.reasoning_text.delta";
+                break;
             case "response.text_delta":
                 sawTextDelta = true;
                 text += (op as OpOf<"response.text_delta">).content;
@@ -500,10 +505,23 @@ export function streamResponseToWire(program: Program): unknown {
     }
 
     rejectDeltaWithFinishReason(
-        sawTextDelta || toolDeltas.length > 0,
+        reasoningDeltas.length > 0 || sawTextDelta || toolDeltas.length > 0,
         finishReason,
     );
+    if (reasoningDeltas.length > 0 && (sawTextDelta || toolDeltas.length > 0)) {
+        throw new LintError(
+            "openai_responses stream response toWire: reasoning and answer or tool deltas need separate events; toStreamResponses returns them separately",
+        );
+    }
 
+    if (reasoningDeltas.length > 0) {
+        event.type ??= "response.reasoning_text.delta";
+        event.item_id ??= `rs_${crypto.randomUUID().replaceAll("-", "")}`;
+        event.output_index ??= reasoningDeltas[0]!.index ?? 0;
+        event.content_index ??= 0;
+        event.delta = reasoningDeltas.map((op) => op.content).join("");
+        return event;
+    }
     if (sawTextDelta) {
         event.type ??= "response.output_text.delta";
         event.item_id ??= `msg_${crypto.randomUUID().replaceAll("-", "")}`;

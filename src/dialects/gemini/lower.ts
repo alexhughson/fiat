@@ -689,6 +689,18 @@ export function collectStreamModelContent(program: Program): Program {
 
     for (const op of program) {
         switch (op.op) {
+            case "response.reasoning_delta": {
+                const thought = op as OpOf<"response.reasoning_delta">;
+                const signature = reasoning.signatureFor(thought, "gemini");
+                parts.push({
+                    text: thought.content,
+                    thought: true,
+                    ...(signature !== undefined
+                        ? { thoughtSignature: signature }
+                        : {}),
+                });
+                break;
+            }
             case "response.text_delta": {
                 const text = op as OpOf<"response.text_delta">;
                 if (text.role != null && text.role !== "assistant") {

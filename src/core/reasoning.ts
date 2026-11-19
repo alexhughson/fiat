@@ -36,7 +36,7 @@ export function sideOpsOf(
 // A signature is valid only for the provider that issued it, so a dialect
 // reads the signature only when the op records that dialect as the issuer.
 export function signatureFor(
-    reasoning: Reasoning,
+    reasoning: Pick<Reasoning, "signature">,
     dialect: string,
 ): string | undefined {
     return reasoning.signature?.dialect === dialect
@@ -53,6 +53,13 @@ export function reasoningIds(): () => string {
 // For a dialect whose wire has no place for reasoning.
 export function dropReasoning(program: Program, target?: Target): Program {
     return program.filter((op) => {
+        if (op.op === "response.reasoning_delta") {
+            lintOrWarn(
+                target?.strict,
+                `dropped response.reasoning_delta: ${target?.dialect ?? "the target dialect"} has no field for reasoning`,
+            );
+            return false;
+        }
         if (op.op !== "llm.reasoning") return true;
         warnDropped(op as Reasoning, target, "has no field for reasoning");
         return false;
