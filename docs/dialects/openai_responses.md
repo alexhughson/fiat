@@ -9,6 +9,8 @@ OpenAI Responses (`POST /v1/responses`). Code:
 | ------------------------------------------- | ----------------------------------- |
 | `model`                                     | `llm.model`                         |
 | response `id`                               | `response.id`                       |
+| request `previous_response_id`              | `request.previous_response`         |
+| response `previous_response_id`             | `response.previous_response`        |
 | `instructions`                              | system `llm.text`                   |
 | `temperature`                               | `llm.temperature`                   |
 | `max_output_tokens`                         | `llm.max_output_tokens`             |

@@ -46,6 +46,7 @@ export type CoreOp =
     | { op: "llm.max_output_tokens"; value: number }
     | { op: "request.user"; value: string }
     | { op: "request.stream"; value: boolean }
+    | { op: "request.previous_response"; responseId: string }
     | { op: "request.stop_sequences"; value: string[] }
     | { op: "llm.thinking"; effort: ThinkingEffort }
     | { op: "llm.text"; role: Role; content: string }
@@ -95,6 +96,7 @@ export type CoreOp =
       }
     | { op: "meta.trace"; traceId: string }
     | { op: "response.id"; id: string }
+    | { op: "response.previous_response"; responseId: string }
     // Only the cross-provider counts live here. Provider-specific usage fields
     // (cache hits, reasoning tokens, totals) stay in the op stream as a
     // residual on the source dialect's usage op.

@@ -18,27 +18,28 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 
 ## Request ops
 
-| op                       | fields                                    | notes                                      |
-| ------------------------ | ----------------------------------------- | ------------------------------------------ |
-| `llm.model`              | `model`                                   | passed through verbatim                    |
-| `llm.temperature`        | `value`                                   | no range normalization                     |
-| `llm.max_output_tokens`  | `value`                                   | provider token-cap field                   |
-| `request.user`           | `value`                                   | provider user/account id when available    |
-| `request.stream`         | `value`                                   | stream request flag                        |
-| `request.stop_sequences` | `value: string[]`                         | provider stop strings                      |
-| `llm.thinking`           | `effort`                                  | portable effort; dialects choose wire form |
-| `llm.text`               | `role`, `content`                         | one text unit; see [page](ops/llm.text.md) |
-| `llm.reasoning`          | `id`, `content`                           | model reasoning; see Reasoning below       |
-| `llm.image`              | `role:"user"`, `source`                   | image URL or base64 image data             |
-| `llm.audio`              | `role:"user"`, `source`                   | base64 audio data                          |
-| `llm.document`           | `role:"user"`, `source`                   | PDF URL or base64 PDF data                 |
-| `llm.video`              | `role:"user"`, `source`                   | base64 video data                          |
-| `llm.tool`               | `name`, `description?`, `inputSchema`     | client-executed function tool              |
-| `llm.server_tool`        | `name`, `kind`                            | hosted web search or code execution        |
-| `llm.tool_choice`        | `auto`, `none`, `required`, or `{ name }` | name resolves in the request tool scope    |
-| `llm.tool_call`          | `id`, `name`, `arguments`                 | `arguments` is always a parsed object      |
-| `llm.tool_result`        | `id`, `content`                           | result for a prior tool call               |
-| `llm.output`             | `format:"json_schema"`, `name`, `schema`  | structured output                          |
+| op                          | fields                                    | notes                                                            |
+| --------------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| `llm.model`                 | `model`                                   | passed through verbatim                                          |
+| `llm.temperature`           | `value`                                   | no range normalization                                           |
+| `llm.max_output_tokens`     | `value`                                   | provider token-cap field                                         |
+| `request.user`              | `value`                                   | provider user/account id when available                          |
+| `request.stream`            | `value`                                   | stream request flag                                              |
+| `request.previous_response` | `responseId`                              | stored response before this request; see Previous response below |
+| `request.stop_sequences`    | `value: string[]`                         | provider stop strings                                            |
+| `llm.thinking`              | `effort`                                  | portable effort; dialects choose wire form                       |
+| `llm.text`                  | `role`, `content`                         | one text unit; see [page](ops/llm.text.md)                       |
+| `llm.reasoning`             | `id`, `content`                           | model reasoning; see Reasoning below                             |
+| `llm.image`                 | `role:"user"`, `source`                   | image URL or base64 image data                                   |
+| `llm.audio`                 | `role:"user"`, `source`                   | base64 audio data                                                |
+| `llm.document`              | `role:"user"`, `source`                   | PDF URL or base64 PDF data                                       |
+| `llm.video`                 | `role:"user"`, `source`                   | base64 video data                                                |
+| `llm.tool`                  | `name`, `description?`, `inputSchema`     | client-executed function tool                                    |
+| `llm.server_tool`           | `name`, `kind`                            | hosted web search or code execution                              |
+| `llm.tool_choice`           | `auto`, `none`, `required`, or `{ name }` | name resolves in the request tool scope                          |
+| `llm.tool_call`             | `id`, `name`, `arguments`                 | `arguments` is always a parsed object                            |
+| `llm.tool_result`           | `id`, `content`                           | result for a prior tool call                                     |
+| `llm.output`                | `format:"json_schema"`, `name`, `schema`  | structured output                                                |
 
 Media sources are explicit. Images use `{ type:"url", url }` or
 `{ type:"base64", mediaType, data }` and require `image/*` for base64.
@@ -82,13 +83,14 @@ not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 
 ## Response ops
 
-| op                         | fields                                 | notes                                                            |
-| -------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
-| `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below |
-| `response.stop`            | normalized stop reason                 | provider enum values map here                                    |
-| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                                               |
-| `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                |
-| `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                           |
+| op                           | fields                                 | notes                                                                     |
+| ---------------------------- | -------------------------------------- | ------------------------------------------------------------------------- |
+| `response.id`                | `id`                                   | the provider's id for a complete response; see Response id below          |
+| `response.previous_response` | `responseId`                           | stored response this response continued from; see Previous response below |
+| `response.stop`              | normalized stop reason                 | provider enum values map here                                             |
+| `response.usage`             | `inputTokens?`, `outputTokens?`        | shared counts only                                                        |
+| `response.text_delta`        | `index?`, `role?`, `content`           | stream text delta                                                         |
+| `response.tool_call_delta`   | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                                    |
 
 Assistant responses raise to `llm.text` and `llm.tool_call`. That is why a
 response program can be appended to the next request program.
@@ -124,6 +126,57 @@ Lowering a program to a request body removes `response.id`, like every other
 `response.*` op. Among the stream codecs, only the `anthropic_messages` one
 that lowers a complete response to stream events reads the op: it writes the
 id into `message_start.message.id`.
+
+## Previous response
+
+### `request.previous_response`
+
+```ts
+{
+    op: "request.previous_response";
+    responseId: string;
+}
+```
+
+When a request program holds this op, the provider retrieves the stored
+inputs and outputs of the named response and places them ahead of the
+program's conversation ops.
+
+### `response.previous_response`
+
+```ts
+{
+    op: "response.previous_response";
+    responseId: string;
+}
+```
+
+This op says that the response described by the program continued from the
+named response. Request lowering removes this response echo, and response or
+stream lowering removes `request.previous_response`, so an appended response
+cannot make the next request continue from the wrong response.
+
+`responseId` has the same value as `response.id` in the earlier response's
+program, but it names provider storage rather than an earlier op in the
+current program. No lowering resolves it against the program. The op has no
+`dialect` tag because the value names whichever provider stored the response,
+not a wire format. Its position in a program carries no meaning.
+
+| dialect              | request lowering              | response and stream lowering                                                                                                                   |
+| -------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `openai_responses`   | writes `previous_response_id` | writes `previous_response_id` in a response body or the `response` object of `response.completed`, `response.incomplete`, or `response.failed` |
+| `anthropic_messages` | throws `LintError`            | drops `response.previous_response`                                                                                                             |
+| `openai_chat`        | throws `LintError`            | drops `response.previous_response`                                                                                                             |
+| `gemini`             | throws `LintError`            | drops `response.previous_response`                                                                                                             |
+| `openai_realtime`    | throws `LintError`            | drops `response.previous_response`                                                                                                             |
+
+The four dialects with no continuation field cannot retrieve the stored
+conversation. Their response lowering drops only the echo, which repeats what
+the request held. Raising `previous_response_id: null` produces no op.
+Lowering an `openai_responses` response body or terminal stream event writes
+`previous_response_id: null` when the program holds no
+`response.previous_response`; request lowering writes no key when the program
+holds no `request.previous_response`.
 
 ## Host ops
 

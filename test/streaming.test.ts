@@ -131,6 +131,7 @@ describe("stream response conversion", () => {
             response: {
                 status: "completed",
                 usage: { input_tokens: 3, output_tokens: 2 },
+                previous_response_id: null,
             },
         };
 
@@ -214,6 +215,7 @@ describe("stream response conversion", () => {
                 model: "gpt-4.1",
                 output: [functionCall],
                 usage: { input_tokens: 20, output_tokens: 8 },
+                previous_response_id: null,
             },
         };
         // A real stream also holds response.created, response.in_progress, and
@@ -684,7 +686,7 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
     };
     const responsesCompletedEvent = {
         type: "response.completed",
-        response: { status: "completed" },
+        response: { status: "completed", previous_response_id: null },
     };
     const realtimeTextEvent = {
         type: "response.output_text.delta",
@@ -752,6 +754,7 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                     status: "incomplete",
                     incomplete_details: { reason: "max_output_tokens" },
                     usage: { input_tokens: 4, output_tokens: 1 },
+                    previous_response_id: null,
                 },
             },
         ]);
@@ -783,6 +786,7 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
                 response: {
                     status: "incomplete",
                     incomplete_details: { reason: "content_filter" },
+                    previous_response_id: null,
                 },
             },
         ]);

@@ -88,3 +88,17 @@ test("docs/ops/llm.text.md shows the type of llm.text that src/core/ops.ts decla
         ["{", ...params.map((param) => `    ${param};`), "}"].join("\n"),
     );
 });
+
+test("docs/core-ir.md shows the previous response types that src/core/ops.ts declares", () => {
+    const source = read("../src/core/ops.ts");
+    const page = read("../docs/core-ir.md");
+    for (const op of [
+        "request.previous_response",
+        "response.previous_response",
+    ]) {
+        expect(source).toContain(`| { op: "${op}"; responseId: string }`);
+        expect(page).toContain(
+            `### \`${op}\`\n\n\`\`\`ts\n{\n    op: "${op}";\n    responseId: string;\n}\n\`\`\``,
+        );
+    }
+});

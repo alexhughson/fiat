@@ -193,6 +193,7 @@ describe("llm.reasoning returns to the provider it came from", () => {
             created_at: 1,
             model: "gpt-5",
             status: "completed",
+            previous_response_id: null,
             output: [
                 {
                     type: "reasoning",

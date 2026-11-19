@@ -645,6 +645,7 @@ describe("openai_responses responses", () => {
         created_at: 1783049000,
         status: "completed",
         model: "gpt-4o-mini",
+        previous_response_id: null,
         output: [
             {
                 id: "msg_123",
@@ -747,6 +748,7 @@ describe("openai_responses responses", () => {
             created_at: 1783049001,
             status: "completed",
             model: "gpt-4o-mini",
+            previous_response_id: null,
             output: [
                 {
                     type: "message",
@@ -778,6 +780,7 @@ describe("openai_responses responses", () => {
             created_at: 1783049002,
             status: "completed",
             model: "gpt-4o-mini",
+            previous_response_id: null,
             output: [
                 {
                     id: "msg_1",

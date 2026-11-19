@@ -17,6 +17,7 @@ import type {
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    lowerPreviousResponse,
     dropReasoning,
     rejectSessionConfig,
     lintMidConversationSystem,
@@ -29,6 +30,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    lowerPreviousResponse,
     dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
@@ -38,6 +40,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    lowerPreviousResponse,
     dropReasoning,
     lowerStopReasons,
     lowerUsageCounts,
@@ -46,6 +49,16 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+export function lowerPreviousResponse(program: Program): Program {
+    return program.filter((op) => {
+        if (op.op === "response.previous_response") return false;
+        if (op.op !== "request.previous_response") return true;
+        throw new LintError(
+            "openai_realtime request lower: cannot lower request.previous_response because response.create cannot retrieve a stored response",
+        );
+    });
+}
 
 // One chunk of another provider's stream can hold a delta and a stop reason:
 // Gemini's API sends text and finishReason "STOP" together. A Realtime stream

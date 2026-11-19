@@ -25,6 +25,7 @@ interface ResponsePartMeta {
 }
 
 export const lowerRequestStages: Stage[] = [
+    lowerPreviousResponse,
     lowerReasoning,
     dropAnthropicTextMeta,
     lintMidConversationSystem,
@@ -44,6 +45,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    lowerPreviousResponse,
     lowerReasoning,
     dropAnthropicTextMeta,
     lowerStopReasons,
@@ -54,6 +56,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    lowerPreviousResponse,
     dropStreamReasoning,
     dropAnthropicTextMeta,
     lowerStopReasons,
@@ -64,6 +67,16 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+export function lowerPreviousResponse(program: Program): Program {
+    return program.filter((op) => {
+        if (op.op === "response.previous_response") return false;
+        if (op.op !== "request.previous_response") return true;
+        throw new LintError(
+            "gemini request lower: cannot lower request.previous_response because generateContent cannot retrieve a stored response",
+        );
+    });
+}
 
 // Writes a reasoning op in the shape raiseContents produces for a
 // `thought: true` part: assistant llm.text followed by a gemini.part_meta.

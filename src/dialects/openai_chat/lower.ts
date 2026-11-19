@@ -22,6 +22,7 @@ import type {
 } from "./ops.js";
 
 export const lowerRequestStages: Stage[] = [
+    lowerPreviousResponse,
     dropReasoning,
     dropAnthropicTextMeta,
     lowerRequestTexts,
@@ -39,6 +40,7 @@ export const lowerRequestStages: Stage[] = [
 export const lowerRequest: Stage = stagePipeline(lowerRequestStages);
 
 export const lowerResponseStages: Stage[] = [
+    lowerPreviousResponse,
     dropReasoning,
     dropAnthropicTextMeta,
     lowerStopReasons,
@@ -49,6 +51,7 @@ export const lowerResponseStages: Stage[] = [
 export const lowerResponse: Stage = stagePipeline(lowerResponseStages);
 
 export const lowerStreamResponseStages: Stage[] = [
+    lowerPreviousResponse,
     dropReasoning,
     dropAnthropicTextMeta,
     lowerStopReasons,
@@ -58,6 +61,16 @@ export const lowerStreamResponseStages: Stage[] = [
 export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
+
+export function lowerPreviousResponse(program: Program): Program {
+    return program.filter((op) => {
+        if (op.op === "response.previous_response") return false;
+        if (op.op !== "request.previous_response") return true;
+        throw new LintError(
+            "openai_chat request lower: cannot lower request.previous_response because Chat Completions cannot retrieve a stored response",
+        );
+    });
+}
 
 // The text of an anthropic text block is already an llm.text op. The keys
 // beside it (citations, cache_control) have no place on this wire.

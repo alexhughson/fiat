@@ -63,6 +63,14 @@ export function requestFromWire(wire: unknown): Program {
                     value: asNumber(value, "max_output_tokens"),
                 });
                 break;
+            case "previous_response_id":
+                if (value != null) {
+                    program.push({
+                        op: "request.previous_response",
+                        responseId: asString(value, "previous_response_id"),
+                    });
+                }
+                break;
             case "reasoning": {
                 const reasoning = asRecord(value, "reasoning");
                 if (reasoning.effort != null) {
@@ -141,6 +149,9 @@ export function requestToWire(program: Program): unknown {
                 break;
             case "llm.max_output_tokens":
                 body.max_output_tokens = op.value;
+                break;
+            case "request.previous_response":
+                body.previous_response_id = op.responseId;
                 break;
             case "llm.thinking":
                 body.reasoning = {
@@ -295,6 +306,14 @@ export function responseFromWire(wire: unknown): Program {
                     id: asString(value, "id"),
                 });
                 break;
+            case "previous_response_id":
+                if (value != null) {
+                    program.push({
+                        op: "response.previous_response",
+                        responseId: asString(value, "previous_response_id"),
+                    });
+                }
+                break;
             case "output":
                 for (const item of asArray(value, "output")) {
                     const output = asRecord(
@@ -369,6 +388,9 @@ export function responseToWire(program: Program): unknown {
             case "response.id":
                 body.id = (op as OpOf<"response.id">).id;
                 break;
+            case "response.previous_response":
+                body.previous_response_id = op.responseId;
+                break;
             case "openai_responses.output":
                 output.push(opData<{ item: WireOutputItem }>(op).item);
                 break;
@@ -405,6 +427,7 @@ export function responseToWire(program: Program): unknown {
         finishReason === "max_tokens" || finishReason === "content_filter"
             ? "incomplete"
             : "completed";
+    body.previous_response_id ??= null;
     if (body.incomplete_details === undefined) {
         if (finishReason === "max_tokens")
             body.incomplete_details = { reason: "max_output_tokens" };
@@ -461,6 +484,7 @@ export function streamResponseToWire(program: Program): unknown {
     let text = "";
     const toolDeltas: OpOf<"response.tool_call_delta">[] = [];
     let finishReason: string | undefined;
+    let previousResponseId: string | undefined;
     let usage: Record<string, unknown> | undefined;
     const event: Record<string, unknown> = {};
     let sawTextDelta = false;
@@ -479,6 +503,10 @@ export function streamResponseToWire(program: Program): unknown {
             case "openai_responses.finish_reason":
                 finishReason = opData<{ reason: string }>(op).reason;
                 event.type ??= terminalEventType(finishReason);
+                break;
+            case "response.previous_response":
+                previousResponseId = (op as OpOf<"response.previous_response">)
+                    .responseId;
                 break;
             case "openai_responses.usage":
                 usage = {
@@ -503,6 +531,14 @@ export function streamResponseToWire(program: Program): unknown {
         sawTextDelta || toolDeltas.length > 0,
         finishReason,
     );
+    if (
+        (sawTextDelta || toolDeltas.length > 0) &&
+        previousResponseId !== undefined
+    ) {
+        throw new LintError(
+            "openai_responses stream response toWire: the program holds a delta and response.previous_response, which a Responses stream sends as two events; toStreamResponses returns both",
+        );
+    }
 
     if (sawTextDelta) {
         event.type ??= "response.output_text.delta";
@@ -544,15 +580,21 @@ export function streamResponseToWire(program: Program): unknown {
     }
 
     event.type ??= terminalEventType(finishReason);
-    if (usage || finishReason != null) {
-        const response = asRecord(
-            event.response ?? {},
-            "stream event.response",
-        );
-        response.status ??=
-            finishReason === "max_tokens" || finishReason === "content_filter"
-                ? "incomplete"
-                : "completed";
+    const isTerminalEvent =
+        event.type === "response.completed" ||
+        event.type === "response.incomplete" ||
+        event.type === "response.failed";
+    if (program.length > 0 && isTerminalEvent) {
+        const response = {
+            ...asRecord(event.response ?? {}, "stream event.response"),
+        };
+        if (usage || finishReason != null || previousResponseId !== undefined) {
+            response.status ??=
+                finishReason === "max_tokens" ||
+                finishReason === "content_filter"
+                    ? "incomplete"
+                    : "completed";
+        }
         if (
             finishReason === "max_tokens" &&
             response.incomplete_details === undefined
@@ -566,6 +608,7 @@ export function streamResponseToWire(program: Program): unknown {
             response.incomplete_details = { reason: "content_filter" };
         }
         if (usage) response.usage = usage;
+        response.previous_response_id = previousResponseId ?? null;
         event.response = response;
     }
     return event;
@@ -660,13 +703,26 @@ function streamTerminalEvent(event: Record<string, unknown>): Program {
             ? undefined
             : asRecord(event.response, "stream event.response");
     if (response != null) {
-        const { usage: _usage, ...responseMeta } = response;
+        const {
+            usage: _usage,
+            previous_response_id: previousResponseId,
+            ...responseMeta
+        } = response;
         if (Object.keys(responseMeta).length > 0) {
             program.push({
                 op: "openai_responses.body_field",
                 key: "response",
                 value: responseMeta,
                 appliesTo: "response",
+            });
+        }
+        if (previousResponseId != null) {
+            program.push({
+                op: "response.previous_response",
+                responseId: asString(
+                    previousResponseId,
+                    "stream event.response.previous_response_id",
+                ),
             });
         }
     }
