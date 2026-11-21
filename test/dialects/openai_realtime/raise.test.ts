@@ -64,26 +64,80 @@ describe("openai_realtime raise stages", () => {
         ).toEqual([{ op: "response.stop", reason: "tool_use" }, residual]);
     });
 
-    test("raiseUsage splits cross-provider counts onto response.usage and keeps vendor-specific fields as a residual", () => {
+    test("raiseUsage subtracts the cached detail from input_tokens and keeps the modality fields as a residual", () => {
+        expect(
+            raiseUsage([
+                {
+                    op: "openai_realtime.usage",
+                    usage: {
+                        input_tokens: 132,
+                        input_token_details: {
+                            cached_tokens: 64,
+                            text_tokens: 60,
+                            cached_tokens_details: { text_tokens: 64 },
+                        },
+                        output_tokens: 121,
+                        output_token_details: { text_tokens: 121 },
+                        total_tokens: 253,
+                    },
+                },
+                residual,
+            ]),
+        ).toEqual([
+            {
+                op: "response.usage",
+                inputTokens: 68,
+                cacheReadTokens: 64,
+                outputTokens: 121,
+            },
+            {
+                op: "openai_realtime.usage",
+                usage: {
+                    input_token_details: {
+                        text_tokens: 60,
+                        cached_tokens_details: { text_tokens: 64 },
+                    },
+                    output_token_details: { text_tokens: 121 },
+                },
+            },
+            residual,
+        ]);
+    });
+
+    test("raiseUsage fails on a cached_tokens count larger than input_tokens", () => {
+        expect(() =>
+            raiseUsage([
+                {
+                    op: "openai_realtime.usage",
+                    usage: {
+                        input_tokens: 10,
+                        input_token_details: { cached_tokens: 11 },
+                    },
+                },
+            ]),
+        ).toThrow(
+            /input_token_details\.cached_tokens 11 exceeds the remaining input_tokens 10/,
+        );
+    });
+
+    test("raiseUsage reads a details object without a cached_tokens key as no count, not as zero", () => {
         expect(
             raiseUsage([
                 {
                     op: "openai_realtime.usage",
                     usage: {
                         input_tokens: 12,
+                        input_token_details: { text_tokens: 12 },
                         output_tokens: 2,
-                        total_tokens: 14,
                     },
                 },
-                residual,
             ]),
         ).toEqual([
             { op: "response.usage", inputTokens: 12, outputTokens: 2 },
             {
                 op: "openai_realtime.usage",
-                usage: { total_tokens: 14 },
+                usage: { input_token_details: { text_tokens: 12 } },
             },
-            residual,
         ]);
     });
 });
