@@ -642,18 +642,44 @@ export function mergeAdjacentContents(program: Program): Program {
 }
 
 export function lowerStopReasons(program: Program): Program {
-    return program.flatMap((op) =>
-        op.op === "response.stop"
-            ? [
-                  {
-                      op: "gemini.finish_reason",
-                      value: lowerFinishReason(
-                          (op as OpOf<"response.stop">).reason,
-                      ),
-                  } as Op,
-              ]
-            : [op],
-    );
+    // A gemini.finish_reason side op keeps a value the core reason alone does
+    // not lower back to. It names the response.stop it came from under `of`,
+    // and belongs to the nearest earlier stop with that id.
+    const valueByStop = new Map<Op, string>();
+    const stopById = new Map<string, Op>();
+    for (const op of program) {
+        if (op.op === "response.stop") {
+            const id = (op as OpOf<"response.stop">).id;
+            if (id != null) stopById.set(id, op);
+            continue;
+        }
+        if (op.op !== "gemini.finish_reason") continue;
+        const side = opData<{ of?: string; value: string }>(op);
+        if (side.of == null) continue;
+        const stop = stopById.get(side.of);
+        if (!stop) {
+            throw new LintError(
+                `gemini.finish_reason names response.stop ${JSON.stringify(side.of)}, and no earlier response.stop has that id`,
+            );
+        }
+        valueByStop.set(stop, side.value);
+    }
+    return program.flatMap((op) => {
+        if (
+            op.op === "gemini.finish_reason" &&
+            opData<{ of?: string }>(op).of != null
+        )
+            return [];
+        if (op.op !== "response.stop") return [op];
+        return [
+            {
+                op: "gemini.finish_reason",
+                value:
+                    valueByStop.get(op) ??
+                    lowerFinishReason((op as OpOf<"response.stop">).reason),
+            } as Op,
+        ];
+    });
 }
 
 export function lowerUsageCounts(program: Program): Program {
@@ -797,7 +823,14 @@ function collectModelContentForResponse(
         }
     }
 
-    if (requireContent || parts.length > 0) {
+    // The body path requires a candidate, so a program with no content and
+    // no finish reason still writes an empty content. A program whose only
+    // candidate data is a finish reason — a candidate a filter cut before
+    // any text — writes no content key, which Gemini's reference allows.
+    const hasFinishReason = program.some(
+        (op) => op.op === "gemini.finish_reason",
+    );
+    if (parts.length > 0 || (requireContent && !hasFinishReason)) {
         out.push({
             op: "gemini.content",
             content: { role: "model", parts },

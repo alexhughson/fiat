@@ -67,6 +67,123 @@ describe("gemini raise stages", () => {
         ]);
     });
 
+    test("raiseFinishReasons maps a finishReason with no core spelling onto the nearest reason and keeps the value beside it", () => {
+        expect(
+            raiseFinishReasons([
+                { op: "llm.model", model: "m" },
+                { op: "gemini.finish_reason", value: "RECITATION" },
+            ]),
+        ).toEqual([
+            { op: "llm.model", model: "m" },
+            { op: "response.stop", reason: "content_filter", id: "stop_1" },
+            {
+                op: "gemini.finish_reason",
+                value: "RECITATION",
+                of: "stop_1",
+                appliesTo: "response",
+            },
+        ]);
+    });
+
+    test("raiseFinishReasons passes a value no core reason shares the meaning of through unchanged", () => {
+        expect(
+            raiseFinishReasons([
+                {
+                    op: "gemini.finish_reason",
+                    value: "BRAND_NEW_FILTER",
+                    appliesTo: "response",
+                },
+            ]),
+        ).toEqual([
+            {
+                op: "gemini.finish_reason",
+                value: "BRAND_NEW_FILTER",
+                appliesTo: "response",
+            },
+        ]);
+    });
+
+    test("raiseFinishReasons reads STOP together with the candidate parts: a functionCall raises tool_use, and no side op is written", () => {
+        expect(
+            raiseFinishReasons([
+                {
+                    op: "gemini.content",
+                    content: {
+                        role: "model",
+                        parts: [
+                            { functionCall: { id: "c1", name: "f", args: {} } },
+                        ],
+                    },
+                    appliesTo: "response",
+                },
+                { op: "gemini.finish_reason", value: "STOP" },
+            ]),
+        ).toEqual([
+            {
+                op: "gemini.content",
+                content: {
+                    role: "model",
+                    parts: [
+                        { functionCall: { id: "c1", name: "f", args: {} } },
+                    ],
+                },
+                appliesTo: "response",
+            },
+            { op: "response.stop", reason: "tool_use" },
+        ]);
+    });
+
+    test("raiseFinishReasons raises MALFORMED_FUNCTION_CALL as tool_use only when the candidate holds the call", () => {
+        const callContent = {
+            op: "gemini.content",
+            content: {
+                role: "model",
+                parts: [{ functionCall: { id: "c1", name: "f", args: {} } }],
+            },
+            appliesTo: "response",
+        } as const;
+        const textContent = {
+            op: "gemini.content",
+            content: { role: "model", parts: [{ text: "partial" }] },
+            appliesTo: "response",
+        } as const;
+        expect(
+            raiseFinishReasons([
+                callContent,
+                {
+                    op: "gemini.finish_reason",
+                    value: "MALFORMED_FUNCTION_CALL",
+                },
+            ]),
+        ).toEqual([
+            callContent,
+            { op: "response.stop", reason: "tool_use", id: "stop_1" },
+            {
+                op: "gemini.finish_reason",
+                value: "MALFORMED_FUNCTION_CALL",
+                of: "stop_1",
+                appliesTo: "response",
+            },
+        ]);
+        expect(
+            raiseFinishReasons([
+                textContent,
+                {
+                    op: "gemini.finish_reason",
+                    value: "MALFORMED_FUNCTION_CALL",
+                    appliesTo: "response",
+                },
+            ]),
+        ).toEqual([
+            textContent,
+            {
+                op: "gemini.finish_reason",
+                value: "MALFORMED_FUNCTION_CALL",
+                appliesTo: "response",
+            },
+        ]);
+    });
+
     test("raiseUsage splits gemini.usage into response.usage plus a droppable residual for vendor-only fields", () => {
         expect(
             raiseUsage([

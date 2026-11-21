@@ -116,6 +116,51 @@ export const geminiFunctionCallResponseFixture = {
     },
 } as const;
 
+// Recorded from gemini-3.5-flash-lite on 2026-11-19: the response body
+// Google's API returned for a story prompt with maxOutputTokens: 10. The
+// candidate was cut mid-sentence.
+export const geminiMaxTokensResponseFixture = {
+    candidates: [
+        {
+            content: {
+                parts: [
+                    {
+                        text: "Arthur Pendelton was a man",
+                        thoughtSignature:
+                            "EnsKeQFpFH0T+pMAVR+xDcytG1HnRan0M84RCaOOUz4VnYxeaorgBMaUT/Yrw2tWNJSlRHpSYrelu7EYOVTkihStFfl40FBRXLe2TR67nl/chcyWkaZL2mSzVFOcwoqAas8hVPW9nv8Xz3JCx19Du/PzOOdFddTFgQznU7g=",
+                    },
+                ],
+                role: "model",
+            },
+            finishReason: "MAX_TOKENS",
+            index: 0,
+        },
+    ],
+    usageMetadata: {
+        promptTokenCount: 10,
+        candidatesTokenCount: 6,
+        totalTokenCount: 16,
+        promptTokensDetails: [{ modality: "TEXT", tokenCount: 10 }],
+        serviceTier: "standard",
+    },
+    modelVersion: "gemini-3.5-flash-lite",
+    responseId: "pg3_asqTNv_bm9cPu6vumA8",
+} as const;
+
+// Built from Gemini's reference (Candidate.finishReason RECITATION): the
+// candidate was cut because the recitation filter flagged its text. A live
+// response recorded from gemini-3.5-flash-lite on 2026-11-19 ended this way
+// after a prompt to recite a copyrighted novel opening, with `content: {}`
+// and a `finishMessage`; the empty candidate content raises a separate fault.
+export const geminiRecitationResponseFixture = {
+    candidates: [
+        {
+            content: { role: "model", parts: [{ text: "A passage." }] },
+            finishReason: "RECITATION",
+        },
+    ],
+} as const;
+
 export function assertGeminiTextResponseShape(
     value: unknown,
     what = "gemini text response",

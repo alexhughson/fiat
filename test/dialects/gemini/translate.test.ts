@@ -3,6 +3,8 @@ import {
     AnthropicTranslator,
     GeminiTranslator,
     OpenAIChatTranslator,
+    OpenAIRealtimeTranslator,
+    OpenAIResponsesTranslator,
 } from "../../../src/index";
 import {
     geminiPlannerProgram,
@@ -1090,6 +1092,174 @@ describe("gemini translation", () => {
             },
         ]);
         expect(anthropic.stop_reason).toBe("tool_use");
+    });
+
+    test("a gemini RECITATION response lowers to every other dialect's stop field", () => {
+        // The response body Google's API returns to the proxy when the
+        // recitation filter cuts the candidate.
+        const program = GeminiTranslator.fromResponse({
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "A passage." }] },
+                    finishReason: "RECITATION",
+                },
+            ],
+        });
+
+        const responses = OpenAIResponsesTranslator.toResponse(program) as {
+            status: string;
+            incomplete_details: { reason: string };
+        };
+        expect(responses.status).toBe("incomplete");
+        expect(responses.incomplete_details).toEqual({
+            reason: "content_filter",
+        });
+
+        const chat = OpenAIChatTranslator.toResponse(program) as {
+            choices: { finish_reason: string }[];
+        };
+        expect(chat.choices[0]!.finish_reason).toBe("content_filter");
+
+        const anthropic = AnthropicTranslator.toResponse(program) as {
+            stop_reason: string;
+        };
+        expect(anthropic.stop_reason).toBe("refusal");
+
+        const realtime = (
+            OpenAIRealtimeTranslator.toResponse(program) as {
+                events: {
+                    response: { status: string; status_details: unknown };
+                }[];
+            }
+        ).events[0]!.response;
+        expect(realtime.status).toBe("incomplete");
+        expect(realtime.status_details).toEqual({
+            type: "incomplete",
+            reason: "content_filter",
+        });
+
+        // Lowering back to Gemini writes the finishReason the body came with.
+        const home = GeminiTranslator.toResponse(program) as {
+            candidates: { finishReason: string }[];
+        };
+        expect(home.candidates[0]!.finishReason).toBe("RECITATION");
+    });
+
+    test("a gemini RECITATION stream chunk lowers to an OpenAI Responses delta and an incomplete terminal event", () => {
+        // One chunk of the stream Google's API returns to the proxy, holding
+        // the filtered text and its finishReason together.
+        const raised = GeminiTranslator.fromStreamResponse({
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "A passage." }] },
+                    finishReason: "RECITATION",
+                },
+            ],
+        });
+
+        const events = OpenAIResponsesTranslator.toStreamResponses(raised) as {
+            type: string;
+            delta?: string;
+            response?: {
+                status: string;
+                incomplete_details: { reason: string };
+            };
+        }[];
+        expect(events.map((event) => event.type)).toEqual([
+            "response.output_text.delta",
+            "response.incomplete",
+        ]);
+        expect(events[0]!.delta).toBe("A passage.");
+        expect(events[1]!.response!.status).toBe("incomplete");
+        expect(events[1]!.response!.incomplete_details).toEqual({
+            reason: "content_filter",
+        });
+    });
+
+    test("a gemini response with a finishReason no core reason shares lowers to no stop reason in every other dialect", () => {
+        // The response body Google's API returns to the proxy when the
+        // response ends for a reason no other provider reports.
+        const program = GeminiTranslator.fromResponse({
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "partial" }] },
+                    finishReason: "MALFORMED_RESPONSE",
+                },
+            ],
+        });
+
+        const responses = OpenAIResponsesTranslator.toResponse(program) as {
+            status: string;
+        };
+        expect(responses.status).toBe("completed");
+        const anthropic = AnthropicTranslator.toResponse(program) as {
+            stop_reason: string | null;
+        };
+        expect(anthropic.stop_reason).toBeNull();
+        const chat = OpenAIChatTranslator.toResponse(program) as {
+            choices: { finish_reason: string | null }[];
+        };
+        expect(chat.choices[0]!.finish_reason).toBeNull();
+
+        // Lowering back to Gemini writes the finishReason the body came with.
+        const home = GeminiTranslator.toResponse(program) as {
+            candidates: { finishReason: string }[];
+        };
+        expect(home.candidates[0]!.finishReason).toBe("MALFORMED_RESPONSE");
+    });
+
+    test("a gemini response whose candidate a filter cut before any text lowers to every dialect's stop field with no content", () => {
+        // The response body Google's API returns to the proxy when the safety
+        // filter blocks the candidate before it produces any content.
+        const program = GeminiTranslator.fromResponse({
+            candidates: [{ finishReason: "SAFETY" }],
+        });
+
+        const responses = OpenAIResponsesTranslator.toResponse(program) as {
+            output: unknown[];
+            status: string;
+            incomplete_details: { reason: string };
+        };
+        expect(responses.output).toEqual([]);
+        expect(responses.status).toBe("incomplete");
+        expect(responses.incomplete_details).toEqual({
+            reason: "content_filter",
+        });
+
+        const chat = OpenAIChatTranslator.toResponse(program) as {
+            choices: { message: { content: unknown }; finish_reason: string }[];
+        };
+        expect(chat.choices[0]!.message.content).toBeNull();
+        expect(chat.choices[0]!.finish_reason).toBe("content_filter");
+
+        const anthropic = AnthropicTranslator.toResponse(program) as {
+            content: unknown[];
+            stop_reason: string;
+        };
+        expect(anthropic.content).toEqual([]);
+        expect(anthropic.stop_reason).toBe("refusal");
+
+        const realtime = (
+            OpenAIRealtimeTranslator.toResponse(program) as {
+                events: {
+                    response: {
+                        output: unknown[];
+                        status: string;
+                        status_details: unknown;
+                    };
+                }[];
+            }
+        ).events[0]!.response;
+        expect(realtime.output).toEqual([]);
+        expect(realtime.status).toBe("incomplete");
+        expect(realtime.status_details).toEqual({
+            type: "incomplete",
+            reason: "content_filter",
+        });
+
+        expect(GeminiTranslator.toResponse(program)).toEqual({
+            candidates: [{ finishReason: "SAFETY" }],
+        });
     });
 
     test("an anthropic response id lowers into the gemini responseId", () => {

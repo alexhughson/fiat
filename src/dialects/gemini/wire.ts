@@ -253,14 +253,17 @@ export function responseToWire(program: Program): unknown {
         }
     }
 
-    if (!content)
+    // A candidate a filter cut before any text lowers with a finishReason
+    // and no content key, which Gemini's reference allows. A program with
+    // neither content nor a finish reason is not a response candidate.
+    if (!content && finishReason == null)
         throw new Error(
             "gemini response toWire: program has no candidate content",
         );
     body.candidates = [
         {
             ...candidateMeta,
-            content,
+            ...(content ? { content } : {}),
             ...(finishReason ? { finishReason } : {}),
         },
     ];
@@ -644,14 +647,23 @@ function candidateFromWire(value: unknown): Program {
         );
     }
     const candidate = asRecord(candidates[0], "candidate");
-    const content = contentFromWire(candidate.content, "candidate.content");
-    const program: Program = [
-        { op: "gemini.content", content, appliesTo: "response" },
-    ];
+    // Gemini marks Candidate.content optional. A candidate a filter cut
+    // before any text arrives with a finishReason and no content key, or
+    // with an empty content object; both raise with no content ops.
+    const content =
+        candidate.content != null &&
+        Object.keys(candidate.content as Record<string, unknown>).length > 0
+            ? contentFromWire(candidate.content, "candidate.content")
+            : undefined;
+    const program: Program = [];
+    if (content) {
+        program.push({ op: "gemini.content", content, appliesTo: "response" });
+    }
     if (candidate.finishReason != null) {
         program.push({
             op: "gemini.finish_reason",
             value: asString(candidate.finishReason, "candidate.finishReason"),
+            appliesTo: "response",
         });
     }
     const {

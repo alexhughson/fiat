@@ -15,19 +15,17 @@ import { asNumber, asRecord, asString } from "../../core/wire.js";
 import type { GeminiPartMeta, WireContent, WirePart } from "./ops.js";
 
 export const raiseStages: Stage[] = [
-    raiseToolUseStops,
+    raiseFinishReasons,
     raiseContents,
     raiseThoughts,
-    raiseFinishReasons,
     raiseUsage,
 ];
 
 export const raise: Stage = stagePipeline(raiseStages);
 
 export const raiseStreamResponseStages: Stage[] = [
-    raiseToolUseStops,
-    raiseStreamContents,
     raiseFinishReasons,
+    raiseStreamContents,
     raiseUsage,
 ];
 
@@ -93,45 +91,70 @@ export function raiseStreamContents(program: Program): Program {
     });
 }
 
-// Gemini sends finishReason "STOP" also when the candidate asks for a
-// function call. This stage runs before raiseContents and
-// raiseStreamContents, while the response candidate's gemini.content still
-// precedes its gemini.finish_reason, so a call in request history does not
-// count. A stream chunk counts only its own parts.
-export function raiseToolUseStops(program: Program): Program {
+// Gemini sends finishReason "STOP" also when the candidate asks for a function
+// call, so this stage runs before raiseContents and raiseStreamContents, while
+// the response candidate's gemini.content still precedes its
+// gemini.finish_reason, and reads each value together with the parts next to
+// it: a call in request history does not count, and a stream chunk counts only
+// its own parts. MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, and
+// TOO_MANY_TOOL_CALLS say the model stopped around a tool call, so they raise
+// `tool_use` when that content holds a functionCall part, as `STOP` does. A
+// value with a core reason of the same meaning raises that reason, and one
+// whose core reason does not lower back to it also keeps the exact value in a
+// gemini.finish_reason side op that names the new response.stop id under `of`,
+// so lowering to Gemini writes the value back. A value no core reason shares
+// the meaning of passes through as a residual: Gemini's lowering writes it
+// back, and lowering to another dialect warns and drops it, so that
+// provider's client reads no stop reason.
+export function raiseFinishReasons(program: Program): Program {
+    const nextStopId = stopIds();
     let candidateCalls = false;
-    return program.map((op) => {
-        if (
-            op.op === "gemini.content" &&
-            opData<{ appliesTo?: string }>(op).appliesTo === "response"
-        ) {
-            candidateCalls = opData<{ content: WireContent }>(
-                op,
-            ).content.parts.some((part) => part.functionCall != null);
-            return op;
+    const out: Program = [];
+    for (const op of program) {
+        if (op.op === "gemini.content") {
+            if (opData<{ appliesTo?: string }>(op).appliesTo === "response") {
+                candidateCalls = opData<{ content: WireContent }>(
+                    op,
+                ).content.parts.some((part) => part.functionCall != null);
+            }
+            out.push(op);
+            continue;
         }
-        if (op.op !== "gemini.finish_reason") return op;
-        const calledTool = candidateCalls;
+        if (
+            op.op !== "gemini.finish_reason" ||
+            opData<{ of?: string }>(op).of != null
+        ) {
+            out.push(op);
+            continue;
+        }
+        const value = opData<{ value: string }>(op).value;
+        const reason = finishReasonToStop(value, candidateCalls);
         candidateCalls = false;
-        return calledTool && opData<{ value: string }>(op).value === "STOP"
-            ? ({ op: "response.stop", reason: "tool_use" } as Op)
-            : op;
-    });
+        if (reason == null) {
+            out.push(op);
+            continue;
+        }
+        if (lowerFinishReason(reason) === value) {
+            out.push({ op: "response.stop", reason } as Op);
+            continue;
+        }
+        const id = nextStopId();
+        out.push({ op: "response.stop", reason, id } as Op);
+        out.push({
+            op: "gemini.finish_reason",
+            value,
+            of: id,
+            appliesTo: "response",
+        } as Op);
+    }
+    return out;
 }
 
-export function raiseFinishReasons(program: Program): Program {
-    return program.flatMap((op) =>
-        op.op === "gemini.finish_reason"
-            ? [
-                  {
-                      op: "response.stop",
-                      reason: raiseFinishReason(
-                          opData<{ value: string }>(op).value,
-                      ),
-                  } as Op,
-              ]
-            : [op],
-    );
+// Ids restart on every raise call; a side op belongs to the nearest earlier
+// response.stop with the id it names in `of`.
+function stopIds(): () => string {
+    let count = 0;
+    return () => `stop_${++count}`;
 }
 
 // Maps the cross-provider counts onto response.usage; any vendor-specific
@@ -545,19 +568,45 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
     return Object.keys(value).every((key) => keys.includes(key));
 }
 
+// Every finishReason value a core reason shares the meaning of. STOP,
+// MAX_TOKENS, and SAFETY lower back to their own value, so they raise without
+// a side op. A value missing here has no core reason of the same meaning: it
+// stays in its gemini.finish_reason op instead of borrowing a nearby reason.
 const FINISH_REASON_TO_STOP: Record<string, StopReason> = {
     STOP: "end_turn",
     MAX_TOKENS: "max_tokens",
+    // The content the model generated was flagged by a filter: the shared
+    // reason is content_filter, which OpenAI writes as
+    // incomplete_details.reason and Anthropic as stop_reason "refusal".
     SAFETY: "content_filter",
+    RECITATION: "content_filter",
+    LANGUAGE: "content_filter",
+    BLOCKLIST: "content_filter",
+    PROHIBITED_CONTENT: "content_filter",
+    SPII: "content_filter",
+    IMAGE_SAFETY: "content_filter",
+    IMAGE_PROHIBITED_CONTENT: "content_filter",
+    IMAGE_RECITATION: "content_filter",
+    ESCALATION: "content_filter",
+    // The response reached the per-request token limit, continuable with the
+    // continuation token the candidate_meta residual carries.
+    CONTINUATION: "max_tokens",
 };
 
-export function raiseFinishReason(value: string): StopReason {
-    const reason = FINISH_REASON_TO_STOP[value];
-    if (!reason)
-        throw new LintError(
-            `gemini finishReason "${value}" has no core stop reason mapping`,
-        );
-    return reason;
+const TOOL_CALL_FINISH_REASONS = new Set([
+    "STOP",
+    "MALFORMED_FUNCTION_CALL",
+    "UNEXPECTED_TOOL_CALL",
+    "TOO_MANY_TOOL_CALLS",
+]);
+
+function finishReasonToStop(
+    value: string,
+    candidateCalls: boolean,
+): StopReason | undefined {
+    if (candidateCalls && TOOL_CALL_FINISH_REASONS.has(value))
+        return "tool_use";
+    return FINISH_REASON_TO_STOP[value];
 }
 
 export function lowerFinishReason(reason: StopReason): string {

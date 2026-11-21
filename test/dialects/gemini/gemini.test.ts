@@ -4,10 +4,13 @@ import {
     LintError,
     OpenAIChatTranslator,
     type Program,
+    type StopReason,
 } from "../../../src/index";
 import {
     geminiFunctionCallResponseFixture,
+    geminiMaxTokensResponseFixture,
     geminiModelFixture,
+    geminiRecitationResponseFixture,
     geminiRequestFixture,
     geminiTextResponseFixture,
     geminiWeatherToolName,
@@ -1216,18 +1219,245 @@ describe("gemini responses", () => {
         );
     });
 
-    test("unmapped finish reasons halt instead of guessing", () => {
-        expect(() =>
+    test("a mapped finishReason raises its core reason, a value with no core reason of the same meaning raises none, and both lower back to the same value", () => {
+        // The finishReason values on https://ai.google.dev/api/generate-content,
+        // read on 2026-11-19. A value with no core reason of the same meaning
+        // raises no response.stop at all: the value stays in the
+        // gemini.finish_reason op, which warns and drops lowering to another
+        // dialect, so that provider's client reads no stop reason.
+        const mapped: Record<string, StopReason> = {
+            STOP: "end_turn",
+            MAX_TOKENS: "max_tokens",
+            SAFETY: "content_filter",
+            RECITATION: "content_filter",
+            LANGUAGE: "content_filter",
+            BLOCKLIST: "content_filter",
+            PROHIBITED_CONTENT: "content_filter",
+            SPII: "content_filter",
+            IMAGE_SAFETY: "content_filter",
+            IMAGE_PROHIBITED_CONTENT: "content_filter",
+            IMAGE_RECITATION: "content_filter",
+            ESCALATION: "content_filter",
+            CONTINUATION: "max_tokens",
+        };
+        const noCoreReason = [
+            "FINISH_REASON_UNSPECIFIED",
+            "OTHER",
+            "MISSING_THOUGHT_SIGNATURE",
+            "MALFORMED_RESPONSE",
+            "NO_IMAGE",
+            "IMAGE_OTHER",
+            "PUP_LIMITED_DISABLED",
+        ];
+
+        const bodyOf = (finishReason: string) => ({
+            model,
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [{ text: "partial" }],
+                    },
+                    finishReason,
+                },
+            ],
+        });
+
+        for (const [finishReason, reason] of Object.entries(mapped)) {
+            const program = GeminiTranslator.fromResponse(bodyOf(finishReason));
+            const stops = program.filter((op) => op.op === "response.stop");
+            expect(
+                stops.map((op) => (op as { reason: StopReason }).reason),
+            ).toEqual([reason]);
+            const keepsValue = program.some(
+                (op) =>
+                    op.op === "gemini.finish_reason" &&
+                    (op as unknown as { value: unknown }).value ===
+                        finishReason,
+            );
+            // STOP, MAX_TOKENS, and SAFETY lower back from the core reason
+            // alone; every other mapped value needs its side op.
+            expect(keepsValue).toBe(
+                finishReason !== "STOP" &&
+                    finishReason !== "MAX_TOKENS" &&
+                    finishReason !== "SAFETY",
+            );
+
+            const wire = GeminiTranslator.toResponse(program) as {
+                candidates: { finishReason: string }[];
+            };
+            expect(wire.candidates[0]!.finishReason).toBe(finishReason);
+        }
+
+        for (const finishReason of noCoreReason) {
+            const program = GeminiTranslator.fromResponse(bodyOf(finishReason));
+            expect(program.some((op) => op.op === "response.stop")).toBe(
+                false,
+            );
+            expect(program).toContainEqual({
+                op: "gemini.finish_reason",
+                value: finishReason,
+                appliesTo: "response",
+            });
+
+            const wire = GeminiTranslator.toResponse(program) as {
+                candidates: { finishReason: string }[];
+            };
+            expect(wire.candidates[0]!.finishReason).toBe(finishReason);
+        }
+    });
+
+    test("a finishReason the reference has never listed raises no core stop and keeps the value", () => {
+        const program = GeminiTranslator.fromResponse({
+            model,
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "partial" }] },
+                    finishReason: "BRAND_NEW_FILTER",
+                },
+            ],
+        });
+        expect(program.some((op) => op.op === "response.stop")).toBe(false);
+        expect(program).toContainEqual({
+            op: "gemini.finish_reason",
+            value: "BRAND_NEW_FILTER",
+            appliesTo: "response",
+        });
+        const wire = GeminiTranslator.toResponse(program) as {
+            candidates: { finishReason: string }[];
+        };
+        expect(wire.candidates[0]!.finishReason).toBe("BRAND_NEW_FILTER");
+    });
+
+    test("a RECITATION response raises to a content-filter stop that keeps the finishReason", () => {
+        const program = GeminiTranslator.fromResponse(
+            geminiRecitationResponseFixture,
+        );
+        expect(program).toEqual([
+            { op: "llm.text", role: "assistant", content: "A passage." },
+            { op: "response.stop", reason: "content_filter", id: "stop_1" },
+            {
+                op: "gemini.finish_reason",
+                value: "RECITATION",
+                of: "stop_1",
+                appliesTo: "response",
+            },
+        ]);
+        expect(GeminiTranslator.toResponse(program)).toEqual(
+            geminiRecitationResponseFixture,
+        );
+    });
+
+    test("a recorded MAX_TOKENS response raises without a side op and round-trips", () => {
+        const program = GeminiTranslator.fromResponse(
+            geminiMaxTokensResponseFixture,
+        );
+        expect(program).toContainEqual({
+            op: "response.stop",
+            reason: "max_tokens",
+        });
+        expect(program.some((op) => op.op === "gemini.finish_reason")).toBe(
+            false,
+        );
+        expect(GeminiTranslator.toResponse(program)).toEqual(
+            geminiMaxTokensResponseFixture,
+        );
+    });
+
+    test("malformed and unexpected tool-call finish reasons raise tool_use when the candidate holds the call", () => {
+        const call = {
+            functionCall: { id: "call_1", name: "get_weather", args: {} },
+        };
+        const stopsOf = (parts: unknown[], finishReason: string) =>
             GeminiTranslator.fromResponse({
                 model,
                 candidates: [
-                    {
-                        content: { role: "model", parts: [{ text: "" }] },
-                        finishReason: "RECITATION",
-                    },
+                    { content: { role: "model", parts }, finishReason },
                 ],
+            }).filter((op) => op.op === "response.stop");
+
+        expect(stopsOf([call], "MALFORMED_FUNCTION_CALL")).toEqual([
+            { op: "response.stop", reason: "tool_use", id: "stop_1" },
+        ]);
+        expect(stopsOf([call], "UNEXPECTED_TOOL_CALL")).toEqual([
+            { op: "response.stop", reason: "tool_use", id: "stop_1" },
+        ]);
+        expect(stopsOf([call], "TOO_MANY_TOOL_CALLS")).toEqual([
+            { op: "response.stop", reason: "tool_use", id: "stop_1" },
+        ]);
+        expect(
+            stopsOf([{ text: "partial" }], "MALFORMED_FUNCTION_CALL"),
+        ).toEqual([]);
+
+        const program = GeminiTranslator.fromResponse({
+            model,
+            candidates: [
+                {
+                    content: { role: "model", parts: [call] },
+                    finishReason: "MALFORMED_FUNCTION_CALL",
+                },
+            ],
+        });
+        const wire = GeminiTranslator.toResponse(program) as {
+            candidates: { finishReason: string }[];
+        };
+        expect(wire.candidates[0]!.finishReason).toBe(
+            "MALFORMED_FUNCTION_CALL",
+        );
+    });
+
+    test("a candidate with a finish reason and no content raises to the stop op alone and round-trips without a content key", () => {
+        const body = { candidates: [{ finishReason: "SAFETY" }] };
+
+        expect(GeminiTranslator.fromResponse(body)).toEqual([
+            { op: "response.stop", reason: "content_filter" },
+        ]);
+        expect(
+            GeminiTranslator.toResponse(GeminiTranslator.fromResponse(body)),
+        ).toEqual(body);
+    });
+
+    test("a candidate with an empty content object raises like a candidate with none", () => {
+        // The content shape of a response recorded from gemini-3.5-flash-lite
+        // on 2026-11-19 that the recitation filter cut.
+        expect(
+            GeminiTranslator.fromResponse({
+                candidates: [{ content: {}, finishReason: "RECITATION" }],
             }),
-        ).toThrow("no core stop reason mapping");
+        ).toEqual([
+            { op: "response.stop", reason: "content_filter", id: "stop_1" },
+            {
+                op: "gemini.finish_reason",
+                value: "RECITATION",
+                of: "stop_1",
+                appliesTo: "response",
+            },
+        ]);
+    });
+
+    test("a CONTINUATION response raises to a max_tokens stop and keeps its continuation token", () => {
+        const body = {
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "So far " }] },
+                    finishReason: "CONTINUATION",
+                    continuationToken: "cont_tok_abc123",
+                },
+            ],
+        };
+
+        const program = GeminiTranslator.fromResponse(body);
+        expect(program).toContainEqual({
+            op: "response.stop",
+            reason: "max_tokens",
+            id: "stop_1",
+        });
+        expect(program).toContainEqual({
+            op: "gemini.candidate_meta",
+            candidate: { continuationToken: "cont_tok_abc123" },
+            appliesTo: "response",
+        });
+        expect(GeminiTranslator.toResponse(program)).toEqual(body);
     });
 
     test("pause and context-window stops do not lower as MAX_TOKENS", () => {
@@ -1356,6 +1586,65 @@ describe("gemini stream responses", () => {
                 arguments: '{"x":"1"}',
             },
         ]);
+    });
+
+    test("a RECITATION stream chunk raises to a content-filter stop and lowers back with the same finishReason", () => {
+        const chunk = {
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "A passage." }] },
+                    finishReason: "RECITATION",
+                },
+            ],
+        };
+
+        expect(GeminiTranslator.fromStreamResponse(chunk)).toEqual([
+            {
+                op: "response.text_delta",
+                role: "assistant",
+                content: "A passage.",
+            },
+            { op: "response.stop", reason: "content_filter", id: "stop_1" },
+            {
+                op: "gemini.finish_reason",
+                value: "RECITATION",
+                of: "stop_1",
+                appliesTo: "response",
+            },
+        ]);
+        expect(
+            GeminiTranslator.toStreamResponse(
+                GeminiTranslator.fromStreamResponse(chunk),
+            ),
+        ).toEqual(chunk);
+    });
+
+    test("a stream chunk with a finish reason and no content raises to the stop op alone", () => {
+        expect(
+            GeminiTranslator.fromStreamResponse({
+                candidates: [{ finishReason: "SAFETY" }],
+            }),
+        ).toEqual([{ op: "response.stop", reason: "content_filter" }]);
+    });
+
+    test("a CONTINUATION stream chunk keeps its continuation token through the round trip", () => {
+        const chunk = {
+            candidates: [
+                {
+                    content: { role: "model", parts: [{ text: "So far " }] },
+                    finishReason: "CONTINUATION",
+                    continuationToken: "cont_tok_abc123",
+                },
+            ],
+        };
+
+        const raised = GeminiTranslator.fromStreamResponse(chunk);
+        expect(raised).toContainEqual({
+            op: "gemini.candidate_meta",
+            candidate: { continuationToken: "cont_tok_abc123" },
+            appliesTo: "response",
+        });
+        expect(GeminiTranslator.toStreamResponse(raised)).toEqual(chunk);
     });
 
     test("a tool_call_delta with response.stop tool_use lowers to a functionCall chunk with STOP", () => {

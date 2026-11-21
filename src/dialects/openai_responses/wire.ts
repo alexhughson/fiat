@@ -392,7 +392,11 @@ export function responseToWire(program: Program): unknown {
                 );
         }
     }
-    if (output.length === 0)
+    // A stop with no output items — a candidate a filter cut before any
+    // text — lowers to an empty output array, which the Response object
+    // allows. A program with neither output nor a finish reason is not a
+    // response.
+    if (output.length === 0 && finishReason == null)
         throw new Error(
             "openai_responses response toWire: program has no output",
         );

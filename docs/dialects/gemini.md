@@ -24,17 +24,17 @@ path. Code: `src/dialects/gemini/`.
 
 ## Dialect ops
 
-| op                         | purpose                                                                                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gemini.content`           | one request content or response candidate content                                                                                                              |
-| `gemini.part_meta`         | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta` |
-| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                                                                  |
-| `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                          |
-| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                            |
-| `gemini.finish_reason`     | maps `STOP`, `MAX_TOKENS`, and `SAFETY` to `response.stop`                                                                                                     |
-| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                                                                       |
-| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                        |
-| `gemini.body_field`        | unknown top-level field                                                                                                                                        |
+| op                         | purpose                                                                                                                                                                      |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gemini.content`           | one request content or response candidate content                                                                                                                            |
+| `gemini.part_meta`         | part metadata such as `thoughtSignature`; for a `functionResponse` part, the function `name`, its `llm.tool_result` id under `of`, and any extras under `meta`               |
+| `gemini.tool`              | configured built-ins, URL context, and other raw tool objects                                                                                                                |
+| `gemini.generation_config` | Gemini-only `generationConfig` fields                                                                                                                                        |
+| `gemini.tool_config`       | `toolConfig` fields not mapped to `llm.tool_choice`                                                                                                                          |
+| `gemini.finish_reason`     | raises a `finishReason` to the `response.stop` reason that shares its meaning; a side op that names the stop under `of` keeps a mapped value the core reason alone does not lower back to, and a value with no core reason stays in this op as a residual |
+| `gemini.usage`             | shared usage plus `usageMetadata` extras                                                                                                                                     |
+| `gemini.candidate_meta`    | response candidate fields outside content/finish reason                                                                                                                      |
+| `gemini.body_field`        | unknown top-level field                                                                                                                                                      |
 
 Gemini returns `finishReason: "STOP"` also when the model asks for a function
 call, so raising a response body or a stream chunk writes `response.stop` with
@@ -42,6 +42,43 @@ call, so raising a response body or a stream chunk writes `response.stop` with
 `functionCall` part, and lowering writes `STOP` for `tool_use`. A stream that
 sends the `functionCall` part and `STOP` in different chunks raises to
 `end_turn`.
+
+Every other `finishReason` value in Gemini's reference raises to the core
+reason that shares its meaning, or to none. A value that says the content was
+flagged (`SAFETY`, `RECITATION`, `LANGUAGE`, `BLOCKLIST`, `PROHIBITED_CONTENT`,
+`SPII`, `IMAGE_SAFETY`, `IMAGE_PROHIBITED_CONTENT`, `IMAGE_RECITATION`,
+`ESCALATION`) raises `content_filter`; `CONTINUATION` raises `max_tokens`, and
+the candidate's `continuationToken` stays in the `gemini.candidate_meta`
+residual, so it round-trips to Gemini and warns and drops crossing to another
+dialect; `MALFORMED_FUNCTION_CALL`, `UNEXPECTED_TOOL_CALL`, and
+`TOO_MANY_TOOL_CALLS` raise `tool_use` when the candidate holds the
+`functionCall` part, as `STOP` does. `STOP`, `MAX_TOKENS`, and `SAFETY` lower
+back from the core reason alone; every other mapped value also writes a
+`gemini.finish_reason` side op that names the new `response.stop` id under
+`of`, so lowering to Gemini writes the value back, and lowering to another
+dialect warns and drops the side op while the core reason carries the meaning.
+
+A value no core reason shares the meaning of — `OTHER`,
+`FINISH_REASON_UNSPECIFIED`, `MISSING_THOUGHT_SIGNATURE`, `MALFORMED_RESPONSE`,
+`NO_IMAGE`, `IMAGE_OTHER`, `PUP_LIMITED_DISABLED`, the tool-call family when
+the candidate holds no call, and any value the reference has never listed —
+raises no `response.stop`: it stays in its `gemini.finish_reason` op, which
+lowering to Gemini writes back and lowering to another dialect warns and
+drops, so that provider's client reads no stop reason (`finish_reason: null`
+on Chat, `stop_reason: null` on Anthropic, `status: "completed"` on Responses
+and Realtime).
+
+A filter that cuts a candidate before any text arrives with a `finishReason`
+and no `content` key, or with an empty content object. Both raise with no
+content ops, and lowering to Gemini writes the candidate without a `content`
+key, which the reference allows. Lowering to another dialect writes that
+provider's stop with no content: OpenAI Responses holds `output: []` with
+`status: "incomplete"`, Chat a message with `content: null`, Anthropic
+`content: []`, Realtime `output: []`; a stop no core reason shares, with no
+content, still throws on Responses and Realtime (`program has no output`).
+Lowering such a stop into a Gemini stream chunk still throws, because a Gemini
+stream chunk writer requires candidate content whenever it holds a finish
+reason.
 
 ## Lints
 

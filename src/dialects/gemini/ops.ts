@@ -67,7 +67,15 @@ export type GeminiOp =
           content: WireContent;
           appliesTo?: "request" | "response";
       }
-    | { op: "gemini.finish_reason"; value: string }
+    | {
+          op: "gemini.finish_reason";
+          value: string;
+          // Set when this op is a side op that keeps a finishReason the
+          // raised core reason alone does not lower back to; it names the
+          // response.stop it came from.
+          of?: string;
+          appliesTo?: "request" | "response";
+      }
     | {
           op: "gemini.usage";
           usage: Record<string, unknown>;

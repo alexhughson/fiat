@@ -8,8 +8,10 @@ export type JsonSchema = Record<string, unknown>;
 
 export type Role = "system" | "user" | "assistant";
 
-// Normalized stop reasons. Dialects map their wire values onto these; a wire
-// value with no mapping raises rather than guessing.
+// Normalized stop reasons. Dialects map their wire values onto these only
+// where the meaning is the same. A value with no core spelling of its own
+// stays in its dialect's op: that dialect's lowering writes it back, and
+// another dialect warns and drops it, so its client reads no stop reason.
 export type StopReason =
     | "end_turn"
     | "max_tokens"
@@ -99,7 +101,11 @@ export type CoreOp =
     // (cache hits, reasoning tokens, totals) stay in the op stream as a
     // residual on the source dialect's usage op.
     | { op: "response.usage"; inputTokens?: number; outputTokens?: number }
-    | { op: "response.stop"; reason: StopReason }
+    // `id` is set when a dialect keeps its own stop-reason value in a side
+    // op: the core reason alone does not lower back to that value, so the
+    // side op names this op under `of`, and only that dialect's lowering
+    // reads the value from it.
+    | { op: "response.stop"; reason: StopReason; id?: string }
     | {
           op: "response.text_delta";
           index?: number;
