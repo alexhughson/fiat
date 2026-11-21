@@ -8,7 +8,9 @@ import {
     type StopReason,
 } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { asNumber, asRecord } from "../../core/wire.js";
 import type {
     WireContentPart,
     WireConversationItemCreateEvent,
@@ -61,8 +63,12 @@ export function raiseFinishReasons(program: Program): Program {
     );
 }
 
-// Maps the cross-provider counts onto response.usage; any vendor-specific
-// fields stay behind as a droppable residual.
+// Maps the token-count parts of the wire usage object onto response.usage.
+// Realtime counts its cached tokens inside input_tokens and reports no cache
+// write and no reasoning count, so only the cached detail subtracts. The
+// reference marks cached_tokens an optional integer with no default, so a
+// details object that omits the key reports no count for that part. The
+// modality fields stay behind as a residual.
 export function raiseUsage(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "openai_realtime.usage") return [op];
@@ -70,22 +76,69 @@ export function raiseUsage(program: Program): Program {
             usage: Record<string, unknown>;
             appliesTo?: "request" | "response";
         }>(op);
-        const { input_tokens, output_tokens, ...rest } = usageOp.usage;
-        const out: Op[] = [
-            {
-                op: "response.usage",
-                ...(input_tokens != null
-                    ? { inputTokens: input_tokens as number }
-                    : {}),
-                ...(output_tokens != null
-                    ? { outputTokens: output_tokens as number }
-                    : {}),
-            },
-        ];
-        if (Object.keys(rest).length > 0) {
+        const wireUsage = usageOp.usage;
+        const details =
+            wireUsage.input_token_details == null
+                ? undefined
+                : asRecord(
+                      wireUsage.input_token_details,
+                      "usage.input_token_details",
+                  );
+        const cached =
+            details?.cached_tokens == null
+                ? undefined
+                : asNumber(
+                      details.cached_tokens,
+                      "usage.input_token_details.cached_tokens",
+                  );
+        const inputTokens =
+            wireUsage.input_tokens == null
+                ? undefined
+                : usage.totalMinusDetails(
+                      asNumber(wireUsage.input_tokens, "usage.input_tokens"),
+                      cached == null
+                          ? []
+                          : [
+                                {
+                                    field: "input_token_details.cached_tokens",
+                                    value: cached,
+                                },
+                            ],
+                      "input_tokens",
+                      "openai_realtime usage",
+                  );
+        const outputTokens =
+            wireUsage.output_tokens == null
+                ? undefined
+                : asNumber(wireUsage.output_tokens, "usage.output_tokens");
+        const counts: usage.UsageCounts = {
+            ...(inputTokens != null ? { inputTokens } : {}),
+            ...(cached != null ? { cacheReadTokens: cached } : {}),
+            ...(outputTokens != null ? { outputTokens } : {}),
+        };
+        const computedTotal = usage.sumParts(counts, usage.ALL_PARTS);
+        if (
+            typeof wireUsage.total_tokens === "number" &&
+            computedTotal != null &&
+            wireUsage.total_tokens !== computedTotal
+        ) {
+            usage.warnTotalMismatch(
+                "openai_realtime",
+                "total_tokens",
+                wireUsage.total_tokens,
+                computedTotal,
+            );
+        }
+        const residual = usage.shrinkUsage(
+            wireUsage,
+            ["input_tokens", "output_tokens", "total_tokens"],
+            { input_token_details: ["cached_tokens"] },
+        );
+        const out: Op[] = [{ op: "response.usage", ...counts }];
+        if (residual) {
             out.push({
                 op: "openai_realtime.usage",
-                usage: rest,
+                usage: residual,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
             });
         }

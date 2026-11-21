@@ -47,9 +47,10 @@ either `{ type:"url", url }` or `{ type:"base64", mediaType:"application/pdf",
 data, filename? }`. Video is base64-only and requires `video/*`.
 
 Provider-owned file ids, provider file URIs, image detail knobs, tool config,
-usage details, and message metadata stay in dialect residual ops. Residuals
-that preserve user content are marked so translating them to another backend
-throws instead of warning and dropping the content.
+usage fields beyond the token-count parts, and message metadata stay in
+dialect residual ops. Residuals that preserve user content are marked so
+translating them to another backend throws instead of warning and dropping
+the content.
 
 ## Reasoning
 
@@ -86,7 +87,7 @@ not mapped: only Anthropic writes `llm.reasoning` into a stream response.
 | -------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `response.id`              | `id`                                   | the provider's id for a complete response; see Response id below                                  |
 | `response.stop`            | `reason`, `id?`                        | normalized stop reason; a dialect that must keep its own value stores it in a side op naming `id` |
-| `response.usage`           | `inputTokens?`, `outputTokens?`        | shared counts only                                                                                |
+| `response.usage`           | six optional token-count parts         | non-overlapping parts, no total; see [page](ops/response.usage.md)                                |
 | `response.text_delta`      | `index?`, `role?`, `content`           | stream text delta                                                                                 |
 | `response.tool_call_delta` | `index?`, `id?`, `name?`, `arguments?` | stream tool-call delta                                                                            |
 

@@ -184,26 +184,72 @@ describe("gemini raise stages", () => {
         ]);
     });
 
-    test("raiseUsage splits gemini.usage into response.usage plus a droppable residual for vendor-only fields", () => {
+    test("raiseUsage splits gemini.usage into the core parts plus a residual for the modality lists and the service tier", () => {
         expect(
             raiseUsage([
                 { op: "llm.model", model: "m" },
                 {
                     op: "gemini.usage",
                     usage: {
-                        promptTokenCount: 10,
-                        candidatesTokenCount: 2,
-                        totalTokenCount: 12,
+                        promptTokenCount: 2600,
+                        cachedContentTokenCount: 2048,
+                        toolUsePromptTokenCount: 33,
+                        thoughtsTokenCount: 40,
+                        candidatesTokenCount: 57,
+                        totalTokenCount: 2730,
+                        promptTokensDetails: [
+                            { modality: "TEXT", tokenCount: 552 },
+                        ],
+                        serviceTier: "standard",
                     },
                 },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
-            { op: "response.usage", inputTokens: 10, outputTokens: 2 },
+            {
+                op: "response.usage",
+                inputTokens: 552,
+                cacheReadTokens: 2048,
+                toolUsePromptTokens: 33,
+                outputTokens: 57,
+                reasoningTokens: 40,
+            },
             {
                 op: "gemini.usage",
-                usage: { totalTokenCount: 12 },
+                usage: {
+                    promptTokensDetails: [
+                        { modality: "TEXT", tokenCount: 552 },
+                    ],
+                    serviceTier: "standard",
+                },
             },
         ]);
+    });
+
+    test("raiseUsage leaves no residual when the body reports only counts", () => {
+        expect(
+            raiseUsage([
+                {
+                    op: "gemini.usage",
+                    usage: { promptTokenCount: 10, candidatesTokenCount: 2 },
+                },
+            ]),
+        ).toEqual([{ op: "response.usage", inputTokens: 10, outputTokens: 2 }]);
+    });
+
+    test("raiseUsage fails on a cachedContentTokenCount larger than promptTokenCount", () => {
+        expect(() =>
+            raiseUsage([
+                {
+                    op: "gemini.usage",
+                    usage: {
+                        promptTokenCount: 10,
+                        cachedContentTokenCount: 11,
+                    },
+                },
+            ]),
+        ).toThrow(
+            /usageMetadata\.cachedContentTokenCount 11 exceeds the remaining promptTokenCount 10/,
+        );
     });
 });

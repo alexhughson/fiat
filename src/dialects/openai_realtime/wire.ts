@@ -7,12 +7,17 @@ import {
     type ToolChoice,
 } from "../../core/ops.js";
 import { LintError } from "../../core/lint.js";
+import { mergeUsageObjects } from "../../core/usage.js";
 import { asArray, asNumber, asRecord, asString } from "../../core/wire.js";
 import type {
     WireConversationItem,
     WireConversationItemCreateEvent,
     WireOutputItem,
 } from "./ops.js";
+
+// The nested usage object whose keys merge key-wise when several usage ops
+// join into one wire usage object.
+const USAGE_DETAILS_KEYS = ["input_token_details"];
 
 interface RequestParseState {
     responseCreateCount: number;
@@ -256,11 +261,15 @@ export function responseToWire(program: Program): unknown {
             case "openai_realtime.finish_reason":
                 finishReason = opData<{ reason: string }>(op).reason;
                 break;
+            // Multiple usage ops merge: lower emits the counts computed from
+            // the core parts, and a usage residual from raise carries the
+            // modality fields, so the details objects merge key-wise.
             case "openai_realtime.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageObjects(
+                    usage ?? {},
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                    USAGE_DETAILS_KEYS,
+                );
                 break;
             case "openai_realtime.body_field": {
                 const param = opData<{ key: string; value: unknown }>(op);
@@ -368,10 +377,11 @@ export function streamResponseToWire(program: Program): unknown {
                 eventType ??= "response.done";
                 break;
             case "openai_realtime.usage":
-                usage = {
-                    ...usage,
-                    ...opData<{ usage: Record<string, unknown> }>(op).usage,
-                };
+                usage = mergeUsageObjects(
+                    usage ?? {},
+                    opData<{ usage: Record<string, unknown> }>(op).usage,
+                    USAGE_DETAILS_KEYS,
+                );
                 eventType ??= "response.done";
                 break;
             case "openai_realtime.event_param": {

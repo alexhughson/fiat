@@ -82,7 +82,7 @@ export const geminiTextResponseFixture = {
     usageMetadata: {
         promptTokenCount: 12,
         candidatesTokenCount: 2,
-        totalTokenCount: 14,
+        totalTokenCount: 15,
         thoughtsTokenCount: 1,
         serviceTier: "default",
     },

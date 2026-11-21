@@ -127,7 +127,7 @@ describe("anthropic_messages raise stages", () => {
         ]);
     });
 
-    test("raiseUsage splits cross-provider counts onto response.usage and keeps vendor-specific fields as a droppable residual", () => {
+    test("raiseUsage splits the wire usage object into the core parts plus a residual for the fields core does not model", () => {
         expect(
             raiseUsage([
                 { op: "llm.model", model: "m" },
@@ -137,17 +137,113 @@ describe("anthropic_messages raise stages", () => {
                         input_tokens: 20,
                         output_tokens: 9,
                         cache_read_input_tokens: 3,
+                        cache_creation_input_tokens: 4,
+                        cache_creation: {
+                            ephemeral_5m_input_tokens: 4,
+                            ephemeral_1h_input_tokens: 0,
+                        },
+                        service_tier: "standard",
                     },
                 },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
-            { op: "response.usage", inputTokens: 20, outputTokens: 9 },
+            {
+                op: "response.usage",
+                inputTokens: 20,
+                cacheReadTokens: 3,
+                cacheWriteTokens: 4,
+                outputTokens: 9,
+            },
             {
                 op: "anthropic_messages.usage",
-                usage: { cache_read_input_tokens: 3 },
+                usage: {
+                    cache_creation: {
+                        ephemeral_5m_input_tokens: 4,
+                        ephemeral_1h_input_tokens: 0,
+                    },
+                    service_tier: "standard",
+                },
             },
         ]);
+    });
+
+    test("raiseUsage subtracts thinking_tokens from output_tokens and keeps no residual when the body reports only counts", () => {
+        expect(
+            raiseUsage([
+                {
+                    op: "anthropic_messages.usage",
+                    usage: {
+                        input_tokens: 52,
+                        cache_read_input_tokens: 2048,
+                        cache_creation_input_tokens: 500,
+                        output_tokens: 97,
+                        output_tokens_details: { thinking_tokens: 40 },
+                    },
+                },
+            ]),
+        ).toEqual([
+            {
+                op: "response.usage",
+                inputTokens: 52,
+                cacheReadTokens: 2048,
+                cacheWriteTokens: 500,
+                outputTokens: 57,
+                reasoningTokens: 40,
+            },
+        ]);
+    });
+
+    test("raiseUsage reads a thinking_tokens key the details object omits as its default 0, and a missing details object as no count", () => {
+        const zeroFromDefault = raiseUsage([
+            {
+                op: "anthropic_messages.usage",
+                usage: {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    output_tokens_details: {},
+                },
+            },
+        ]);
+        expect(zeroFromDefault).toEqual([
+            {
+                op: "response.usage",
+                inputTokens: 10,
+                outputTokens: 5,
+                reasoningTokens: 0,
+            },
+        ]);
+
+        const noDetails = raiseUsage([
+            {
+                op: "anthropic_messages.usage",
+                usage: {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    output_tokens_details: null,
+                },
+            },
+        ]);
+        expect(noDetails).toEqual([
+            { op: "response.usage", inputTokens: 10, outputTokens: 5 },
+        ]);
+    });
+
+    test("raiseUsage fails on a thinking_tokens count larger than output_tokens", () => {
+        expect(() =>
+            raiseUsage([
+                {
+                    op: "anthropic_messages.usage",
+                    usage: {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                        output_tokens_details: { thinking_tokens: 6 },
+                    },
+                },
+            ]),
+        ).toThrow(
+            /output_tokens_details\.thinking_tokens 6 exceeds the remaining output_tokens 5/,
+        );
     });
 });
 
