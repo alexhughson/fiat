@@ -363,15 +363,11 @@ export function streamResponseToWire(program: Program): unknown {
             },
         ];
     } else if (finishReason) {
-        // A stop reason that arrives without content writes the candidate
-        // shape Gemini itself sends live for the same case: one content with
-        // a single empty text part.
-        body.candidates = [
-            {
-                content: { role: "model", parts: [{ text: "" }] },
-                finishReason,
-            },
-        ];
+        // The reference marks no field of a candidate required, so nothing is
+        // filled in to keep the chunk from failing: the stop reason rides on
+        // a candidate with no content, and the value the program holds is
+        // all that is written.
+        body.candidates = [{ finishReason }];
     } else if (Object.keys(candidateMeta).length > 0) {
         throw new Error(
             "gemini stream response toWire: candidate metadata requires candidate content",

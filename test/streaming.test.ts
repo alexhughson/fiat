@@ -1012,15 +1012,13 @@ describe("recorded openai responses streams", () => {
             {
                 responseId: "resp_54641cf2ebdc46159b14a430cb48a317",
                 modelVersion: "glm-5.3",
-                candidates: [
-                    {
-                        content: { role: "model", parts: [{ text: "" }] },
-                        finishReason: "STOP",
-                    },
-                ],
+                candidates: [{ finishReason: "STOP" }],
                 usageMetadata: {
                     promptTokenCount: 21,
-                    candidatesTokenCount: 76,
+                    cachedContentTokenCount: 0,
+                    candidatesTokenCount: 4,
+                    thoughtsTokenCount: 72,
+                    totalTokenCount: 97,
                 },
             },
         ]);
@@ -1105,15 +1103,13 @@ describe("recorded openai responses streams", () => {
             {
                 responseId: "resp_0e6b06f8ae2d4af7a2cafd061d44e206",
                 modelVersion: "glm-5.3",
-                candidates: [
-                    {
-                        content: { role: "model", parts: [{ text: "" }] },
-                        finishReason: "STOP",
-                    },
-                ],
+                candidates: [{ finishReason: "STOP" }],
                 usageMetadata: {
                     promptTokenCount: 167,
-                    candidatesTokenCount: 38,
+                    cachedContentTokenCount: 0,
+                    candidatesTokenCount: 11,
+                    thoughtsTokenCount: 27,
+                    totalTokenCount: 205,
                 },
             },
         ]);
@@ -1144,9 +1140,9 @@ describe("recorded openai responses streams", () => {
         });
     });
 
-    test("a stop reason and usage without content lower to the Gemini final-chunk shape", () => {
-        // Gemini itself ends a live stream with a candidate whose only part
-        // is an empty text part, carrying the finishReason.
+    test("a stop reason and usage without content lower to a candidate with no content", () => {
+        // The reference marks no field of a candidate required, so nothing is
+        // filled in: the stop reason rides on a candidate with no content.
         expect(
             GeminiTranslator.toStreamResponses([
                 { op: "response.id", id: "resp_1" },
@@ -1158,15 +1154,11 @@ describe("recorded openai responses streams", () => {
             {
                 responseId: "resp_1",
                 modelVersion: "glm-5.3",
-                candidates: [
-                    {
-                        content: { role: "model", parts: [{ text: "" }] },
-                        finishReason: "STOP",
-                    },
-                ],
+                candidates: [{ finishReason: "STOP" }],
                 usageMetadata: {
                     promptTokenCount: 21,
                     candidatesTokenCount: 76,
+                    totalTokenCount: 97,
                 },
             },
         ]);

@@ -233,8 +233,10 @@ omits the synthetic id again.
 - Text responses include `content.role: "model"`, text parts, `finishReason:
 "STOP"`, and token counts.
 - A live tool-call stream ends with a chunk whose candidate holds one empty
-  text part and `finishReason: "STOP"`, with no `functionCall` part; stream
-  lowering writes that same shape when a stop reason arrives without content.
+  text part and `finishReason: "STOP"`, with no `functionCall` part. When a
+  stop reason arrives without content, stream lowering writes a candidate
+  with no content — the reference marks no candidate field required, so
+  nothing is filled in.
 - Forced tool calls use mode `ANY` with one allowed function and thinking
   budget `0`.
 - Forced tool responses can include `thoughtSignature`; e2e validation checks

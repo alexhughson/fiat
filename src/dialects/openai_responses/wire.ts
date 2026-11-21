@@ -578,6 +578,11 @@ export function streamResponseToWire(program: Program): unknown {
         hasRaisedType &&
         event.type === "response.function_call_arguments.done"
     ) {
+        if (tool == null) {
+            throw new LintError(
+                'openai_responses stream response toWire: a "response.function_call_arguments.done" event requires a response.tool_call_delta op with the arguments',
+            );
+        }
         if (responseId != null || modelName != null) {
             throw unplaceableEnvelopeOps(
                 responseId != null,
@@ -585,9 +590,9 @@ export function streamResponseToWire(program: Program): unknown {
                 "response.function_call_arguments.done",
             );
         }
-        event.output_index ??= tool?.index ?? 0;
-        if (tool?.name != null) event.name ??= tool.name;
-        event.arguments ??= tool?.arguments ?? "";
+        event.output_index ??= tool.index;
+        if (tool.name != null) event.name ??= tool.name;
+        event.arguments ??= tool.arguments;
         return event;
     }
 
