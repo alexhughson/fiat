@@ -60,9 +60,9 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
     }
     ```
 - Request `input_image.image_url` and PDF `input_file.file_url`/`file_data`
-  parts lower as ordered message content parts. `input_image.detail` lowers
-  from the `llm.image` detail level; a Gemini-only `medium` or `ultra_high`
-  level drops with a warning.
+  parts lower as ordered message content parts. `input_image.detail` raises and
+  lowers as `low`, `high`, `auto`, or `original`; a Gemini-only `medium` or
+  `ultra_high` level is dropped with a warning, not replaced by another level.
 - File ids are provider-owned and stay as native content-bearing residuals.
 - Media model validation is hard failure even in lenient mode. It never drops
   media.
@@ -70,5 +70,6 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 ## Out of scope
 
 Structured output lowering, streaming output item protocols beyond text/tool
-deltas, audio/video input, and provider-neutral representations for MCP, file
-search, computer use, provider file ids, or image generation.
+deltas, audio/video input, `input_file.detail`, and provider-neutral
+representations for MCP, file search, computer use, provider file ids, or image
+generation.

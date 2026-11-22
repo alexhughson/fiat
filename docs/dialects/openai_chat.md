@@ -57,9 +57,9 @@ models lower them as `max_tokens`.
 - Response envelope and usage residuals are response-only and are not resent
   when a response program is appended to a request.
 - Request image URL parts lower as ordered message content parts. Data URLs
-  raise to portable base64 image sources and lower back to data URLs. A
-  `detail` level raises onto the `llm.image` op and lowers back; a Gemini-only
-  `medium` or `ultra_high` level drops with a warning.
+  raise to portable base64 image sources and lower back to data URLs.
+  `image_url.detail` raises and lowers as `low`, `high`, `auto`, or `original`;
+  a Gemini-only `medium` or `ultra_high` level is dropped with a warning.
 - `input_audio` raises to base64 `llm.audio` for `wav` and `mp3`; other
   formats throw.
 - PDF `file.file_data` raises to `llm.document`. `file_id` stays as a native
@@ -69,5 +69,5 @@ models lower them as `max_tokens`.
 
 ## Out of scope
 
-Streaming chunks, file-backed images, video inputs,
-and `logprobs`. The Responses API is modeled separately as `openai_responses`.
+Streaming chunks, file-backed images, video inputs, and `logprobs`. The
+Responses API is modeled separately as `openai_responses`.

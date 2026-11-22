@@ -409,10 +409,6 @@ function mediaPart(
             `gemini inline media part: unsupported fields ${conflicts.join(", ")}`,
         );
     }
-    // A part or blob with other fields, such as `videoMetadata`, stays a
-    // gemini.content residual. A per-part `mediaResolution` is the core image
-    // detail level, so an image part may carry it; on other media kinds it
-    // still forces the residual, like any other extra field.
     const resolutionKey =
         part.mediaResolution != null
             ? "mediaResolution"
@@ -423,7 +419,22 @@ function mediaPart(
         resolutionKey != null && kind === "image"
             ? [key, resolutionKey]
             : [key];
+    // A mediaResolution with numTokens, other fields, or a missing, null, or
+    // non-string level stays native: this change carries only named levels,
+    // and dropping other provider data would lose it.
     if (!hasOnlyKeys(data, [mimeKey, "data"]) || !hasOnlyKeys(part, partKeys)) {
+        return undefined;
+    }
+    const resolution =
+        resolutionKey == null
+            ? undefined
+            : asRecord(part[resolutionKey], `gemini ${resolutionKey}`);
+    if (
+        resolution &&
+        (resolution.level == null ||
+            typeof resolution.level !== "string" ||
+            !hasOnlyKeys(resolution, ["level"]))
+    ) {
         return undefined;
     }
     const source = base64Source(
@@ -434,13 +445,9 @@ function mediaPart(
     );
     switch (kind) {
         case "image": {
-            const detail =
-                resolutionKey == null
-                    ? undefined
-                    : imageDetailFromWire(
-                          part[resolutionKey],
-                          `gemini ${resolutionKey}`,
-                      );
+            const detail = resolution
+                ? imageDetailFromWire(resolution, `gemini ${resolutionKey}`)
+                : undefined;
             return {
                 op: "llm.image",
                 role: "user",
@@ -457,14 +464,11 @@ function mediaPart(
     }
 }
 
-// Part.mediaResolution holds `{ level }`; the live v1beta API rejects the
-// enum string in its place. MEDIA_RESOLUTION_UNSPECIFIED means the setting
-// is absent, so it raises no detail level.
 function imageDetailFromWire(
-    value: unknown,
+    value: Record<string, unknown>,
     context: string,
 ): ImageDetail | undefined {
-    const level = asString(asRecord(value, context).level, `${context}.level`);
+    const level = asString(value.level, `${context}.level`);
     switch (level) {
         case "MEDIA_RESOLUTION_LOW":
             return "low";

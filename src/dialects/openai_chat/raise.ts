@@ -340,7 +340,7 @@ function raiseImagePart(
         throw new LintError("openai_chat image_url.url: expected a string");
     }
     const detail =
-        image.detail == null
+        image.detail === undefined
             ? undefined
             : openAIImageDetailFromWire(
                   image.detail,

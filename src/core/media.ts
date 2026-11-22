@@ -74,9 +74,6 @@ export function assertImageMediaType(mediaType: string, context: string): void {
     assertMediaType("image", mediaType, context);
 }
 
-// The detail levels OpenAI's two image-input APIs put on a wire part
-// (`input_image.detail`, `image_url.detail`). Core also keeps gemini's
-// `medium` and `ultra_high`, which have no OpenAI counterpart.
 export function openAIImageDetailFromWire(
     value: unknown,
     context: string,
@@ -94,9 +91,6 @@ export function openAIImageDetailFromWire(
     }
 }
 
-// Lowers a core detail level to an OpenAI wire value. `medium` and
-// `ultra_high` have no OpenAI counterpart, so they are dropped with a
-// warning (throw in strict mode) rather than replaced by a nearby level.
 export function openAIImageDetailToWire(
     detail: ImageDetail | undefined,
     context: string,
@@ -113,7 +107,7 @@ export function openAIImageDetailToWire(
         case "ultra_high":
             lintOrWarn(
                 strict,
-                `dropped llm.image detail ${JSON.stringify(detail)}: ${context} has no equal level`,
+                `dropped llm.image detail ${JSON.stringify(detail)}: ${context} has no equivalent level`,
             );
             return undefined;
     }

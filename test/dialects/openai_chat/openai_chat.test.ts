@@ -129,7 +129,7 @@ describe("openai_chat requests", () => {
         expect(OpenAIChatTranslator.toBody(program)).toEqual(body);
     });
 
-    test("image detail raises onto the llm.image op and round-trips", () => {
+    test("image detail raises onto llm.image and round-trips", () => {
         const body = {
             model: "gpt-4o",
             messages: [
@@ -153,7 +153,10 @@ describe("openai_chat requests", () => {
             {
                 op: "llm.image",
                 role: "user",
-                source: { type: "url", url: "https://example.com/invoice.png" },
+                source: {
+                    type: "url",
+                    url: "https://example.com/invoice.png",
+                },
                 detail: "high",
             },
         ]);
@@ -163,27 +166,29 @@ describe("openai_chat requests", () => {
     });
 
     test("an image detail value outside the openai list throws on raise", () => {
-        expect(() =>
-            OpenAIChatTranslator.fromBody({
-                model: "gpt-4o",
-                messages: [
-                    {
-                        role: "user",
-                        content: [
-                            {
-                                type: "image_url",
-                                image_url: {
-                                    url: "https://example.com/invoice.png",
-                                    detail: "ultra",
+        for (const detail of ["ultra", null]) {
+            expect(() =>
+                OpenAIChatTranslator.fromBody({
+                    model: "gpt-4o",
+                    messages: [
+                        {
+                            role: "user",
+                            content: [
+                                {
+                                    type: "image_url",
+                                    image_url: {
+                                        url: "https://example.com/invoice.png",
+                                        detail,
+                                    },
                                 },
-                            },
-                        ],
-                    },
-                ],
-            }),
-        ).toThrow(
-            'openai_chat image_url.detail: expected one of "low", "high", "auto", "original"',
-        );
+                            ],
+                        },
+                    ],
+                }),
+            ).toThrow(
+                'openai_chat image_url.detail: expected one of "low", "high", "auto", "original"',
+            );
+        }
     });
 
     test("non-image data URLs do not enter the portable image op", () => {

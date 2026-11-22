@@ -390,7 +390,7 @@ function raiseImagePart(
         );
     }
     const detail =
-        part.detail == null
+        part.detail === undefined
             ? undefined
             : openAIImageDetailFromWire(
                   part.detail,

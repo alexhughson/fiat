@@ -408,11 +408,6 @@ export function lowerRequestImages(program: Program, target?: Target): Program {
     });
 }
 
-// The reference puts one level per media part under
-// `mediaResolution.level`. `auto` asks for the provider's own default, which
-// is what an absent field already means, so it writes nothing; `original`
-// exists only on openai and has no Gemini equal, so it is dropped with a
-// warning rather than replaced by a nearby level.
 function mediaResolutionFor(
     detail: OpOf<"llm.image">["detail"],
     strict?: boolean,
@@ -432,7 +427,7 @@ function mediaResolutionFor(
         case "original":
             lintOrWarn(
                 strict,
-                'dropped llm.image detail "original": gemini mediaResolution has no equal level',
+                'dropped llm.image detail "original": gemini mediaResolution has no equivalent level',
             );
             return undefined;
     }

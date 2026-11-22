@@ -46,18 +46,17 @@ Audio is base64-only and requires `audio/*`. Documents are PDFs only and use
 either `{ type:"url", url }` or `{ type:"base64", mediaType:"application/pdf",
 data, filename? }`. Video is base64-only and requires `video/*`.
 
-An image may carry `detail?`, the level the provider should process it at.
-OpenAI's `detail` values (`low`, `high`, `auto`, `original`) and Gemini's
-per-part `mediaResolution` levels (`low`, `medium`, `high`, `ultra_high`)
-raise onto it; absent means the provider's own default level. A level the
-target has no equal for is dropped with a warning, and the image still
-crosses.
+An image may carry `detail?`: `low`, `medium`, `high`, `ultra_high`, `auto`,
+or `original`. OpenAI's four values and Gemini's four per-part media-resolution
+levels raise onto this param; absent means the provider's default. Lowering to
+OpenAI drops `medium` and `ultra_high` with a warning. Lowering to Gemini writes
+no level for `auto` and drops `original` with a warning. Anthropic drops every
+level with a warning. Lowering never substitutes a nearby level.
 
-Provider-owned file ids, provider file URIs, tool config,
-usage fields beyond the token-count parts, and message metadata stay in
-dialect residual ops. Residuals that preserve user content are marked so
-translating them to another backend throws instead of warning and dropping
-the content.
+Provider-owned file ids, provider file URIs, tool config, usage fields beyond
+the token-count parts, and message metadata stay in dialect residual ops.
+Residuals that preserve user content are marked so translating them to another
+backend throws instead of warning and dropping the content.
 
 ## Reasoning
 
