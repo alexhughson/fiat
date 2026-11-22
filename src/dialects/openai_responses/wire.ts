@@ -514,6 +514,7 @@ export function streamResponseToWire(program: Program): unknown {
         sawTextDelta || toolDeltas.length > 0,
         finishReason,
     );
+    rejectMixedDeltas(sawTextDelta, toolDeltas);
 
     if (sawTextDelta) {
         event.type ??= "response.output_text.delta";
@@ -580,6 +581,22 @@ export function streamResponseToWire(program: Program): unknown {
         event.response = response;
     }
     return event;
+}
+
+function rejectMixedDeltas(
+    sawTextDelta: boolean,
+    toolDeltas: OpOf<"response.tool_call_delta">[],
+): void {
+    if (!sawTextDelta || toolDeltas.length === 0) {
+        if (toolDeltas.length > 1)
+            throw new LintError(
+                "openai_responses stream response toWire: the program holds multiple tool_call deltas, which a Responses stream sends as separate events; toStreamResponses returns each",
+            );
+        return;
+    }
+    throw new LintError(
+        "openai_responses stream response toWire: the program holds a text delta and a tool_call delta, which a Responses stream sends as two events; toStreamResponses returns both",
+    );
 }
 
 // A Responses stream has no event that holds a delta and a stop reason, and

@@ -57,25 +57,39 @@ export const lowerStreamResponse: Stage = stagePipeline(
     lowerStreamResponseStages,
 );
 
-// One chunk of another provider's stream can hold a delta and a stop reason:
-// Gemini's API sends text and finishReason "STOP" together. A Responses stream
-// has no event that holds both, so the finish reason, and the usage beside it,
-// become a terminal event after the delta event. A program without a finish
-// reason stays one event.
+// One chunk of another provider's stream can hold several deltas and a stop
+// reason: Gemini's API sends text and finishReason "STOP" together, and a
+// chunk can hold text beside functionCall parts. A Responses stream has no
+// event that holds more than one delta kind, or a delta and a stop reason, so
+// each kind becomes its own event after the previous one.
 export function splitStreamEvents(program: Program): Program[] {
-    const hasDelta = program.some(
-        (op) =>
-            op.op === "response.text_delta" ||
-            op.op === "response.tool_call_delta",
+    const textDeltas = program.filter((op) => op.op === "response.text_delta");
+    const toolDeltas = program.filter(
+        (op) => op.op === "response.tool_call_delta",
     );
     const hasFinishReason = program.some(
         (op) => op.op === "openai_responses.finish_reason",
     );
-    if (!hasDelta || !hasFinishReason) return [program];
-    return [
-        program.filter((op) => !isTerminalEventOp(op)),
-        program.filter(isTerminalEventOp),
-    ];
+    const terminal = hasFinishReason
+        ? program.filter(isTerminalEventOp)
+        : [];
+    const other = program.filter(
+        (op) =>
+            op.op !== "response.text_delta" &&
+            op.op !== "response.tool_call_delta" &&
+            !terminal.includes(op),
+    );
+    const groups: Program[] = [];
+    if (textDeltas.length > 0) groups.push([...textDeltas, ...other]);
+    for (const delta of toolDeltas) groups.push([delta, ...other]);
+    if (terminal.length > 0) {
+        if (groups.length === 0) groups.push([...terminal, ...other]);
+        else groups.push(terminal);
+    }
+    if (groups.length === 0) return [program];
+    if (groups.length === 1 && groups[0]!.length === program.length)
+        return [program];
+    return groups;
 }
 
 function isTerminalEventOp(op: Op): boolean {
