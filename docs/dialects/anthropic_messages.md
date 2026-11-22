@@ -54,6 +54,8 @@ field.
 - Unsupported structured output throws instead of being dropped.
 - Image blocks lower only for user-role URL/base64 sources. File-backed images
   and blocks with provider-only extras stay as Anthropic content residuals.
+  Anthropic has no field for an image detail level: lowering an `llm.image`
+  that carries one drops the level with a warning and keeps the image.
 - PDF document blocks lower only for user-role URL/base64 sources. Documents
   with citations or other provider-only extras stay as content-bearing
   Anthropic residuals.

@@ -272,6 +272,104 @@ describe("openai_responses requests", () => {
         ).toEqual(body);
     });
 
+    test("input_image detail raises onto the llm.image op and round-trips", () => {
+        const body = {
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_image",
+                            image_url: "data:image/png;base64,anBn",
+                            detail: "low",
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(OpenAIResponsesTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model: "gpt-4o-mini" },
+            {
+                op: "llm.image",
+                role: "user",
+                source: {
+                    type: "base64",
+                    mediaType: "image/png",
+                    data: "anBn",
+                },
+                detail: "low",
+            },
+        ]);
+        expect(
+            OpenAIResponsesTranslator.toBody(
+                OpenAIResponsesTranslator.fromBody(body),
+            ),
+        ).toEqual(body);
+    });
+
+    test("a gemini-only image detail drops with a warning on lower", () => {
+        const image = (detail: "medium" | "ultra_high") => [
+            { op: "llm.model" as const, model: "gpt-4o-mini" },
+            {
+                op: "llm.image" as const,
+                role: "user" as const,
+                source: {
+                    type: "base64" as const,
+                    mediaType: "image/png",
+                    data: "anBn",
+                },
+                detail,
+            },
+        ];
+        const lowered = {
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_image",
+                            image_url: "data:image/png;base64,anBn",
+                        },
+                    ],
+                },
+            ],
+        };
+        expect(OpenAIResponsesTranslator.toBody(image("medium"))).toEqual(
+            lowered,
+        );
+        expect(OpenAIResponsesTranslator.toBody(image("ultra_high"))).toEqual(
+            lowered,
+        );
+    });
+
+    test("an input_image detail outside the openai list throws on raise", () => {
+        expect(() =>
+            OpenAIResponsesTranslator.fromBody({
+                model: "gpt-4o-mini",
+                input: [
+                    {
+                        type: "message",
+                        role: "user",
+                        content: [
+                            {
+                                type: "input_image",
+                                image_url: "data:image/png;base64,anBn",
+                                detail: "medium",
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).toThrow(
+            'openai_responses input_image.detail: expected one of "low", "high", "auto", "original"',
+        );
+    });
+
     test("input_image data URLs normalize to portable base64", () => {
         const body = {
             model: "gpt-4o-mini",

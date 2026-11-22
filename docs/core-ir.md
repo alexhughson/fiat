@@ -29,7 +29,7 @@ Config ops such as `llm.model` and `llm.temperature` may appear anywhere.
 | `llm.thinking`           | `effort`                                  | portable effort; dialects choose wire form |
 | `llm.text`               | `role`, `content`                         | one text unit; see [page](ops/llm.text.md) |
 | `llm.reasoning`          | `id`, `content`                           | model reasoning; see Reasoning below       |
-| `llm.image`              | `role:"user"`, `source`                   | image URL or base64 image data             |
+| `llm.image`              | `role:"user"`, `source`, `detail?`        | image URL or base64 image data             |
 | `llm.audio`              | `role:"user"`, `source`                   | base64 audio data                          |
 | `llm.document`           | `role:"user"`, `source`                   | PDF URL or base64 PDF data                 |
 | `llm.video`              | `role:"user"`, `source`                   | base64 video data                          |
@@ -46,7 +46,14 @@ Audio is base64-only and requires `audio/*`. Documents are PDFs only and use
 either `{ type:"url", url }` or `{ type:"base64", mediaType:"application/pdf",
 data, filename? }`. Video is base64-only and requires `video/*`.
 
-Provider-owned file ids, provider file URIs, image detail knobs, tool config,
+An image may carry `detail?`, the level the provider should process it at.
+OpenAI's `detail` values (`low`, `high`, `auto`, `original`) and Gemini's
+per-part `mediaResolution` levels (`low`, `medium`, `high`, `ultra_high`)
+raise onto it; absent means the provider's own default level. A level the
+target has no equal for is dropped with a warning, and the image still
+crosses.
+
+Provider-owned file ids, provider file URIs, tool config,
 usage details, and message metadata stay in dialect residual ops. Residuals
 that preserve user content are marked so translating them to another backend
 throws instead of warning and dropping the content.

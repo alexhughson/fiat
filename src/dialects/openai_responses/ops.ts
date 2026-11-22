@@ -4,6 +4,7 @@ export interface WireContentPart {
     type: string;
     text?: string;
     image_url?: string;
+    detail?: string;
     file_id?: string;
     file_data?: string;
     file_url?: string;

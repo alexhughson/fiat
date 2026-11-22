@@ -2,10 +2,12 @@ import type {
     AudioSource,
     Base64MediaSource,
     DocumentSource,
+    ImageDetail,
     ImageSource,
     UrlMediaSource,
     VideoSource,
 } from "./ops.js";
+import { lintOrWarn } from "./lint.js";
 
 export type MediaKind = "image" | "audio" | "document" | "video";
 
@@ -70,6 +72,51 @@ export function mediaDataUrlFromBase64(
 
 export function assertImageMediaType(mediaType: string, context: string): void {
     assertMediaType("image", mediaType, context);
+}
+
+// The detail levels OpenAI's two image-input APIs put on a wire part
+// (`input_image.detail`, `image_url.detail`). Core also keeps gemini's
+// `medium` and `ultra_high`, which have no OpenAI counterpart.
+export function openAIImageDetailFromWire(
+    value: unknown,
+    context: string,
+): ImageDetail {
+    switch (value) {
+        case "low":
+        case "high":
+        case "auto":
+        case "original":
+            return value;
+        default:
+            throw new Error(
+                `${context}: expected one of "low", "high", "auto", "original"`,
+            );
+    }
+}
+
+// Lowers a core detail level to an OpenAI wire value. `medium` and
+// `ultra_high` have no OpenAI counterpart, so they are dropped with a
+// warning (throw in strict mode) rather than replaced by a nearby level.
+export function openAIImageDetailToWire(
+    detail: ImageDetail | undefined,
+    context: string,
+    strict?: boolean,
+): string | undefined {
+    if (detail == null) return undefined;
+    switch (detail) {
+        case "low":
+        case "high":
+        case "auto":
+        case "original":
+            return detail;
+        case "medium":
+        case "ultra_high":
+            lintOrWarn(
+                strict,
+                `dropped llm.image detail ${JSON.stringify(detail)}: ${context} has no equal level`,
+            );
+            return undefined;
+    }
 }
 
 export function assertAudioSource(source: AudioSource, context: string): void {

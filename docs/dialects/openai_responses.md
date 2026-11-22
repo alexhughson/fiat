@@ -16,6 +16,7 @@ OpenAI Responses (`POST /v1/responses`). Code:
 | text input/output items                     | `llm.text`                          |
 | `reasoning` input/output items              | `llm.reasoning`                     |
 | `input_image.image_url`                     | `llm.image`                         |
+| `input_image.detail`                        | `llm.image` `detail?`               |
 | `input_file.file_url` / `file_data`         | `llm.document` for PDFs             |
 | function-call items                         | `llm.tool_call` / `llm.tool_result` |
 | function tools                              | `llm.tool`                          |
@@ -59,7 +60,9 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
     }
     ```
 - Request `input_image.image_url` and PDF `input_file.file_url`/`file_data`
-  parts lower as ordered message content parts.
+  parts lower as ordered message content parts. `input_image.detail` lowers
+  from the `llm.image` detail level; a Gemini-only `medium` or `ultra_high`
+  level drops with a warning.
 - File ids are provider-owned and stay as native content-bearing residuals.
 - Media model validation is hard failure even in lenient mode. It never drops
   media.
@@ -67,6 +70,5 @@ Lowering `llm.thinking` also requests `reasoning.encrypted_content`.
 ## Out of scope
 
 Structured output lowering, streaming output item protocols beyond text/tool
-deltas, audio/video input, image `detail` metadata, and provider-neutral
-representations for MCP, file search, computer use, provider file ids, or image
-generation.
+deltas, audio/video input, and provider-neutral representations for MCP, file
+search, computer use, provider file ids, or image generation.

@@ -18,6 +18,7 @@ path. Code: `src/dialects/gemini/`.
 | portable `functionCallingConfig` modes       | `llm.tool_choice`       |
 | JSON response schema config                  | `llm.output`            |
 | `inline_data` / `inlineData` image parts     | `llm.image`             |
+| per-part `mediaResolution` on image parts    | `llm.image` `detail?`   |
 | `inline_data` / `inlineData` audio parts     | `llm.audio`             |
 | `inline_data` / `inlineData` PDF parts       | `llm.document`          |
 | `inline_data` / `inlineData` video parts     | `llm.video`             |
@@ -212,13 +213,17 @@ omits the synthetic id again.
 - Configured built-ins and URL context stay as `gemini.tool` residuals.
 - `inline_data` and `inlineData` image/audio/PDF/video parts in user
   content raise to `llm.image`, `llm.audio`, `llm.document`, and `llm.video`,
-  and Gemini lowering writes them back as `inline_data`. Gemini file URIs,
-  and inline parts with other fields on the part or its blob, such as
-  `videoMetadata` or `mediaResolution`, stay as content-bearing
-  `gemini.content` residuals. An inline image/audio/PDF/video part in user
-  content that also sets `text`, `functionCall`, `functionResponse`,
-  `file_data`, or `fileData`, or sets both `inline_data` and `inlineData`,
-  throws.
+  and Gemini lowering writes them back as `inline_data`. A per-part
+  `mediaResolution` on an image part raises onto the `llm.image` detail level
+  (`MEDIA_RESOLUTION_UNSPECIFIED` raises as no level), and lowering writes
+  `mediaResolution: { level }` back; an `auto` detail writes no field, and an
+  `original` detail drops with a warning.
+  Gemini file URIs, inline parts with other fields on the part or its blob,
+  such as `videoMetadata`, and a `mediaResolution` on a non-image inline part
+  stay as content-bearing `gemini.content` residuals. An inline
+  image/audio/PDF/video part in user content that also sets `text`,
+  `functionCall`, `functionResponse`, `file_data`, or `fileData`, or sets both
+  `inline_data` and `inlineData`, throws.
 - URL image/document sources cannot lower directly to GenerateContent; upload
   them and pass native Gemini file data, or use base64 data.
 - Media model validation is hard failure even in lenient mode. It never drops

@@ -110,6 +110,162 @@ describe("request translation", () => {
         );
     });
 
+    test("image detail levels translate between openai_responses and gemini", () => {
+        // A proxy which exposes the OpenAI Responses API to its clients and
+        // routes each request to Gemini or to OpenAI Responses. Gemini's
+        // media check requires the target's own model name, so the proxy
+        // rewrites llm.model before lowering, like the rerouting test above.
+        const core = OpenAIResponsesTranslator.fromBody({
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_image",
+                            image_url: "data:image/png;base64,aW1hZ2U=",
+                            detail: "low",
+                        },
+                    ],
+                },
+            ],
+        });
+        const routed = core.map((op) =>
+            op.op === "llm.model"
+                ? { op: "llm.model" as const, model: "models/gemini-3.5-flash" }
+                : op,
+        );
+
+        expect(GeminiTranslator.toBody(routed)).toEqual({
+            model: "models/gemini-3.5-flash",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                            mediaResolution: { level: "MEDIA_RESOLUTION_LOW" },
+                        },
+                    ],
+                },
+            ],
+        });
+
+        const geminiCore = GeminiTranslator.fromBody({
+            model: "gemini-3.5-flash-lite",
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                            mediaResolution: { level: "MEDIA_RESOLUTION_LOW" },
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(geminiCore).toContainEqual({
+            op: "llm.image",
+            role: "user",
+            source: {
+                type: "base64",
+                mediaType: "image/png",
+                data: "aW1hZ2U=",
+            },
+            detail: "low",
+        });
+        expect(
+            OpenAIResponsesTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o-mini" },
+                ...geminiCore.slice(1),
+            ]),
+        ).toEqual({
+            model: "gpt-4o-mini",
+            input: [
+                {
+                    type: "message",
+                    role: "user",
+                    content: [
+                        {
+                            type: "input_image",
+                            image_url: "data:image/png;base64,aW1hZ2U=",
+                            detail: "low",
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(
+            OpenAIChatTranslator.toBody([
+                { op: "llm.model", model: "gpt-4o-mini" },
+                ...geminiCore.slice(1),
+            ]),
+        ).toEqual({
+            model: "gpt-4o-mini",
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: "data:image/png;base64,aW1hZ2U=",
+                                detail: "low",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("an image detail drops when lowered to Anthropic, which has no such field", () => {
+        const core = OpenAIChatTranslator.fromBody({
+            model: "claude-sonnet-4-6",
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image_url",
+                            image_url: {
+                                url: "https://example.com/invoice.png",
+                                detail: "low",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+
+        expect(AnthropicTranslator.toBody(core)).toEqual({
+            model: "claude-sonnet-4-6",
+            max_tokens: 4096,
+            messages: [
+                {
+                    role: "user",
+                    content: [
+                        {
+                            type: "image",
+                            source: {
+                                type: "url",
+                                url: "https://example.com/invoice.png",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
     test("image data URLs translate from OpenAI Chat to Gemini inline data", () => {
         const core = OpenAIChatTranslator.fromBody({
             model: "models/gemini-3.5-flash",

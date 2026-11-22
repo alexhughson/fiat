@@ -36,6 +36,11 @@ export type UrlMediaSource = {
     filename?: string;
 };
 export type ImageSource = { type: "url"; url: string } | Base64MediaSource;
+// The level a provider processes one image at: openai's `detail` and gemini's
+// per-part `mediaResolution` raise onto it. Absent means the provider's own
+// default level.
+export type ImageDetail =
+    "low" | "medium" | "high" | "ultra_high" | "auto" | "original";
 export type AudioSource = Base64MediaSource;
 export type DocumentSource = UrlMediaSource | Base64MediaSource;
 export type VideoSource = Base64MediaSource;
@@ -61,7 +66,14 @@ export type CoreOp =
           content: string;
           signature?: { dialect: string; value: string };
       }
-    | { op: "llm.image"; role: "user"; source: ImageSource }
+    | {
+          op: "llm.image";
+          role: "user";
+          source: ImageSource;
+          // The processing level for this one image; see ImageDetail. Absent
+          // means the provider's own default level.
+          detail?: ImageDetail;
+      }
     | { op: "llm.audio"; role: "user"; source: AudioSource }
     | { op: "llm.document"; role: "user"; source: DocumentSource }
     | { op: "llm.video"; role: "user"; source: VideoSource }

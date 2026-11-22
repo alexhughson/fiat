@@ -13,7 +13,7 @@ import {
     type OpOf,
     type Program,
 } from "../../core/ops.js";
-import { LintError } from "../../core/lint.js";
+import { LintError, lintOrWarn } from "../../core/lint.js";
 import {
     assertDocumentSource,
     assertImageMediaType,
@@ -298,13 +298,19 @@ export function lowerRequestTexts(program: Program): Program {
     });
 }
 
-export function lowerRequestImages(program: Program): Program {
+export function lowerRequestImages(program: Program, target?: Target): Program {
     return program.flatMap((op) => {
         if (op.op !== "llm.image") return [op];
         const image = op as OpOf<"llm.image">;
         if (image.role !== "user") {
             throw new LintError(
                 `anthropic_messages request lower: unsupported image role ${JSON.stringify(image.role)}`,
+            );
+        }
+        if (image.detail != null) {
+            lintOrWarn(
+                target?.strict,
+                `dropped llm.image detail ${JSON.stringify(image.detail)}: anthropic_messages has no field for image detail`,
             );
         }
         return [

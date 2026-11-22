@@ -11,6 +11,7 @@ import {
     assertDocumentSource,
     dataUrlFromBase64,
     mediaDataUrlFromBase64,
+    openAIImageDetailToWire,
 } from "../../core/media.js";
 import * as reasoning from "../../core/reasoning.js";
 import { stagePipeline, type Stage, type Target } from "../../core/rewrite.js";
@@ -161,7 +162,7 @@ export function lowerRequestTexts(program: Program): Program {
     });
 }
 
-export function lowerRequestImages(program: Program): Program {
+export function lowerRequestImages(program: Program, target?: Target): Program {
     return program.flatMap((op) => {
         if (op.op !== "llm.image") return [op];
         const image = op as OpOf<"llm.image">;
@@ -170,6 +171,11 @@ export function lowerRequestImages(program: Program): Program {
                 `openai_responses request lower: unsupported image role ${JSON.stringify(image.role)}`,
             );
         }
+        const detail = openAIImageDetailToWire(
+            image.detail,
+            "openai_responses input_image.detail",
+            target?.strict,
+        );
         return [
             {
                 op: "openai_responses.input",
@@ -183,6 +189,7 @@ export function lowerRequestImages(program: Program): Program {
                                 image.source.type === "url"
                                     ? image.source.url
                                     : dataUrlFromBase64(image.source),
+                            ...(detail ? { detail } : {}),
                         },
                     ],
                 },

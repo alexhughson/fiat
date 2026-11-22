@@ -4,6 +4,7 @@ export type {
     AudioSource,
     Base64MediaSource,
     DocumentSource,
+    ImageDetail,
     ImageSource,
     JsonSchema,
     Op,

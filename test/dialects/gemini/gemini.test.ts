@@ -484,6 +484,248 @@ describe("gemini requests", () => {
         ).toEqual(body);
     });
 
+    test("a per-part mediaResolution raises onto the llm.image detail and round-trips", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                            mediaResolution: { level: "MEDIA_RESOLUTION_LOW" },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(GeminiTranslator.fromBody(body)).toEqual([
+            { op: "llm.model", model },
+            {
+                op: "llm.image",
+                role: "user",
+                source: {
+                    type: "base64",
+                    mediaType: "image/png",
+                    data: "aW1hZ2U=",
+                },
+                detail: "low",
+            },
+        ]);
+        expect(
+            GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("a snake-case media_resolution key raises to the same detail", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                            media_resolution: {
+                                level: "MEDIA_RESOLUTION_HIGH",
+                            },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(GeminiTranslator.fromBody(body)).toContainEqual({
+            op: "llm.image",
+            role: "user",
+            source: {
+                type: "base64",
+                mediaType: "image/png",
+                data: "aW1hZ2U=",
+            },
+            detail: "high",
+        });
+    });
+
+    test("a MEDIA_RESOLUTION_UNSPECIFIED part raises as if no setting was sent", () => {
+        const program = GeminiTranslator.fromBody({
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                            mediaResolution: {
+                                level: "MEDIA_RESOLUTION_UNSPECIFIED",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(program).toContainEqual({
+            op: "llm.image",
+            role: "user",
+            source: {
+                type: "base64",
+                mediaType: "image/png",
+                data: "aW1hZ2U=",
+            },
+        });
+    });
+
+    test("lowering a core image detail writes per-part mediaResolution; auto writes none", () => {
+        const image = (detail: string) => ({
+            op: "llm.image" as const,
+            role: "user" as const,
+            source: {
+                type: "base64" as const,
+                mediaType: "image/png",
+                data: "aW1hZ2U=",
+            },
+            detail: detail as "low" | "auto" | "original",
+        });
+        expect(
+            GeminiTranslator.toBody([{ op: "llm.model", model }, image("low")]),
+        ).toEqual({
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                            mediaResolution: { level: "MEDIA_RESOLUTION_LOW" },
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(
+            GeminiTranslator.toBody([
+                { op: "llm.model", model },
+                image("auto"),
+            ]),
+        ).toEqual({
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("a core original detail drops with a warning on Gemini", () => {
+        expect(
+            GeminiTranslator.toBody([
+                { op: "llm.model", model },
+                {
+                    op: "llm.image",
+                    role: "user",
+                    source: {
+                        type: "base64",
+                        mediaType: "image/png",
+                        data: "aW1hZ2U=",
+                    },
+                    detail: "original",
+                },
+            ]),
+        ).toEqual({
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "image/png",
+                                data: "aW1hZ2U=",
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+    });
+
+    test("a mediaResolution on a non-image inline part still stays native", () => {
+        const body = {
+            model,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        {
+                            inline_data: {
+                                mime_type: "video/mp4",
+                                data: "dmlkZW8=",
+                            },
+                            mediaResolution: { level: "MEDIA_RESOLUTION_LOW" },
+                        },
+                    ],
+                },
+            ],
+        };
+
+        expect(
+            GeminiTranslator.fromBody(body)
+                .slice(1)
+                .map((op) => op.op),
+        ).toEqual(["gemini.content"]);
+        expect(
+            GeminiTranslator.toBody(GeminiTranslator.fromBody(body)),
+        ).toEqual(body);
+    });
+
+    test("an unknown media resolution level fails loudly", () => {
+        expect(() =>
+            GeminiTranslator.fromBody({
+                model,
+                contents: [
+                    {
+                        role: "user",
+                        parts: [
+                            {
+                                inline_data: {
+                                    mime_type: "image/png",
+                                    data: "aW1hZ2U=",
+                                },
+                                mediaResolution: {
+                                    level: "MEDIA_RESOLUTION_HUGE",
+                                },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).toThrow(
+            'gemini mediaResolution: unsupported media resolution level "MEDIA_RESOLUTION_HUGE"',
+        );
+    });
+
     test("camel-case inlineData raises to the same media ops as inline_data", () => {
         const kinds: [string, string][] = [
             ["image/png", "llm.image"],

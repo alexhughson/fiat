@@ -16,6 +16,7 @@ import {
     base64Source,
     documentSourceFromUrl,
     imageSourceFromUrl,
+    openAIImageDetailFromWire,
 } from "../../core/media.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import type {
@@ -239,14 +240,22 @@ function raiseImagePart(
     if (!image || typeof image !== "object" || Array.isArray(image)) {
         throw new LintError("openai_chat image_url part: missing image_url");
     }
-    assertOnlyKeys(image, ["url"], "openai_chat image_url");
+    assertOnlyKeys(image, ["url", "detail"], "openai_chat image_url");
     if (typeof image.url !== "string") {
         throw new LintError("openai_chat image_url.url: expected a string");
     }
+    const detail =
+        image.detail == null
+            ? undefined
+            : openAIImageDetailFromWire(
+                  image.detail,
+                  "openai_chat image_url.detail",
+              );
     return {
         op: "llm.image",
         role: "user",
         source: imageSourceFromUrl(image.url, "openai_chat image_url.url"),
+        ...(detail ? { detail } : {}),
     };
 }
 

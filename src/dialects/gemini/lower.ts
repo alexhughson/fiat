@@ -373,7 +373,7 @@ export function lowerRequestTexts(program: Program): Program {
     });
 }
 
-export function lowerRequestImages(program: Program): Program {
+export function lowerRequestImages(program: Program, target?: Target): Program {
     return program.flatMap((op) => {
         if (op.op !== "llm.image") return [op];
         const image = op as OpOf<"llm.image">;
@@ -391,15 +391,50 @@ export function lowerRequestImages(program: Program): Program {
             image.source.mediaType,
             "gemini request lower llm.image",
         );
+        const mediaResolution = mediaResolutionFor(
+            image.detail,
+            target?.strict,
+        );
         return [
             contentOp("user", {
                 inline_data: {
                     mime_type: image.source.mediaType,
                     data: image.source.data,
                 },
+                ...(mediaResolution ? { mediaResolution } : {}),
             }),
         ];
     });
+}
+
+// The reference puts one level per media part under
+// `mediaResolution.level`. `auto` asks for the provider's own default, which
+// is what an absent field already means, so it writes nothing; `original`
+// exists only on openai and has no Gemini equal, so it is dropped with a
+// warning rather than replaced by a nearby level.
+function mediaResolutionFor(
+    detail: OpOf<"llm.image">["detail"],
+    strict?: boolean,
+): { level: string } | undefined {
+    switch (detail) {
+        case undefined:
+        case "auto":
+            return undefined;
+        case "low":
+            return { level: "MEDIA_RESOLUTION_LOW" };
+        case "medium":
+            return { level: "MEDIA_RESOLUTION_MEDIUM" };
+        case "high":
+            return { level: "MEDIA_RESOLUTION_HIGH" };
+        case "ultra_high":
+            return { level: "MEDIA_RESOLUTION_ULTRA_HIGH" };
+        case "original":
+            lintOrWarn(
+                strict,
+                'dropped llm.image detail "original": gemini mediaResolution has no equal level',
+            );
+            return undefined;
+    }
 }
 
 export function lowerRequestAudio(program: Program): Program {
