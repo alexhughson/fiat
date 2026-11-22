@@ -14,7 +14,9 @@ import {
     openAIImageDetailFromWire,
 } from "../../core/media.js";
 import * as reasoning from "../../core/reasoning.js";
+import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
+import { asNumber, asRecord } from "../../core/wire.js";
 import type {
     WireContentPart,
     WireFunctionCall,
@@ -106,8 +108,13 @@ export function raiseFinishReasons(program: Program): Program {
     );
 }
 
-// Maps the cross-provider counts onto response.usage; any vendor-specific
-// fields stay behind as a droppable residual.
+// Maps the token-count parts of the wire usage object onto response.usage.
+// The prompt-caching guide states the split outright for this dialect:
+// cached_tokens counts billed reads and excludes tokens charged as writes, so
+// the raise subtracts both details from input_tokens. Every key of the usage
+// object is a required number, so a details object that omits a key reports
+// no count for that part. The write-by-lifetime breakdown stays behind as a
+// residual.
 export function raiseUsage(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "openai_responses.usage") return [op];
@@ -115,27 +122,107 @@ export function raiseUsage(program: Program): Program {
             usage: Record<string, unknown>;
             appliesTo?: "request" | "response";
         }>(op);
-        const { input_tokens, output_tokens, ...rest } = usageOp.usage;
-        const out: Op[] = [
+        const wireUsage = usageOp.usage;
+        const inputDetails =
+            wireUsage.input_tokens_details == null
+                ? undefined
+                : asRecord(
+                      wireUsage.input_tokens_details,
+                      "usage.input_tokens_details",
+                  );
+        const outputDetails =
+            wireUsage.output_tokens_details == null
+                ? undefined
+                : asRecord(
+                      wireUsage.output_tokens_details,
+                      "usage.output_tokens_details",
+                  );
+        const cached = optionalNumber(
+            inputDetails?.cached_tokens,
+            "usage.input_tokens_details.cached_tokens",
+        );
+        const cacheWrite = optionalNumber(
+            inputDetails?.cache_write_tokens,
+            "usage.input_tokens_details.cache_write_tokens",
+        );
+        const reasoning = optionalNumber(
+            outputDetails?.reasoning_tokens,
+            "usage.output_tokens_details.reasoning_tokens",
+        );
+        const inputTokens =
+            wireUsage.input_tokens == null
+                ? undefined
+                : usage.totalMinusDetails(
+                      asNumber(wireUsage.input_tokens, "usage.input_tokens"),
+                      [
+                          {
+                              field: "input_tokens_details.cached_tokens",
+                              value: cached ?? 0,
+                          },
+                          {
+                              field: "input_tokens_details.cache_write_tokens",
+                              value: cacheWrite ?? 0,
+                          },
+                      ],
+                      "input_tokens",
+                      "openai_responses usage",
+                  );
+        const outputTokens =
+            wireUsage.output_tokens == null
+                ? undefined
+                : usage.totalMinusDetails(
+                      asNumber(wireUsage.output_tokens, "usage.output_tokens"),
+                      [
+                          {
+                              field: "output_tokens_details.reasoning_tokens",
+                              value: reasoning ?? 0,
+                          },
+                      ],
+                      "output_tokens",
+                      "openai_responses usage",
+                  );
+        const counts: usage.UsageCounts = {
+            ...(inputTokens != null ? { inputTokens } : {}),
+            ...(cached != null ? { cacheReadTokens: cached } : {}),
+            ...(cacheWrite != null ? { cacheWriteTokens: cacheWrite } : {}),
+            ...(outputTokens != null ? { outputTokens } : {}),
+            ...(reasoning != null ? { reasoningTokens: reasoning } : {}),
+        };
+        const computedTotal = usage.sumParts(counts, usage.ALL_PARTS);
+        if (
+            typeof wireUsage.total_tokens === "number" &&
+            computedTotal != null &&
+            wireUsage.total_tokens !== computedTotal
+        ) {
+            usage.warnTotalMismatch(
+                "openai_responses",
+                "total_tokens",
+                wireUsage.total_tokens,
+                computedTotal,
+            );
+        }
+        const residual = usage.shrinkUsage(
+            wireUsage,
+            ["input_tokens", "output_tokens", "total_tokens"],
             {
-                op: "response.usage",
-                ...(input_tokens != null
-                    ? { inputTokens: input_tokens as number }
-                    : {}),
-                ...(output_tokens != null
-                    ? { outputTokens: output_tokens as number }
-                    : {}),
+                input_tokens_details: ["cached_tokens", "cache_write_tokens"],
+                output_tokens_details: ["reasoning_tokens"],
             },
-        ];
-        if (Object.keys(rest).length > 0) {
+        );
+        const out: Op[] = [{ op: "response.usage", ...counts }];
+        if (residual) {
             out.push({
                 op: "openai_responses.usage",
-                usage: rest,
+                usage: residual,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
             });
         }
         return out;
     });
+}
+
+function optionalNumber(value: unknown, what: string): number | undefined {
+    return value == null ? undefined : asNumber(value, what);
 }
 
 function raiseInput(item: WireInputItem): Op[] {

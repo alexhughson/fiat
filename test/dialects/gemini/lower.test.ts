@@ -413,17 +413,31 @@ describe("gemini lower response stages", () => {
         ]);
     });
 
-    test("lowerUsageCounts maps response.usage onto a gemini.usage op with the wire field names", () => {
+    test("lowerUsageCounts sums the core parts into the wire counts, with the tool-use part beside the totals", () => {
         expect(
             lowerUsageCounts([
                 { op: "llm.model", model: "m" },
-                { op: "response.usage", inputTokens: 10, outputTokens: 2 },
+                {
+                    op: "response.usage",
+                    inputTokens: 552,
+                    cacheReadTokens: 2048,
+                    toolUsePromptTokens: 33,
+                    outputTokens: 57,
+                    reasoningTokens: 40,
+                },
             ]),
         ).toEqual([
             { op: "llm.model", model: "m" },
             {
                 op: "gemini.usage",
-                usage: { promptTokenCount: 10, candidatesTokenCount: 2 },
+                usage: {
+                    promptTokenCount: 2600,
+                    cachedContentTokenCount: 2048,
+                    toolUsePromptTokenCount: 33,
+                    candidatesTokenCount: 57,
+                    thoughtsTokenCount: 40,
+                    totalTokenCount: 2730,
+                },
             },
         ]);
     });

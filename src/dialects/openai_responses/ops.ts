@@ -95,6 +95,9 @@ export type OpenAIResponsesOp =
           op: "openai_responses.finish_reason";
           reason: "end_turn" | "max_tokens" | "tool_use" | "content_filter";
       }
+    // The fields of the wire usage object that core does not model: the
+    // write-by-lifetime breakdown. The token-count parts raise to
+    // response.usage.
     | {
           op: "openai_responses.usage";
           usage: Record<string, unknown>;

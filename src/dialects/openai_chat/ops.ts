@@ -68,8 +68,9 @@ export type OpenAIChatOp =
     // Response-only: provider-specific enum strings, mapped to core values in
     // raise (unknown values raise rather than guess).
     | { op: "openai_chat.finish_reason"; value: string }
-    // Wire usage verbatim: field names differ from core and OpenAI adds detail
-    // fields (cached tokens, reasoning tokens) the core op doesn't model.
+    // The fields of the wire usage object that core does not model: the
+    // modality breakdowns and the prediction counts. The token-count parts
+    // raise to response.usage.
     | {
           op: "openai_chat.usage";
           usage: {

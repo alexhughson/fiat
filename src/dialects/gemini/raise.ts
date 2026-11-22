@@ -11,6 +11,7 @@ import {
 import { LintError } from "../../core/lint.js";
 import { base64Source, mediaKindForType } from "../../core/media.js";
 import * as reasoning from "../../core/reasoning.js";
+import * as usage from "../../core/usage.js";
 import { stagePipeline, type Stage } from "../../core/rewrite.js";
 import { asNumber, asRecord, asString } from "../../core/wire.js";
 import type { GeminiPartMeta, WireContent, WirePart } from "./ops.js";
@@ -135,8 +136,11 @@ export function raiseFinishReasons(program: Program): Program {
     );
 }
 
-// Maps the cross-provider counts onto response.usage; any vendor-specific
-// fields stay behind as a droppable residual.
+// Maps the token-count parts of the wire usageMetadata object onto
+// response.usage. Gemini counts its cached tokens inside promptTokenCount,
+// reports its tool-use prompt tokens beside the input total, and counts its
+// thoughts beside the output total, so only the cached detail subtracts. The
+// modality lists and the service tier stay behind as a residual.
 export function raiseUsage(program: Program): Program {
     return program.flatMap((op) => {
         if (op.op !== "gemini.usage") return [op];
@@ -144,33 +148,87 @@ export function raiseUsage(program: Program): Program {
             usage: Record<string, unknown>;
             appliesTo?: "request" | "response";
         }>(op);
-        const { promptTokenCount, candidatesTokenCount, ...rest } =
-            usageOp.usage;
-        const out: Op[] = [
-            {
-                op: "response.usage",
-                ...(promptTokenCount != null
-                    ? {
-                          inputTokens: asNumber(
-                              promptTokenCount,
-                              "usageMetadata.promptTokenCount",
-                          ),
-                      }
-                    : {}),
-                ...(candidatesTokenCount != null
-                    ? {
-                          outputTokens: asNumber(
-                              candidatesTokenCount,
-                              "usageMetadata.candidatesTokenCount",
-                          ),
-                      }
-                    : {}),
-            },
-        ];
-        if (Object.keys(rest).length > 0) {
+        const wireUsage = usageOp.usage;
+        const cached =
+            wireUsage.cachedContentTokenCount == null
+                ? undefined
+                : asNumber(
+                      wireUsage.cachedContentTokenCount,
+                      "usageMetadata.cachedContentTokenCount",
+                  );
+        const inputTokens =
+            wireUsage.promptTokenCount == null
+                ? undefined
+                : usage.totalMinusDetails(
+                      asNumber(
+                          wireUsage.promptTokenCount,
+                          "usageMetadata.promptTokenCount",
+                      ),
+                      cached == null
+                          ? []
+                          : [
+                                {
+                                    field: "usageMetadata.cachedContentTokenCount",
+                                    value: cached,
+                                },
+                            ],
+                      "promptTokenCount",
+                      "gemini usage",
+                  );
+        const counts: usage.UsageCounts = {
+            ...(inputTokens != null ? { inputTokens } : {}),
+            ...(cached != null ? { cacheReadTokens: cached } : {}),
+            ...(wireUsage.toolUsePromptTokenCount == null
+                ? {}
+                : {
+                      toolUsePromptTokens: asNumber(
+                          wireUsage.toolUsePromptTokenCount,
+                          "usageMetadata.toolUsePromptTokenCount",
+                      ),
+                  }),
+            ...(wireUsage.candidatesTokenCount == null
+                ? {}
+                : {
+                      outputTokens: asNumber(
+                          wireUsage.candidatesTokenCount,
+                          "usageMetadata.candidatesTokenCount",
+                      ),
+                  }),
+            ...(wireUsage.thoughtsTokenCount == null
+                ? {}
+                : {
+                      reasoningTokens: asNumber(
+                          wireUsage.thoughtsTokenCount,
+                          "usageMetadata.thoughtsTokenCount",
+                      ),
+                  }),
+        };
+        const computedTotal = usage.sumParts(counts, usage.ALL_PARTS);
+        if (
+            typeof wireUsage.totalTokenCount === "number" &&
+            computedTotal != null &&
+            wireUsage.totalTokenCount !== computedTotal
+        ) {
+            usage.warnTotalMismatch(
+                "gemini",
+                "totalTokenCount",
+                wireUsage.totalTokenCount,
+                computedTotal,
+            );
+        }
+        const residual = usage.withoutKeys(wireUsage, [
+            "promptTokenCount",
+            "cachedContentTokenCount",
+            "toolUsePromptTokenCount",
+            "thoughtsTokenCount",
+            "candidatesTokenCount",
+            "totalTokenCount",
+        ]);
+        const out: Op[] = [{ op: "response.usage", ...counts }];
+        if (residual) {
             out.push({
                 op: "gemini.usage",
-                usage: rest,
+                usage: residual,
                 ...(usageOp.appliesTo ? { appliesTo: usageOp.appliesTo } : {}),
             });
         }
