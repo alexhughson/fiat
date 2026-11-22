@@ -63,29 +63,43 @@ export const lowerStreamResponse: Stage = stagePipeline(
 // event that holds more than one delta kind, or a delta and a stop reason, so
 // each kind becomes its own event after the previous one.
 export function splitStreamEvents(program: Program): Program[] {
-    const textDeltas = program.filter((op) => op.op === "response.text_delta");
-    const toolDeltas = program.filter(
-        (op) => op.op === "response.tool_call_delta",
-    );
     const hasFinishReason = program.some(
         (op) => op.op === "openai_responses.finish_reason",
     );
-    const terminal = hasFinishReason
-        ? program.filter(isTerminalEventOp)
-        : [];
-    const other = program.filter(
-        (op) =>
-            op.op !== "response.text_delta" &&
-            op.op !== "response.tool_call_delta" &&
-            !terminal.includes(op),
-    );
+    const terminal = hasFinishReason ? program.filter(isTerminalEventOp) : [];
+    // Each delta kind and the terminal each need their own event. Preserve
+    // the order the ops appeared in the program so a functionCall part before
+    // a text part stays before it on the wire.
     const groups: Program[] = [];
-    if (textDeltas.length > 0) groups.push([...textDeltas, ...other]);
-    for (const delta of toolDeltas) groups.push([delta, ...other]);
-    if (terminal.length > 0) {
-        if (groups.length === 0) groups.push([...terminal, ...other]);
-        else groups.push(terminal);
+    let currentKind: string | undefined;
+    let current: Program = [];
+    const flush = () => {
+        if (current.length > 0) groups.push(current);
+        current = [];
+        currentKind = undefined;
+    };
+    for (const op of program) {
+        if (terminal.includes(op)) continue;
+        if (op.op === "response.text_delta") {
+            if (currentKind !== "text") {
+                flush();
+                currentKind = "text";
+            }
+            current.push(op);
+            continue;
+        }
+        if (op.op === "response.tool_call_delta") {
+            flush();
+            groups.push([op]);
+            continue;
+        }
+        // Non-delta, non-terminal ops (e.g. body_field residuals) stay with
+        // the first group; if there is no delta group they form their own.
+        current.push(op);
+        if (currentKind == null) currentKind = "other";
     }
+    flush();
+    if (terminal.length > 0) groups.push(terminal);
     if (groups.length === 0) return [program];
     if (groups.length === 1 && groups[0]!.length === program.length)
         return [program];

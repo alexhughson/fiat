@@ -931,4 +931,167 @@ describe("a stream chunk that holds a delta and a stop reason", () => {
             ),
         ).toEqual(realtimeDoneEvent);
     });
+
+    describe("gemini stream text and functionCall in one chunk (row 242)", () => {
+        function geminiTextAndCallChunk(
+            parts: unknown[],
+            rest: Record<string, unknown> = {},
+        ): Record<string, unknown> {
+            const { finishReason, ...body } = rest;
+            return {
+                candidates: [
+                    {
+                        content: { role: "model", parts },
+                        ...(finishReason != null ? { finishReason } : {}),
+                        index: 0,
+                    },
+                ],
+                ...body,
+            };
+        }
+
+        test("text then one call lowers to two events with ids from the chunk", () => {
+            const chunk = geminiTextAndCallChunk([
+                { text: "Hello " },
+                {
+                    functionCall: {
+                        name: "get_weather",
+                        args: { city: "Paris" },
+                        id: "call_1",
+                    },
+                },
+            ]);
+            const raised = GeminiTranslator.fromStreamResponse(chunk);
+            const events = OpenAIResponsesTranslator.toStreamResponses(
+                raised,
+            ) as Record<string, unknown>[];
+            expect(events.length).toBe(2);
+            expect(events[0]).toMatchObject({
+                type: "response.output_text.delta",
+                output_index: 0,
+                content_index: 0,
+                delta: "Hello ",
+            });
+            expect(events[0]!.item_id).toMatch(/^msg_/);
+            expect(events[1]).toMatchObject({
+                type: "response.function_call_arguments.delta",
+                output_index: 1,
+                item: {
+                    type: "function_call",
+                    call_id: "call_1",
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                },
+            });
+            expect((events[1]!.item as Record<string, unknown>).id).toMatch(
+                /^fc_/,
+            );
+        });
+
+        test("text, one call and STOP lowers to text, call and terminal events", () => {
+            const chunk = geminiTextAndCallChunk(
+                [
+                    { text: "Hello " },
+                    {
+                        functionCall: {
+                            name: "get_weather",
+                            args: { city: "Paris" },
+                            id: "call_1",
+                        },
+                    },
+                ],
+                { finishReason: "STOP" },
+            );
+            const raised = GeminiTranslator.fromStreamResponse(chunk);
+            const events = OpenAIResponsesTranslator.toStreamResponses(
+                raised,
+            ) as Record<string, unknown>[];
+            expect(events.length).toBe(3);
+            expect(events[0]!.type).toBe("response.output_text.delta");
+            expect(events[1]!.type).toBe(
+                "response.function_call_arguments.delta",
+            );
+            expect(events[2]).toEqual({
+                type: "response.completed",
+                response: { status: "completed" },
+            });
+        });
+
+        test("text and two calls lowers to three events", () => {
+            const chunk = geminiTextAndCallChunk([
+                { text: "Hi " },
+                { functionCall: { name: "a", args: { x: 1 }, id: "call_1" } },
+                { functionCall: { name: "b", args: { y: 2 }, id: "call_2" } },
+            ]);
+            const raised = GeminiTranslator.fromStreamResponse(chunk);
+            const events = OpenAIResponsesTranslator.toStreamResponses(
+                raised,
+            ) as Record<string, unknown>[];
+            expect(events.length).toBe(3);
+            expect(events[0]!.type).toBe("response.output_text.delta");
+            expect((events[1]!.item as Record<string, unknown>).call_id).toBe(
+                "call_1",
+            );
+            expect((events[2]!.item as Record<string, unknown>).call_id).toBe(
+                "call_2",
+            );
+        });
+
+        test("call before text keeps the wire order", () => {
+            const chunk = geminiTextAndCallChunk([
+                {
+                    functionCall: {
+                        name: "get_weather",
+                        args: { city: "Paris" },
+                        id: "call_1",
+                    },
+                },
+                { text: "Hello " },
+            ]);
+            const raised = GeminiTranslator.fromStreamResponse(chunk);
+            const events = OpenAIResponsesTranslator.toStreamResponses(
+                raised,
+            ) as Record<string, unknown>[];
+            expect(events.length).toBe(2);
+            expect(events[0]!.type).toBe(
+                "response.function_call_arguments.delta",
+            );
+            expect(events[1]!.type).toBe("response.output_text.delta");
+        });
+
+        test("toStreamResponse throws on mixed deltas and points to toStreamResponses", () => {
+            const chunk = geminiTextAndCallChunk([
+                { text: "Hello " },
+                {
+                    functionCall: {
+                        name: "get_weather",
+                        args: { city: "Paris" },
+                        id: "call_1",
+                    },
+                },
+            ]);
+            const raised = GeminiTranslator.fromStreamResponse(chunk);
+            expect(() =>
+                OpenAIResponsesTranslator.toStreamResponse(raised),
+            ).toThrow(LintError);
+            expect(() =>
+                OpenAIResponsesTranslator.toStreamResponse(raised),
+            ).toThrow(/toStreamResponses/);
+        });
+
+        test("call without id generates call_id and keeps name and arguments", () => {
+            const chunk = geminiTextAndCallChunk([
+                { text: "Hi " },
+                { functionCall: { name: "lookup", args: { q: "x" } } },
+            ]);
+            const raised = GeminiTranslator.fromStreamResponse(chunk);
+            const events = OpenAIResponsesTranslator.toStreamResponses(
+                raised,
+            ) as Record<string, unknown>[];
+            expect(events.length).toBe(2);
+            const item = (events[1]!.item ?? {}) as Record<string, unknown>;
+            expect(item.call_id).toMatch(/^call_/);
+            expect(item.name).toBe("lookup");
+        });
+    });
 });
